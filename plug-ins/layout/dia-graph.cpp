@@ -74,12 +74,17 @@ public :
   eResult Layout (const char *module);
   bool GetNodePosition (int node, double* x, double* y);
   int GetEdgeBends (int e, double *coords, int len);
+  virtual ~DiaGraph();
 protected :
   bool Scale (double xfactor, double yfactor);
 private :
   Nodes m_nodes;
   Edges m_edges;
 };
+
+DiaGraph::~DiaGraph() {
+
+}
 
 IGraph *
 dia_graph_create ()
@@ -119,8 +124,8 @@ DiaGraph::AddEdge (int srcNode, int destNode, double* points, int len)
 IGraph::eResult
 DiaGraph::Layout (const char *module)
 {
-  double p1, p2;
-  int n;
+  // double p1, p2;
+  // int n;
 
   if (strcmp(module, "Grow") == 0)
     return Scale (1.4142, 1.4142) ? SUCCESS : FAILED_ALGORITHM;
@@ -137,7 +142,7 @@ DiaGraph::Layout (const char *module)
 bool
 DiaGraph::GetNodePosition (int node, double* x, double* y)
 {
-  if (node >= 0 && node < m_nodes.size()) {
+  if (node >= 0 && ((size_t) node) < m_nodes.size()) {
     Node &n = m_nodes[node];
     if (x)
       *x = n.center.x - n.width / 2;
@@ -151,11 +156,11 @@ DiaGraph::GetNodePosition (int node, double* x, double* y)
 int
 DiaGraph::GetEdgeBends (int e, double *coords, int len)
 {
-  if (e >= m_edges.size() || e < 0)
+  if (((size_t) e) >= m_edges.size() || e < 0)
     return 0;
   Edge &edge = m_edges[e];
   if (coords && len > 0) {
-    for (int i = 0, j = 0; i < len && j < edge.size(); i+=2, ++j) {
+    for (size_t i = 0, j = 0; i < ((size_t) len) && j < edge.size(); i+=2, ++j) {
       coords[i  ] = edge[j].x;
       coords[i+1] = edge[j].y;
     }

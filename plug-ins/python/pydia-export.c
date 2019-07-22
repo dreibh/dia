@@ -75,7 +75,7 @@ static PyMemberDef PyDiaExportFilter_Members[] = {
     { "name", T_INVALID, 0, RESTRICTED|READONLY,
       "The description for the filter." },
     { "unique_name", T_INVALID, 0, RESTRICTED|READONLY,
-      "A uniqe name within filters to allow disambiguation.", },
+      "A unique name within filters to allow disambiguation.", },
     { NULL }
 };
 
@@ -93,7 +93,7 @@ PyDiaExportFilter_GetAttr(PyDiaExportFilter *self, gchar *attr)
 }
 
 PyTypeObject PyDiaExportFilter_Type = {
-    PyObject_HEAD_INIT(&PyType_Type)
+    PyObject_HEAD_INIT(NULL)
     0,
     "dia.ExportFilter",
     sizeof(PyDiaExportFilter),

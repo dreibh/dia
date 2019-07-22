@@ -16,9 +16,7 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-#endif
 
 #include "object.h"
 #include "sheet.h"
@@ -32,7 +30,7 @@
 \ingroup Objects
 
 The minimal set of objects available to Dia is defined in the directory objects/standard.
-Although implmented as a plug-in Dia wont start without it being loaded.
+Although implemented as a plug-in Dia wont start without it being loaded.
 These objects are not only referenced directly in the toolbox and application menu,
 but they also are required for most of Dia's diagram importers.
 */
@@ -68,9 +66,7 @@ dia_plugin_init(PluginInfo *info)
   object_register_type(_bezierline_type);
   object_register_type(_textobj_type);
   object_register_type(_image_type);
-#ifdef HAVE_CAIRO
   object_register_type(_outline_type);
-#endif
   object_register_type(_polygon_type);
   object_register_type(_beziergon_type);
 

@@ -19,9 +19,7 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-#endif
 
 #include "intl.h"
 #include "widgets.h"
@@ -76,11 +74,7 @@ dia_line_preview_class_init (DiaLinePreviewClass *class)
 static void
 dia_line_preview_init (DiaLinePreview *line)
 {
-#if GTK_CHECK_VERSION(2,18,0)
   gtk_widget_set_has_window (GTK_WIDGET (line), FALSE);
-#else
-  GTK_WIDGET_SET_FLAGS (line, GTK_NO_WINDOW);
-#endif
 
   GTK_WIDGET (line)->requisition.width = 30 + GTK_MISC (line)->xpad * 2;
   GTK_WIDGET (line)->requisition.height = 15 + GTK_MISC (line)->ypad * 2;
@@ -102,11 +96,7 @@ dia_line_preview_set(DiaLinePreview *line, LineStyle lstyle)
 {
   if (line->lstyle != lstyle) {
     line->lstyle = lstyle;
-#if GTK_CHECK_VERSION(2,18,0)
     if (gtk_widget_is_drawable(GTK_WIDGET(line)))
-#else
-    if (GTK_WIDGET_DRAWABLE(line))
-#endif
       gtk_widget_queue_draw(GTK_WIDGET(line));
   }
 }
@@ -119,17 +109,12 @@ dia_line_preview_expose(GtkWidget *widget, GdkEventExpose *event)
   gint width, height;
   gint x, y;
   GdkWindow *win;
-  GdkGC *gc;
-  GdkGCValues gcvalues;
-  gint8 dash_list[6];
-  int line_width = 2;
+  double dash_list[6];
   GtkStyle *style;
+  GdkColor fg;
+  cairo_t *ctx;
 
-#if GTK_CHECK_VERSION(2,18,0)
   if (gtk_widget_is_drawable(widget)) {
-#else
-  if (GTK_WIDGET_DRAWABLE(widget)) {
-#endif
     width = widget->allocation.width - misc->xpad * 2;
     height = widget->allocation.height - misc->ypad * 2;
     x = (widget->allocation.x + misc->xpad);
@@ -137,54 +122,49 @@ dia_line_preview_expose(GtkWidget *widget, GdkEventExpose *event)
 
     win = gtk_widget_get_window (widget);
     style = gtk_widget_get_style (widget);
-    gc = style->fg_gc[widget->state];
+    fg = style->text[gtk_widget_get_state(widget)];
 
-    /* increase line width */
-    gdk_gc_get_values(gc, &gcvalues);
+    ctx = gdk_cairo_create (win);
+    gdk_cairo_set_source_color (ctx, &fg);
+    cairo_set_line_width (ctx, 2);
+    cairo_set_line_cap (ctx, CAIRO_LINE_CAP_BUTT);
+    cairo_set_line_join (ctx, CAIRO_LINE_JOIN_MITER);
+
     switch (line->lstyle) {
     case LINESTYLE_DEFAULT:
     case LINESTYLE_SOLID:
-      gdk_gc_set_line_attributes(gc, line_width, GDK_LINE_SOLID,
-				 gcvalues.cap_style, gcvalues.join_style);
+      cairo_set_dash (ctx, dash_list, 0, 0);
       break;
     case LINESTYLE_DASHED:
-      gdk_gc_set_line_attributes(gc, line_width, GDK_LINE_ON_OFF_DASH,
-				 gcvalues.cap_style, gcvalues.join_style);
       dash_list[0] = 10;
       dash_list[1] = 10;
-      gdk_gc_set_dashes(gc, 0, dash_list, 2);
+      cairo_set_dash (ctx, dash_list, 2, 0);
       break;
     case LINESTYLE_DASH_DOT:
-      gdk_gc_set_line_attributes(gc, line_width, GDK_LINE_ON_OFF_DASH,
-				 gcvalues.cap_style, gcvalues.join_style);
       dash_list[0] = 10;
       dash_list[1] = 4;
       dash_list[2] = 2;
       dash_list[3] = 4;
-      gdk_gc_set_dashes(gc, 0, dash_list, 4);
+      cairo_set_dash (ctx, dash_list, 4, 0);
       break;
     case LINESTYLE_DASH_DOT_DOT:
-      gdk_gc_set_line_attributes(gc, line_width, GDK_LINE_ON_OFF_DASH,
-				 gcvalues.cap_style, gcvalues.join_style);
       dash_list[0] = 10;
       dash_list[1] = 2;
       dash_list[2] = 2;
       dash_list[3] = 2;
       dash_list[4] = 2;
       dash_list[5] = 2;
-      gdk_gc_set_dashes(gc, 0, dash_list, 6);
+      cairo_set_dash (ctx, dash_list, 6, 0);
       break;
     case LINESTYLE_DOTTED:
-      gdk_gc_set_line_attributes(gc, line_width, GDK_LINE_ON_OFF_DASH,
-				 gcvalues.cap_style, gcvalues.join_style);
       dash_list[0] = 2;
       dash_list[1] = 2;
-      gdk_gc_set_dashes(gc, 0, dash_list, 2);
+      cairo_set_dash (ctx, dash_list, 2, 0);
       break;
     }
-    gdk_draw_line(win, gc, x, y+height/2, x+width, y+height/2);
-    gdk_gc_set_line_attributes(gc, gcvalues.line_width, gcvalues.line_style,
-			       gcvalues.cap_style, gcvalues.join_style);
+    cairo_move_to (ctx, x, y + height / 2);
+    cairo_line_to (ctx, x + width, y + height / 2);
+    cairo_stroke (ctx);
   }
   return TRUE;
 }
@@ -276,7 +256,7 @@ dia_line_chooser_change_line_style(GtkMenuItem *mi, DiaLineChooser *lchooser)
 }
 
 void
-dia_line_chooser_set_line_style(DiaLineChooser *lchooser, 
+dia_line_chooser_set_line_style(DiaLineChooser *lchooser,
 				LineStyle lstyle,
 				real dashlength)
 {
@@ -328,7 +308,7 @@ dia_line_chooser_init (DiaLineChooser *lchooser)
   lchooser->selector = DIALINESTYLESELECTOR(wid);
 
   menu = gtk_menu_new();
-  g_object_ref_sink(GTK_OBJECT(menu));
+  g_object_ref_sink(G_OBJECT(menu));
   g_object_set_data_full(G_OBJECT(lchooser), button_menu_key, menu,
 			 (GDestroyNotify)g_object_unref);
   for (i = 0; i <= LINESTYLE_DOTTED; i++) {

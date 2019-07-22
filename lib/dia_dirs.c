@@ -90,8 +90,8 @@ dia_get_data_directory(const gchar* subdir)
    * Calculate from executable path
    */
   gchar *sLoc = _dia_get_module_directory ();
-#  if defined(PREFIX) && defined(DATADIR)
-  tmpPath = replace_prefix(sLoc, DATADIR);
+#  if defined(PREFIX) && defined(PKGDATADIR)
+  tmpPath = replace_prefix(sLoc, PKGDATADIR);
   if (strlen (subdir) == 0)
     returnPath = g_strdup(tmpPath);
   else
@@ -103,10 +103,19 @@ dia_get_data_directory(const gchar* subdir)
   g_free (sLoc);
   return returnPath;
 #else
+  gchar *base = g_strdup (PKGDATADIR);
+  char  *ret;
+  if (g_getenv ("DIA_BASE_PATH") != NULL) {
+    g_free (base);
+    /* a small hack cause the final destination and the local path differ */
+    base = g_build_filename (g_getenv ("DIA_BASE_PATH"), "data", NULL);
+  }
   if (strlen (subdir) == 0)
-    return g_strconcat (DATADIR, NULL);
+    ret = g_strconcat (base, NULL);
   else
-    return g_strconcat (DATADIR, G_DIR_SEPARATOR_S, subdir, NULL);
+    ret = g_strconcat (base, G_DIR_SEPARATOR_S, subdir, NULL);
+  g_free (base);
+  return ret;
 #endif
 }
 
@@ -117,24 +126,20 @@ dia_get_data_directory(const gchar* subdir)
  *          freed after use.
  */
 gchar*
-dia_get_lib_directory(const gchar* subdir)
+dia_get_lib_directory(void)
 {
 #ifdef G_OS_WIN32
   gchar *sLoc = _dia_get_module_directory ();
   gchar *returnPath = NULL;
-#  if defined(PREFIX) && defined(LIBDIR)
-  {
-    gchar *tmpPath = replace_prefix(sLoc, LIBDIR);
-    returnPath = g_build_path(G_DIR_SEPARATOR_S, tmpPath, subdir, NULL);
-    g_free(tmpPath);
-  }
+#  if defined(PREFIX) && defined(DIALIBDIR)
+    returnPath = replace_prefix(sLoc, DIALIBDIR);
 #  else
-  returnPath = g_strconcat (sLoc , subdir, NULL);
+  returnPath = g_strconcat (sLoc , "dia", NULL);
 #  endif
   g_free (sLoc);
   return returnPath;
 #else
-  return g_strconcat (LIBDIR, G_DIR_SEPARATOR_S, subdir, NULL);
+  return g_strconcat (DIALIBDIR, G_DIR_SEPARATOR_S, "", NULL);
 #endif
 }
 
@@ -142,15 +147,15 @@ gchar*
 dia_get_locale_directory(void)
 {
 #ifdef G_OS_WIN32
-#  if defined(PREFIX) && defined(LOCALEDIR)
-  gchar *ret;
   gchar *sLoc = _dia_get_module_directory ();
-  ret = replace_prefix(sLoc, LOCALEDIR);
-  g_free (sLoc);
-  return  ret;
+  gchar *returnPath = NULL;
+#  if defined(PREFIX) && defined(LOCALEDIR)
+    returnPath = replace_prefix(sLoc, LOCALEDIR);
 #  else
-  return dia_get_lib_directory ("locale");
+  returnPath = g_strconcat (sLoc, "locale", NULL);
 #  endif
+  g_free (sLoc);
+  return returnPath;
 #else
   return g_strconcat (LOCALEDIR, G_DIR_SEPARATOR_S, "", NULL);
 #endif
@@ -256,7 +261,7 @@ dia_get_canonical_path(const gchar *path)
       if (strlen(list[i]) > 0) {
 
         /* win32 filenames usually don't start with a dir separator but
-         * with <drive>:\ 
+         * with <drive>:\
          */
 	if (i != 0 || list[i][1] != ':')
           g_string_append (str, G_DIR_SEPARATOR_S);
@@ -350,11 +355,11 @@ dia_relativize_filename (const gchar *master, const gchar *slave)
 			  + (g_str_has_suffix (bp1, G_DIR_SEPARATOR_S) ? 0 : 1));
     /* flip backslashes */
     for (p = rel; *p != '\0'; p++)
-      if (*p == '\\') *p = '/';    
+      if (*p == '\\') *p = '/';
   }
   g_free (bp1);
   g_free (bp2);
-  
+
   return rel;
 }
 

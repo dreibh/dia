@@ -24,7 +24,6 @@
 
 struct _MagnifyTool {
   Tool tool;
-  GdkGC *gc;
   int box_active;
   int moved;
   int x, y;
@@ -58,8 +57,13 @@ magnify_button_release(MagnifyTool *tool, GdkEventButton *event,
 
   tool->box_active = FALSE;
 
+  dia_interactive_renderer_set_selection (ddisp->renderer,
+                                          FALSE, 0, 0, 0, 0);
+  ddisplay_flush (ddisp);
+
+
   visible = &ddisp->visible;
-  
+
   ddisplay_untransform_coords(ddisp, tool->x, tool->y, &p1.x, &p1.y);
   ddisplay_untransform_coords(ddisp, event->x, event->y, &p2.x, &p2.y);
 
@@ -106,33 +110,15 @@ magnify_motion(MagnifyTool *tool, GdkEventMotion *event,
   intPoint tl, br;
 
   if (tool->box_active) {
-    GdkColor white;
-
     tool->moved = TRUE;
-    color_convert(&color_white, &white);
 
-    if (tool->gc == NULL) {
-      tool->gc = gdk_gc_new(gtk_widget_get_window(ddisp->canvas));
-      gdk_gc_set_line_attributes(tool->gc, 1, GDK_LINE_ON_OFF_DASH, 
-				 GDK_CAP_BUTT, GDK_JOIN_MITER);
-      gdk_gc_set_foreground(tool->gc, &white);
-      gdk_gc_set_function(tool->gc, GDK_XOR);
-    }
+    tl.x = MIN (tool->x, event->x); tl.y = MIN (tool->y, event->y);
+    br.x = MAX (tool->x, event->x); br.y = MAX (tool->y, event->y);
 
-    tl.x = MIN(tool->x, tool->oldx); tl.y = MIN(tool->y, tool->oldy);
-    br.x = MAX(tool->x, tool->oldx); br.y = MAX(tool->y, tool->oldy);
-
-    gdk_draw_rectangle (gtk_widget_get_window(ddisp->canvas),
-			tool->gc, FALSE, tl.x, tl.y, br.x - tl.x, br.y - tl.y);
-
-    tl.x = MIN(tool->x, event->x); tl.y = MIN(tool->y, event->y);
-    br.x = MAX(tool->x, event->x); br.y = MAX(tool->y, event->y);
-
-    gdk_draw_rectangle (gtk_widget_get_window(ddisp->canvas),
-			tool->gc, FALSE, tl.x, tl.y, br.x - tl.x, br.y - tl.y);
-
-    tool->oldx = event->x;
-    tool->oldy = event->y;
+    dia_interactive_renderer_set_selection (ddisp->renderer,
+                                            TRUE,
+                                            tl.x, tl.y, br.x - tl.x, br.y - tl.y);
+    ddisplay_flush (ddisp);
   }
 }
 
@@ -140,14 +126,14 @@ void
 set_zoom_out(Tool *tool)
 {
   ((MagnifyTool *)tool)->zoom_out = TRUE;
-  ddisplay_set_all_cursor(get_cursor(CURSOR_ZOOM_OUT));
+  ddisplay_set_all_cursor_name (NULL, "zoom-out");
 }
 
 void
 set_zoom_in(Tool *tool)
 {
   ((MagnifyTool *)tool)->zoom_out = FALSE;
-  ddisplay_set_all_cursor(get_cursor(CURSOR_ZOOM_IN));
+  ddisplay_set_all_cursor_name (NULL, "zoom-in");
 }
 
 Tool *
@@ -162,12 +148,11 @@ create_magnify_tool(void)
   tool->tool.motion_func = (MotionFunc) &magnify_motion;
   tool->tool.double_click_func = NULL;
 
-  tool->gc = NULL;
   tool->box_active = FALSE;
   tool->zoom_out = FALSE;
 
-  ddisplay_set_all_cursor(get_cursor(CURSOR_ZOOM_IN));
-  
+  ddisplay_set_all_cursor_name (NULL, "zoom-in");
+
   return (Tool *) tool;
 }
 

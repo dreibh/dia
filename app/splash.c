@@ -6,25 +6,7 @@
 #include "intl.h"
 #include "dia_dirs.h"
 #include "app_procs.h"
-
-static GtkWidget*
-get_logo_pixmap (void)
-{
-  GdkPixbuf *logo = NULL;
-  GtkWidget* gpixmap = NULL;
-  gchar str[512];
-
-  gchar* datadir = dia_get_data_directory(""); 
-  g_snprintf(str, sizeof(str), "%s/dia-splash.png", datadir);
-  logo = gdk_pixbuf_new_from_file(str, NULL);
-  g_free(datadir);
-
-  if (logo) {
-    gpixmap = gtk_image_new_from_pixbuf (logo);
-    g_object_unref (logo);
-  }
-  return gpixmap;
-}
+#include "widgets.h"
 
 static GtkWidget* splash = NULL;
 
@@ -55,15 +37,14 @@ app_splash_init (const gchar* fname)
   gtk_container_set_border_width (GTK_CONTAINER (vbox), 5);
   gtk_container_add (GTK_CONTAINER(splash), vbox);
 
-  gpixmap = get_logo_pixmap();
+  gpixmap = gtk_image_new_from_pixbuf (pixbuf_from_resource ("/org/gnome/Dia/dia-splash.png"));
 
   frame = gtk_frame_new (NULL);
   gtk_frame_set_shadow_type (GTK_FRAME (frame), GTK_SHADOW_IN);
   gtk_container_set_border_width (GTK_CONTAINER (frame), 1);
   gtk_box_pack_start(GTK_BOX(vbox), frame, FALSE, TRUE, 1);
 
-  if (gpixmap)
-    gtk_container_add (GTK_CONTAINER(frame), gpixmap);
+  gtk_container_add (GTK_CONTAINER(frame), gpixmap);
 
   g_snprintf(str, sizeof(str), _("Dia v %s"), VERSION);
   label = gtk_label_new (str);
@@ -71,8 +52,8 @@ app_splash_init (const gchar* fname)
 
   gtk_widget_show_all (splash);
 
-  signal_id = g_signal_connect_after(G_OBJECT(splash), "expose_event",
-				     G_CALLBACK(splash_expose), NULL);
+  signal_id = g_signal_connect_after (G_OBJECT (splash), "expose-event",
+                                      G_CALLBACK (splash_expose), NULL);
 
   /* splash_expose gets us out of this */
   gtk_main();

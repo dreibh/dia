@@ -21,9 +21,7 @@
 
 /*#define PAGELAYOUT_TEST*/
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-#endif
 
 #include "diapagelayout.h"
 #include "widgets.h"
@@ -58,7 +56,6 @@ struct _DiaPageLayout {
 
   GtkWidget *darea;
 
-  GdkGC *gc;
   GdkColor white, black, blue;
   gint papernum; /* index into page_metrics array */
 
@@ -81,11 +78,11 @@ enum {
 };
 
 static guint pl_signals[LAST_SIGNAL] = { 0 };
-static GtkObjectClass *parent_class;
+static GObjectClass *parent_class;
 
 static void dia_page_layout_class_init(DiaPageLayoutClass *class);
 static void dia_page_layout_init(DiaPageLayout *self);
-static void dia_page_layout_destroy(GtkObject *object);
+static void dia_page_layout_destroy(GObject *object);
 
 GType
 dia_page_layout_get_type(void)
@@ -112,24 +109,21 @@ dia_page_layout_get_type(void)
 static void
 dia_page_layout_class_init(DiaPageLayoutClass *class)
 {
-  GtkObjectClass *object_class;
-  
-  object_class = (GtkObjectClass*) class;
+  GObjectClass *object_class;
+
+  object_class = (GObjectClass*) class;
   parent_class = g_type_class_peek_parent (class);
 
   pl_signals[CHANGED] =
-    g_signal_new("changed",
-		 G_TYPE_FROM_CLASS (object_class),
-		 G_SIGNAL_RUN_FIRST,
-		 G_STRUCT_OFFSET(DiaPageLayoutClass, changed),
-		 NULL, NULL,
-		 dia_marshal_VOID__VOID,
-		 G_TYPE_NONE, 0);
-#if 0 /* FIXME ?*/
-  gtk_object_class_add_signals(object_class, pl_signals, LAST_SIGNAL);
-#endif
+    g_signal_new ("changed",
+                  G_TYPE_FROM_CLASS (object_class),
+                  G_SIGNAL_RUN_FIRST,
+                  G_STRUCT_OFFSET(DiaPageLayoutClass, changed),
+                  NULL, NULL,
+                  dia_marshal_VOID__VOID,
+                  G_TYPE_NONE, 0);
 
-  object_class->destroy = dia_page_layout_destroy;
+  object_class->dispose = dia_page_layout_destroy;
 }
 
 static void darea_size_allocate(DiaPageLayout *self, GtkAllocation *alloc);
@@ -165,11 +159,11 @@ dia_page_layout_init(DiaPageLayout *self)
   self->paper_size = dia_option_menu_new();
   gtk_box_pack_start(GTK_BOX(box), self->paper_size, TRUE, FALSE, 0);
 
-  g_signal_connect (self->paper_size, "changed", 
+  g_signal_connect (self->paper_size, "changed",
 		    G_CALLBACK(paper_size_change), self);
 
-  paper_names = get_paper_name_list();  
-  for (i = 0; paper_names != NULL; 
+  paper_names = get_paper_name_list();
+  for (i = 0; paper_names != NULL;
        i++, paper_names = g_list_next(paper_names)) {
 
     dia_option_menu_add_item (self->paper_size, paper_names->data, i);
@@ -192,7 +186,7 @@ dia_page_layout_init(DiaPageLayout *self)
   gtk_widget_show(box);
 
   self->orient_portrait = gtk_radio_button_new(NULL);
-  
+
   wid = gtk_image_new_from_pixbuf (gdk_pixbuf_new_from_xpm_data (portrait_xpm));
   gtk_container_add(GTK_CONTAINER(self->orient_portrait), wid);
   gtk_widget_show(wid);
@@ -366,7 +360,6 @@ dia_page_layout_init(DiaPageLayout *self)
   self->blue.blue = 0x7fff;
   gdk_color_alloc(gtk_widget_get_colormap(GTK_WIDGET(self)), &self->blue);
 
-  self->gc = NULL;
   self->block_changed = FALSE;
 }
 
@@ -470,7 +463,7 @@ gfloat
 dia_page_layout_get_scaling(DiaPageLayout *self)
 {
   GtkAdjustment *adj = gtk_spin_button_get_adjustment (GTK_SPIN_BUTTON(self->scaling));
-  
+
   return gtk_adjustment_get_value (adj) / 100.0;
 }
 
@@ -610,75 +603,103 @@ darea_expose_event(DiaPageLayout *self, GdkEventExpose *event)
   GdkWindow *window = gtk_widget_get_window(self->darea);
   gfloat val;
   gint num;
+  cairo_t *ctx;
 
   if (!window)
     return FALSE;
 
-  if (!self->gc)
-    self->gc = gdk_gc_new(window);
+  ctx = gdk_cairo_create (window);
+  cairo_set_line_cap (ctx, CAIRO_LINE_CAP_SQUARE);
+  cairo_set_line_width (ctx, 1);
+  cairo_set_antialias (ctx, CAIRO_ANTIALIAS_NONE);
 
-  gdk_window_clear_area (window,
-                         0, 0,
-                         self->darea->allocation.width,
-                         self->darea->allocation.height);
+  cairo_set_source_rgba (ctx, 0, 0, 0, 0);
+  cairo_rectangle (ctx, 0, 0,
+                        self->darea->allocation.width,
+                        self->darea->allocation.height);
+  cairo_fill (ctx);
 
   /* draw the page image */
-  gdk_gc_set_foreground(self->gc, &self->black);
-  gdk_draw_rectangle(window, self->gc, TRUE, self->x+3, self->y+3,
-		     self->width, self->height);
-  gdk_gc_set_foreground(self->gc, &self->white);
-  gdk_draw_rectangle(window, self->gc, TRUE, self->x, self->y,
-		     self->width, self->height);
-  gdk_gc_set_foreground(self->gc, &self->black);
-  gdk_draw_rectangle(window, self->gc, FALSE, self->x, self->y,
-		     self->width-1, self->height-1);
+  gdk_cairo_set_source_color (ctx, &self->black);
+  cairo_rectangle(ctx, self->x+3, self->y+3, self->width, self->height);
+  cairo_fill (ctx);
+  gdk_cairo_set_source_color (ctx, &self->white);
+  cairo_rectangle (ctx, self->x, self->y, self->width, self->height);
+  cairo_fill (ctx);
+  gdk_cairo_set_source_color (ctx, &self->black);
+  cairo_rectangle (ctx, self->x + 1, self->y, self->width, self->height);
+  cairo_stroke (ctx);
 
-  gdk_gc_set_foreground(self->gc, &self->blue);
+  gdk_cairo_set_source_color (ctx, &self->blue);
 
   /* draw margins */
-  if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(self->orient_portrait))) {
-    val = dia_unit_spinner_get_value(DIA_UNIT_SPINNER(self->tmargin));
-    num = self->y + val * self->height /get_paper_psheight(self->papernum);
-    gdk_draw_line(window, self->gc, self->x+1, num, self->x+self->width-2,num);
+  if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (self->orient_portrait))) {
+    /* Top */
+    val = dia_unit_spinner_get_value (DIA_UNIT_SPINNER (self->tmargin));
+    num = self->y + val * self->height / get_paper_psheight (self->papernum);
+    cairo_move_to (ctx, self->x + 2, num);
+    cairo_line_to (ctx, self->x + self->width, num);
+    cairo_stroke (ctx);
 
-    val = dia_unit_spinner_get_value(DIA_UNIT_SPINNER(self->bmargin));
+    /* Bottom */
+    val = dia_unit_spinner_get_value (DIA_UNIT_SPINNER (self->bmargin));
     num = self->y + self->height -
-      val * self->height / get_paper_psheight(self->papernum);
-    gdk_draw_line(window, self->gc, self->x+1, num, self->x+self->width-2,num);
+      val * self->height / get_paper_psheight (self->papernum);
+    cairo_move_to (ctx, self->x + 2, num);
+    cairo_line_to (ctx, self->x + self->width, num);
+    cairo_stroke (ctx);
 
-    val = dia_unit_spinner_get_value(DIA_UNIT_SPINNER(self->lmargin));
-    num = self->x + val * self->width / get_paper_pswidth(self->papernum);
-    gdk_draw_line(window, self->gc, num, self->y+1,num,self->y+self->height-2);
+    /* Left */
+    val = dia_unit_spinner_get_value (DIA_UNIT_SPINNER (self->lmargin));
+    num = self->x + val * self->width / get_paper_pswidth (self->papernum);
+    cairo_move_to (ctx, num + 1, self->y + 1);
+    cairo_line_to (ctx, num + 1, self->y + self->height - 1);
+    cairo_stroke (ctx);
 
-    val = dia_unit_spinner_get_value(DIA_UNIT_SPINNER(self->rmargin));
+    /* Right */
+    val = dia_unit_spinner_get_value (DIA_UNIT_SPINNER (self->rmargin));
     num = self->x + self->width -
-      val * self->width / get_paper_pswidth(self->papernum);
-    gdk_draw_line(window, self->gc, num, self->y+1,num,self->y+self->height-2);
+      val * self->width / get_paper_pswidth (self->papernum);
+    cairo_move_to (ctx, num + 1, self->y + 1);
+    cairo_line_to (ctx, num + 1, self->y + self->height - 1);
+    cairo_stroke (ctx);
   } else {
-    val = dia_unit_spinner_get_value(DIA_UNIT_SPINNER(self->tmargin));
-    num = self->y + val * self->height /get_paper_pswidth(self->papernum);
-    gdk_draw_line(window, self->gc, self->x+1, num, self->x+self->width-2,num);
+    /* Top */
+    val = dia_unit_spinner_get_value (DIA_UNIT_SPINNER (self->tmargin));
+    num = self->y + val * self->height / get_paper_pswidth (self->papernum);
+    cairo_move_to (ctx, self->x + 2, num);
+    cairo_line_to (ctx, self->x + self->width, num);
+    cairo_stroke (ctx);
 
-    val = dia_unit_spinner_get_value(DIA_UNIT_SPINNER(self->bmargin));
+    /* Bottom */
+    val = dia_unit_spinner_get_value (DIA_UNIT_SPINNER (self->bmargin));
     num = self->y + self->height -
-      val * self->height / get_paper_pswidth(self->papernum);
-    gdk_draw_line(window, self->gc, self->x+1, num, self->x+self->width-2,num);
+      val * self->height / get_paper_pswidth (self->papernum);
+    cairo_move_to (ctx, self->x + 2, num);
+    cairo_line_to (ctx, self->x + self->width, num);
+    cairo_stroke (ctx);
 
-    val = dia_unit_spinner_get_value(DIA_UNIT_SPINNER(self->lmargin));
-    num = self->x + val * self->width / get_paper_psheight(self->papernum);
-    gdk_draw_line(window, self->gc, num, self->y+1,num,self->y+self->height-2);
+    /* Left */
+    val = dia_unit_spinner_get_value (DIA_UNIT_SPINNER (self->lmargin));
+    num = self->x + val * self->width / get_paper_psheight (self->papernum);
+    cairo_move_to (ctx, num + 1, self->y + 1);
+    cairo_line_to (ctx, num + 1, self->y + self->height - 1);
+    cairo_stroke (ctx);
 
-    val = dia_unit_spinner_get_value(DIA_UNIT_SPINNER(self->rmargin));
+    /* Right */
+    val = dia_unit_spinner_get_value (DIA_UNIT_SPINNER (self->rmargin));
     num = self->x + self->width -
-      val * self->width / get_paper_psheight(self->papernum);
-    gdk_draw_line(window, self->gc, num, self->y+1,num,self->y+self->height-2);
+      val * self->width / get_paper_psheight (self->papernum);
+    cairo_move_to (ctx, num + 1, self->y + 1);
+    cairo_line_to (ctx, num + 1, self->y + self->height - 1);
+    cairo_stroke (ctx);
   }
 
   return FALSE;
 }
 
 /*!
- * \brief given a (page) size calculate the maximum margin size from it 
+ * \brief given a (page) size calculate the maximum margin size from it
  *
  * The function calculation assumes that more than half the size is not useful
  * for the margin. For safety it allows a little less.
@@ -799,17 +820,10 @@ scale_changed(DiaPageLayout *self)
 }
 
 static void
-dia_page_layout_destroy(GtkObject *object)
+dia_page_layout_destroy(GObject *object)
 {
-  DiaPageLayout *self = DIA_PAGE_LAYOUT(object);
-
-  if (self->gc) {
-    g_object_unref(self->gc);
-    self->gc = NULL;
-  }
-
-  if (parent_class->destroy)
-    (* parent_class->destroy)(object);
+  if (parent_class->dispose)
+    (* parent_class->dispose)(object);
 }
 
 #ifdef PAGELAYOUT_TEST

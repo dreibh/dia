@@ -1,6 +1,6 @@
 /* Dia -- an diagram creation/manipulation program
  * Copyright (C) 1998 Alexander Larsson
- * 
+ *
  * Chronogram objects support
  * Copyright (C) 2000 Cyrille Chepelov
  *
@@ -19,9 +19,7 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-#endif
 
 #include "object.h"
 
@@ -41,7 +39,7 @@ dia_plugin_init(PluginInfo *info)
 			    NULL, NULL))
     return DIA_PLUGIN_INIT_ERROR;
 
-  object_register_type(&chronoref_type);  
+  object_register_type(&chronoref_type);
   object_register_type(&chronoline_type);
 
   return DIA_PLUGIN_INIT_OK;

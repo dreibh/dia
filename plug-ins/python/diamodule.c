@@ -263,7 +263,7 @@ PyDia_RegisterExport(PyObject *self, PyObject *args)
     filter = g_new0 (DiaExportFilter, 1);
     filter->description = g_strdup (name);
     /* the following is usually declared as a static const string array, but we can't
-     * cause there needs to be one for every export filter defined in Python. Silence gcc. 
+     * cause there needs to be one for every export filter defined in Python. Silence gcc.
      */
     filter->extensions = (const gchar**)g_new (gchar*, 2);
     filter->extensions[0] = g_strdup (ext);
@@ -282,7 +282,7 @@ PyDia_RegisterExport(PyObject *self, PyObject *args)
 
 /*
  * This function gets called by Dia as a reaction to file import.
- * It needs to be registered before via Python function 
+ * It needs to be registered before via Python function
  * dia.register_import
  */
 static gboolean
@@ -302,7 +302,7 @@ PyDia_import_data (const gchar* filename, DiagramData *dia, DiaContext *ctx, voi
         diaobj = Py_None;
         Py_INCREF (diaobj);
     }
-      
+
     Py_INCREF(func);
 
     /* Python tries to guarantee this, make it work for these plugins too */
@@ -357,7 +357,7 @@ PyDia_RegisterImport(PyObject *self, PyObject *args)
 
 /*
  * This function gets called by Dia as a reaction to a menu item.
- * It needs to be registered before via Python function 
+ * It needs to be registered before via Python function
  * dia.register_action (or dia.register_callback)
  */
 static ObjectChange *
@@ -368,14 +368,14 @@ PyDia_callback_func (DiagramData *dia, const gchar *filename, guint flags, void 
         g_warning ("Callback called without valid callback function.");
         return NULL;
     }
-  
+
     if (dia)
         diaobj = PyDiaDiagramData_New (dia);
     else {
         diaobj = Py_None;
         Py_INCREF (diaobj);
     }
-      
+
     Py_INCREF(func);
 
     arg = Py_BuildValue ("(Oi)", diaobj, flags);
@@ -403,7 +403,7 @@ _strip_non_alphanum (gchar* in)
   int i, o;
   int len = strlen (in);
   gchar *out = g_new (gchar, len);
-  
+
   for (i = 0, o = 0; i < len; ++i) {
     if (g_ascii_isalnum (in[i])) {
       out[o] = in[i];
@@ -576,8 +576,8 @@ initdia(void)
 {
     PyObject *m, *d;
 
-#if defined (_MSC_VER)
-     /* see: Python FAQ 3.24 "Initializer not a constant." */
+    /* see: Python FAQ 3.24 "Initializer not a constant." */
+    /* https://docs.python.org/2/c-api/typeobj.html#c.PyObject.ob_type */
     PyDiaConnectionPoint_Type.ob_type = &PyType_Type;
     PyDiaDiagram_Type.ob_type = &PyType_Type;
     PyDiaDisplay_Type.ob_type = &PyType_Type;
@@ -588,9 +588,12 @@ initdia(void)
 
     PyDiaExportFilter_Type.ob_type = &PyType_Type;
     PyDiaDiagramData_Type.ob_type = &PyType_Type;
+
     PyDiaPoint_Type.ob_type = &PyType_Type;
     PyDiaRectangle_Type.ob_type = &PyType_Type;
     PyDiaBezPoint_Type.ob_type = &PyType_Type;
+    PyDiaArrow_Type.ob_type = &PyType_Type;
+    PyDiaMatrix_Type.ob_type = &PyType_Type;
 
     PyDiaFont_Type.ob_type = &PyType_Type;
     PyDiaColor_Type.ob_type = &PyType_Type;
@@ -598,20 +601,17 @@ initdia(void)
     PyDiaProperty_Type.ob_type = &PyType_Type;
     PyDiaProperties_Type.ob_type = &PyType_Type;
     PyDiaError_Type.ob_type = &PyType_Type;
-    PyDiaArrow_Type.ob_type = &PyType_Type;
-    PyDiaMatrix_Type.ob_type = &PyType_Type;
     PyDiaText_Type.ob_type = &PyType_Type;
     PyDiaPaperinfo_Type.ob_type = &PyType_Type;
     PyDiaMenuitem_Type.ob_type = &PyType_Type;
     PyDiaSheet_Type.ob_type = &PyType_Type;
-#endif
 
     m = Py_InitModule3("dia", dia_methods, dia_module_doc);
     d = PyModule_GetDict(m);
 
-    /* 
+    /*
      * The postfix 'Type' should not be there (one obvious exception, but there
-     * it isn't a Postfix). That is: names here and in the respective 
+     * it isn't a Postfix). That is: names here and in the respective
      * PyTypeObject must match.
      * The extra namespacing (prefix 'Dia') isn't necessary either, we use the
      * pythonesque namespacing instead.
@@ -668,13 +668,10 @@ initdia(void)
     PyDict_SetItemString(d, "Sheet",
 			 (void *)&PyDiaSheet_Type);
 
-    if (PyErr_Occurred())
-	Py_FatalError("can't initialize module dia");
+    if (PyErr_Occurred ())
+      Py_FatalError ("can't initialize module dia");
     else {
       /* should all be no-ops when used embedded */
-#if !GLIB_CHECK_VERSION(2,36,0)
-      g_type_init ();
-#endif
       libdia_init (DIA_MESSAGE_STDERR);
     }
 }
