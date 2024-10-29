@@ -16,13 +16,13 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 
-#include "intl.h"
 #include "object.h"
 #include "orth_conn.h"
 #include "diarenderer.h"
@@ -42,7 +42,7 @@ struct _Dependency {
   OrthConn orth;
 
   Point text_pos;
-  Alignment text_align;
+  DiaAlignment text_align;
   real text_width;
 
   Color text_color;
@@ -66,10 +66,14 @@ struct _Dependency {
 static real dependency_distance_from(Dependency *dep, Point *point);
 static void dependency_select(Dependency *dep, Point *clicked_point,
 			      DiaRenderer *interactive_renderer);
-static ObjectChange* dependency_move_handle(Dependency *dep, Handle *handle,
-					    Point *to, ConnectionPoint *cp,
-					    HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* dependency_move(Dependency *dep, Point *to);
+static DiaObjectChange *dependency_move_handle (Dependency       *dep,
+                                                Handle           *handle,
+                                                Point            *to,
+                                                ConnectionPoint  *cp,
+                                                HandleMoveReason  reason,
+                                                ModifierKeys      modifiers);
+static DiaObjectChange *dependency_move        (Dependency       *dep,
+                                                Point            *to);
 static void dependency_draw(Dependency *dep, DiaRenderer *renderer);
 static DiaObject *dependency_create(Point *startpoint,
 				 void *user_data,
@@ -170,21 +174,23 @@ dependency_get_props(Dependency * dependency, GPtrArray *props)
                                 dependency_offsets,props);
 }
 
+
 static void
-dependency_set_props(Dependency *dependency, GPtrArray *props)
+dependency_set_props (Dependency *dependency, GPtrArray *props)
 {
-  object_set_props_from_offsets(&dependency->orth.object,
-                                dependency_offsets, props);
-  g_free(dependency->st_stereotype);
-  dependency->st_stereotype = NULL;
-  dependency_update_data(dependency);
+  object_set_props_from_offsets (&dependency->orth.object,
+                                 dependency_offsets, props);
+  g_clear_pointer (&dependency->st_stereotype, g_free);
+  dependency_update_data (dependency);
 }
 
-static real
-dependency_distance_from(Dependency *dep, Point *point)
+
+static double
+dependency_distance_from (Dependency *dep, Point *point)
 {
   OrthConn *orth = &dep->orth;
-  return orthconn_distance_from(orth, point, dep->line_width);
+
+  return orthconn_distance_from (orth, point, dep->line_width);
 }
 
 static void
@@ -194,37 +200,43 @@ dependency_select(Dependency *dep, Point *clicked_point,
   orthconn_update_data(&dep->orth);
 }
 
-static ObjectChange*
-dependency_move_handle(Dependency *dep, Handle *handle,
-		       Point *to, ConnectionPoint *cp,
-		       HandleMoveReason reason, ModifierKeys modifiers)
-{
-  ObjectChange *change;
-  assert(dep!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
 
-  change = orthconn_move_handle(&dep->orth, handle, to, cp, reason, modifiers);
-  dependency_update_data(dep);
+static DiaObjectChange *
+dependency_move_handle (Dependency       *dep,
+                        Handle           *handle,
+                        Point            *to,
+                        ConnectionPoint  *cp,
+                        HandleMoveReason  reason,
+                        ModifierKeys      modifiers)
+{
+  DiaObjectChange *change;
+
+  g_return_val_if_fail (dep != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
+
+  change = orthconn_move_handle (&dep->orth, handle, to, cp, reason, modifiers);
+  dependency_update_data (dep);
 
   return change;
 }
 
-static ObjectChange*
-dependency_move(Dependency *dep, Point *to)
-{
-  ObjectChange *change;
 
-  change = orthconn_move(&dep->orth, to);
-  dependency_update_data(dep);
+static DiaObjectChange *
+dependency_move (Dependency *dep, Point *to)
+{
+  DiaObjectChange *change;
+
+  change = orthconn_move (&dep->orth, to);
+  dependency_update_data (dep);
 
   return change;
 }
+
 
 static void
-dependency_draw(Dependency *dep, DiaRenderer *renderer)
+dependency_draw (Dependency *dep, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   OrthConn *orth = &dep->orth;
   Point *points;
   int n;
@@ -234,40 +246,43 @@ dependency_draw(Dependency *dep, DiaRenderer *renderer)
   points = &orth->points[0];
   n = orth->numpoints;
 
-  renderer_ops->set_linewidth(renderer, dep->line_width);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_DASHED, DEPENDENCY_DASHLEN);
-  renderer_ops->set_linejoin(renderer, LINEJOIN_MITER);
-  renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
+  dia_renderer_set_linewidth (renderer, dep->line_width);
+  dia_renderer_set_linestyle (renderer,
+                              DIA_LINE_STYLE_DASHED,
+                              DEPENDENCY_DASHLEN);
+  dia_renderer_set_linejoin (renderer, DIA_LINE_JOIN_MITER);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
 
   arrow.type = ARROW_LINES;
   arrow.length = DEPENDENCY_ARROWLEN;
   arrow.width = DEPENDENCY_ARROWWIDTH;
 
-  renderer_ops->draw_polyline_with_arrows(renderer,
-					   points, n,
-					   dep->line_width,
-					   &dep->line_color,
-					   NULL, &arrow);
+  dia_renderer_draw_polyline_with_arrows (renderer,
+                                          points,
+                                          n,
+                                          dep->line_width,
+                                          &dep->line_color,
+                                          NULL,
+                                          &arrow);
 
-  renderer_ops->set_font(renderer, dep->font, dep->font_height);
+  dia_renderer_set_font (renderer, dep->font, dep->font_height);
   pos = dep->text_pos;
 
   if (dep->st_stereotype != NULL && dep->st_stereotype[0] != '\0') {
-    renderer_ops->draw_string(renderer,
-			       dep->st_stereotype,
-			       &pos, dep->text_align,
-			       &dep->text_color);
+    dia_renderer_draw_string (renderer,
+                              dep->st_stereotype,
+                              &pos, dep->text_align,
+                              &dep->text_color);
 
     pos.y += dep->font_height;
   }
 
   if (dep->name != NULL && dep->name[0] != '\0') {
-    renderer_ops->draw_string(renderer,
-			       dep->name,
-			       &pos, dep->text_align,
-			       &dep->text_color);
+    dia_renderer_draw_string (renderer,
+                              dep->name,
+                              &pos, dep->text_align,
+                              &dep->text_color);
   }
-
 }
 
 static void
@@ -278,7 +293,7 @@ dependency_update_data(Dependency *dep)
   PolyBBExtras *extra = &orth->extra_spacing;
   int num_segm, i;
   Point *points;
-  Rectangle rect;
+  DiaRectangle rect;
 
   orthconn_update_data(orth);
 
@@ -318,30 +333,32 @@ dependency_update_data(Dependency *dep)
   }
 
   switch (dep->orth.orientation[i]) {
-  case HORIZONTAL:
-    dep->text_align = ALIGN_CENTER;
-    dep->text_pos.x = 0.5*(points[i].x+points[i+1].x);
-    dep->text_pos.y = points[i].y;
-    if (dep->name)
-      dep->text_pos.y -= dia_font_descent(dep->name,
-					  dep->font,
-					  dep->font_height);
-    break;
-  case VERTICAL:
-    dep->text_align = ALIGN_LEFT;
-    dep->text_pos.x = points[i].x + 0.1;
-    dep->text_pos.y =
-      0.5*(points[i].y+points[i+1].y);
-    if (dep->name)
-      dep->text_pos.y -= dia_font_descent(dep->name,
-					  dep->font,
-					  dep->font_height);
-    break;
+    case HORIZONTAL:
+      dep->text_align = DIA_ALIGN_CENTRE;
+      dep->text_pos.x = 0.5*(points[i].x+points[i+1].x);
+      dep->text_pos.y = points[i].y;
+      if (dep->name)
+        dep->text_pos.y -= dia_font_descent (dep->name,
+                                             dep->font,
+                                             dep->font_height);
+      break;
+    case VERTICAL:
+      dep->text_align = DIA_ALIGN_LEFT;
+      dep->text_pos.x = points[i].x + 0.1;
+      dep->text_pos.y =
+        0.5*(points[i].y+points[i+1].y);
+      if (dep->name)
+        dep->text_pos.y -= dia_font_descent (dep->name,
+                                             dep->font,
+                                             dep->font_height);
+      break;
+    default:
+      g_return_if_reached ();
   }
 
   /* Add the text recangle to the bounding box: */
   rect.left = dep->text_pos.x;
-  if (dep->text_align == ALIGN_CENTER)
+  if (dep->text_align == DIA_ALIGN_CENTRE)
     rect.left -= dep->text_width/2.0;
   rect.right = rect.left + dep->text_width;
   rect.top = dep->text_pos.y;
@@ -354,21 +371,29 @@ dependency_update_data(Dependency *dep)
   rectangle_union(&obj->bounding_box, &rect);
 }
 
-static ObjectChange *
-dependency_add_segment_callback(DiaObject *obj, Point *clicked, gpointer data)
+
+static DiaObjectChange *
+dependency_add_segment_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
-  ObjectChange *change;
-  change = orthconn_add_segment((OrthConn *)obj, clicked);
-  dependency_update_data((Dependency *)obj);
+  DiaObjectChange *change;
+
+  change = orthconn_add_segment ((OrthConn *) obj, clicked);
+  dependency_update_data ((Dependency *) obj);
+
   return change;
 }
 
-static ObjectChange *
-dependency_delete_segment_callback(DiaObject *obj, Point *clicked, gpointer data)
+
+static DiaObjectChange *
+dependency_delete_segment_callback (DiaObject *obj,
+                                    Point     *clicked,
+                                    gpointer   data)
 {
-  ObjectChange *change;
-  change = orthconn_delete_segment((OrthConn *)obj, clicked);
-  dependency_update_data((Dependency *)obj);
+  DiaObjectChange *change;
+
+  change = orthconn_delete_segment ((OrthConn *) obj, clicked);
+  dependency_update_data ((Dependency *) obj);
+
   return change;
 }
 
@@ -378,6 +403,7 @@ static DiaMenuItem object_menu_items[] = {
   { N_("Delete segment"), dependency_delete_segment_callback, NULL, 1 },
   ORTHCONN_COMMON_MENUS,
 };
+
 
 static DiaMenu object_menu = {
   "Dependency",
@@ -442,15 +468,17 @@ dependency_create(Point *startpoint,
   return (DiaObject *)dep;
 }
 
+
 static void
-dependency_destroy(Dependency *dep)
+dependency_destroy (Dependency *dep)
 {
-  g_free(dep->name);
-  g_free(dep->stereotype);
-  g_free(dep->st_stereotype);
-  dia_font_unref(dep->font);
-  orthconn_destroy(&dep->orth);
+  g_clear_pointer (&dep->name, g_free);
+  g_clear_pointer (&dep->stereotype, g_free);
+  g_clear_pointer (&dep->st_stereotype, g_free);
+  g_clear_object (&dep->font);
+  orthconn_destroy (&dep->orth);
 }
+
 
 static DiaObject *
 dependency_load(ObjectNode obj_node, int version,DiaContext *ctx)

@@ -16,16 +16,16 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
 
 #include <glib.h>
 
-#include "intl.h"
 #include "object.h"
 #include "connection.h"
 #include "diarenderer.h"
@@ -75,10 +75,10 @@ struct _Message {
 #define HANDLE_MOVE_TEXT (HANDLE_CUSTOM1)
 
 
-static ObjectChange* message_move_handle(Message *message, Handle *handle,
+static DiaObjectChange* message_move_handle(Message *message, Handle *handle,
 					 Point *to, ConnectionPoint *cp,
 					 HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* message_move(Message *message, Point *to);
+static DiaObjectChange* message_move(Message *message, Point *to);
 static void message_select(Message *message, Point *clicked_point,
 			      DiaRenderer *interactive_renderer);
 static void message_draw(Message *message, DiaRenderer *renderer);
@@ -221,17 +221,21 @@ message_select(Message *message, Point *clicked_point,
   connection_update_handles(&message->connection);
 }
 
-static ObjectChange*
-message_move_handle(Message *message, Handle *handle,
-		    Point *to, ConnectionPoint *cp,
-		    HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+message_move_handle (Message          *message,
+                     Handle           *handle,
+                     Point            *to,
+                     ConnectionPoint  *cp,
+                     HandleMoveReason  reason,
+                     ModifierKeys      modifiers)
 {
   Point p1, p2;
   Point *endpoints;
 
-  assert(message!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+  g_return_val_if_fail (message != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
   if (handle->id == HANDLE_MOVE_TEXT) {
     message->text_pos = *to;
@@ -252,7 +256,7 @@ message_move_handle(Message *message, Handle *handle,
   return NULL;
 }
 
-static ObjectChange*
+static DiaObjectChange*
 message_move(Message *message, Point *to)
 {
   Point start_to_end;
@@ -275,88 +279,96 @@ message_move(Message *message, Point *to)
   return NULL;
 }
 
+
 static void
-message_draw(Message *message, DiaRenderer *renderer)
+message_draw (Message *message, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point *endpoints, p1, p2, px;
   Arrow arrow;
   int n1 = 1, n2 = 0;
-  gchar *mname = NULL;
+  char *mname = NULL;
 
-  assert(message != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (message != NULL);
+  g_return_if_fail (renderer != NULL);
 
   if (message->type==MESSAGE_SEND)
-      arrow.type = ARROW_HALF_HEAD;
+    arrow.type = ARROW_HALF_HEAD;
   else if (message->type==MESSAGE_SIMPLE)
-      arrow.type = ARROW_LINES;
+    arrow.type = ARROW_LINES;
   else
-      arrow.type = ARROW_FILLED_TRIANGLE;
+    arrow.type = ARROW_FILLED_TRIANGLE;
   arrow.length = MESSAGE_ARROWLEN;
   arrow.width = MESSAGE_ARROWWIDTH;
 
   endpoints = &message->connection.endpoints[0];
 
-  renderer_ops->set_linewidth(renderer, message->line_width);
+  dia_renderer_set_linewidth (renderer, message->line_width);
 
-  renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
 
   if (message->type==MESSAGE_RECURSIVE) {
-      n1 = 0;
-      n2 = 1;
+    n1 = 0;
+    n2 = 1;
   }
 
   if (message->type==MESSAGE_RETURN) {
-      renderer_ops->set_linestyle(renderer, LINESTYLE_DASHED, MESSAGE_DASHLEN);
-      n1 = 0;
-      n2 = 1;
+    dia_renderer_set_linestyle (renderer,
+                                DIA_LINE_STYLE_DASHED,
+                                MESSAGE_DASHLEN);
+    n1 = 0;
+    n2 = 1;
   } else {
-      renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
+    dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
   }
   p1 = endpoints[n1];
   p2 = endpoints[n2];
 
   if (message->type==MESSAGE_RECURSIVE) {
-      px.x = p2.x;
-      px.y = p1.y;
-      renderer_ops->draw_line(renderer,
-			       &p1, &px,
-			       &message->line_color);
+    px.x = p2.x;
+    px.y = p1.y;
+    dia_renderer_draw_line (renderer,
+                            &p1,
+                            &px,
+                            &message->line_color);
 
-      renderer_ops->draw_line(renderer,
-			   &px, &p2,
-			   &message->line_color);
-      p1.y = p2.y;
+    dia_renderer_draw_line (renderer,
+                            &px,
+                            &p2,
+                            &message->line_color);
+    p1.y = p2.y;
   }
 
-  renderer_ops->draw_line_with_arrows(renderer,
-				       &p1, &p2,
-				       message->line_width,
-				       &message->line_color,
-				       &arrow, NULL);
+  dia_renderer_draw_line_with_arrows (renderer,
+                                      &p1,
+                                      &p2,
+                                      message->line_width,
+                                      &message->line_color,
+                                      &arrow,
+                                      NULL);
 
-  renderer_ops->set_font(renderer, message->font,
-			  message->font_height);
+  dia_renderer_set_font (renderer,
+                         message->font,
+                         message->font_height);
 
   if (message->type==MESSAGE_CREATE)
-	  mname = g_strdup_printf ("%s%s%s", UML_STEREOTYPE_START, "create", UML_STEREOTYPE_END);
+    mname = g_strdup_printf ("%s%s%s", UML_STEREOTYPE_START, "create", UML_STEREOTYPE_END);
   else if (message->type==MESSAGE_DESTROY)
-	  mname = g_strdup_printf ("%s%s%s", UML_STEREOTYPE_START, "destroy", UML_STEREOTYPE_END);
+    mname = g_strdup_printf ("%s%s%s", UML_STEREOTYPE_START, "destroy", UML_STEREOTYPE_END);
   else
-	  mname = message->text;
+    mname = message->text;
 
-  if (mname && strlen(mname) != 0)
-      renderer_ops->draw_string(renderer,
-				 mname, /*message->text,*/
-				 &message->text_pos, ALIGN_CENTER,
-				 &message->text_color);
-  if (message->type == MESSAGE_CREATE || message->type == MESSAGE_DESTROY)
-  {
-	  g_free(mname);
+  if (mname && strlen (mname) != 0) {
+    dia_renderer_draw_string (renderer,
+                              mname, /*message->text,*/
+                              &message->text_pos,
+                              DIA_ALIGN_CENTRE,
+                              &message->text_color);
   }
 
-
+  if (message->type == MESSAGE_CREATE ||
+      message->type == MESSAGE_DESTROY) {
+    g_clear_pointer (&mname, g_free);
+  }
 }
 
 static DiaObject *
@@ -370,7 +382,7 @@ message_create(Point *startpoint,
   LineBBExtras *extra;
   DiaObject *obj;
 
-  message = g_malloc0(sizeof(Message));
+  message = g_new0 (Message, 1);
 
   /* old defaults */
   message->font_height = 0.8;
@@ -416,20 +428,22 @@ message_create(Point *startpoint,
   return &message->connection.object;
 }
 
-static void
-message_destroy(Message *message)
-{
-  connection_destroy(&message->connection);
 
-  g_free(message->text);
+static void
+message_destroy (Message *message)
+{
+  connection_destroy (&message->connection);
+
+  g_clear_pointer (&message->text, g_free);
 }
+
 
 static void
 message_update_data(Message *message)
 {
   Connection *conn = &message->connection;
   DiaObject *obj = &conn->object;
-  Rectangle rect;
+  DiaRectangle rect;
 
   if (connpoint_is_autogap(conn->endpoint_handles[0].connected_to) ||
       connpoint_is_autogap(conn->endpoint_handles[1].connected_to)) {

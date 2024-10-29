@@ -24,7 +24,10 @@
  * \brief Simple autorouting for \ref _OrthConn "orthogonal lines"
  * \ingroup ObjectParts
  */
+
 #include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include "object.h"
 #include "connectionpoint.h"
@@ -41,12 +44,12 @@
 
 static real calculate_badness(Point *ps, guint num_points);
 
-static real autoroute_layout_parallel(Point *to, 
+static real autoroute_layout_parallel(Point *to,
 					guint *num_points, Point **points);
 static real autoroute_layout_orthogonal(Point *to,
-					  int enddir, 
+					  int enddir,
 					  guint *num_points, Point **points);
-static real autoroute_layout_opposite(Point *to, 
+static real autoroute_layout_opposite(Point *to,
 					guint *num_points, Point **points);
 static Point autolayout_adjust_for_gap(Point *pos, int dir, ConnectionPoint *cp);
 static void autolayout_adjust_for_arrow(Point *pos, int dir, real adjust);
@@ -59,14 +62,14 @@ static Point *autolayout_unnormalize_points(guint dir,
 					    guint num_points);
 
 static int
-autolayout_calc_intersects (const Rectangle *r1, const Rectangle *r2,
+autolayout_calc_intersects (const DiaRectangle *r1, const DiaRectangle *r2,
 			    const Point *points, guint num_points)
 {
   guint i, n = 0;
 
   /* ignoring the first and last line assuming a proper 'outer' algorithm */
   for (i = 1; i < num_points - 2; ++i) {
-    Rectangle rt = { points[i].x, points[i].y, points[i+1].x, points[i+1].y };
+    DiaRectangle rt = { points[i].x, points[i].y, points[i+1].x, points[i+1].y };
     if (r1)
       n += (rectangle_intersects (r1, &rt) ? 1 : 0);
     if (r2)
@@ -95,7 +98,7 @@ autolayout_calc_intersects (const Rectangle *r1, const Rectangle *r2,
  * \callgraph
  */
 gboolean
-autoroute_layout_orthconn(OrthConn *conn, 
+autoroute_layout_orthconn(OrthConn *conn,
 			  ConnectionPoint *startconn, ConnectionPoint *endconn)
 {
   real min_badness = MAX_BADNESS;
@@ -151,7 +154,7 @@ autoroute_layout_orthconn(OrthConn *conn,
 						   &this_num_points,
 						   &this_layout);
 	} else if (normal_enddir == DIR_SOUTH) {
-	  this_badness = autoroute_layout_opposite(&otherpoint, 
+	  this_badness = autoroute_layout_opposite(&otherpoint,
 						   &this_num_points,
 						   &this_layout);
 	} else {
@@ -177,29 +180,29 @@ autoroute_layout_orthconn(OrthConn *conn,
 		   this_badness, min_badness);
 	    */
 	    min_badness = this_badness;
-	    if (best_layout != NULL) g_free(best_layout);
+	    g_clear_pointer (&best_layout, g_free);
 	    best_layout = unnormalized;
 	    best_num_points = this_num_points;
             /* revert adjusting start and end point */
-	    autolayout_adjust_for_arrow(&best_layout[0], startdir, 
+	    autolayout_adjust_for_arrow(&best_layout[0], startdir,
 	                                -conn->extra_spacing.start_trans);
-	    autolayout_adjust_for_arrow(&best_layout[best_num_points-1], enddir, 
+	    autolayout_adjust_for_arrow(&best_layout[best_num_points-1], enddir,
 	                                -conn->extra_spacing.end_trans);
 	    best_intersects = intersects;
 	  } else {
-	    g_free(unnormalized);
+	    g_clear_pointer (&unnormalized, g_free);
 	  }
 	}
       }
-    }    
+    }
   }
-  
+
   if (min_badness < MAX_BADNESS) {
     orthconn_set_points(conn, best_num_points, best_layout);
-    g_free(best_layout);
+    g_clear_pointer (&best_layout, g_free);
     return TRUE;
   } else {
-    g_free(best_layout);
+    g_clear_pointer (&best_layout, g_free);
     return FALSE;
   }
 }
@@ -225,7 +228,7 @@ length_badness(real len)
 
 /*!
  * \brief Calculate badness of a point array
- * 
+ *
  * Returns the accumulated badness of a layout.  At the moment, this is
  * calculated as the sum of the badnesses of the segments plus a badness for
  * each bend in the line.
@@ -251,13 +254,13 @@ calculate_badness(Point *ps, guint num_points)
 }
 
 /*!
- * \brief Gap adjustement for points and a connection point
+ * \brief Gap adjustment for points and a connection point
  *
  * Adjust one end of an orthconn for gaps, if autogap is on for the connpoint.
  * @param pos Point of the end of the line.
  * @param dir Which of the four cardinal directions the line goes from pos.
  * @param cp The connectionpoint the line is connected to.
- * @return Where the line should end to be on the correct edge of the 
+ * @return Where the line should end to be on the correct edge of the
  *          object, if cp has autogap on.
  *
  * \ingroup Autorouting
@@ -268,17 +271,17 @@ autolayout_adjust_for_gap(Point *pos, int dir, ConnectionPoint *cp)
   DiaObject *object;
   Point dir_other;
   /* Do absolute gaps here, once it's defined */
-  
+
   if (!cp || !connpoint_is_autogap(cp)) {
     return *pos;
   }
 
   object  = cp->object;
-  
+
   dir_other.x = pos->x;
   dir_other.y = pos->y;
   switch (dir) {
-  case DIR_NORTH: 
+  case DIR_NORTH:
     dir_other.y += 2 * (object->bounding_box.top - pos->y);
     break;
   case DIR_SOUTH:
@@ -290,44 +293,48 @@ autolayout_adjust_for_gap(Point *pos, int dir, ConnectionPoint *cp)
   case DIR_WEST:
     dir_other.x += 2 * (object->bounding_box.left - pos->x);
     break;
-  default: 
+  default:
     g_warning("Impossible direction %d\n", dir);
   }
   return calculate_object_edge(pos, &dir_other, object);
 }
 
-/*!
- * \brief Adjust the original position to move away from a potential arrow
+
+/**
+ * autolayout_adjust_for_arrow
+ *
+ * Adjust the original position to move away from a potential arrow
  *
  * We could do some similar by making MIN_DIST depend on the arrow size,
  * but this one is much more easy, not touchun the autolayout algorithm at
  * all. Needs to be called twice - second time with negative adjust - to
  * move the point back to where it was.
- *
- * \ingroup Autorouting
  */
-static void 
-autolayout_adjust_for_arrow(Point *pos, int dir, real adjust)
+static void
+autolayout_adjust_for_arrow (Point *pos, int dir, real adjust)
 {
   switch (dir) {
-  case DIR_NORTH:
-    pos->y -= adjust;
-    break;
-  case DIR_EAST:
-    pos->x += adjust;
-    break;
-  case DIR_SOUTH:
-    pos->y += adjust;
-    break;
-  case DIR_WEST:
-    pos->x -= adjust;
-    break;
+    case DIR_NORTH:
+      pos->y -= adjust;
+      break;
+    case DIR_EAST:
+      pos->x += adjust;
+      break;
+    case DIR_SOUTH:
+      pos->y += adjust;
+      break;
+    case DIR_WEST:
+      pos->x -= adjust;
+      break;
+    default:
+      g_return_if_reached ();
   }
 }
 
+
 /*!
  * \brief Parallel layout
- * 
+ *
  * Lay out autorouting where start and end lines are parallel pointing the
  * same direction.  This can either a simple up-right-down layout, or if the
  * to point is too close to origo, it will go up-right-down-left-down.
@@ -413,7 +420,7 @@ autoroute_layout_parallel(Point *to, guint *num_points, Point **points)
  * \ingroup Autorouting
  */
 static real
-autoroute_layout_orthogonal(Point *to, int enddir, 
+autoroute_layout_orthogonal(Point *to, int enddir,
 			    guint *num_points, Point **points)
 {
   /* This one doesn't consider enddir yet, not more complex layouts. */
@@ -474,7 +481,7 @@ autoroute_layout_orthogonal(Point *to, int enddir,
   return calculate_badness(ps, *num_points);
 }
 
-/*! 
+/*!
  * \brief Opposite layout
  *
  * Do layout for the case where the end directions are opposite.
@@ -563,7 +570,7 @@ point_rotate_cw(Point *p)
   p->y = tmp;
 }
 
-/*! 
+/*!
  * \brief Rotate a point counterclockwise.
  * @param p The point to rotate.
  * \ingroup Autorouting
@@ -629,8 +636,8 @@ autolayout_normalize_points(guint startdir, guint enddir,
 
 /*!
  * \brief Reverse normalization
- * 
- * Reverses the normalizing process of autolayout_normalize_points by 
+ *
+ * Reverses the normalizing process of autolayout_normalize_points by
  * moving and rotating the points to start at `start' with the start direction
  * `startdir', instead of from origo going north.
  * Returns the new array of points, freeing the old one if necessary.
@@ -675,6 +682,6 @@ autolayout_unnormalize_points(guint startdir,
       point_add(&newpoints[i], &start);
     }
   }
-  g_free(points);
+  g_clear_pointer (&points, g_free);
   return newpoints;
 }

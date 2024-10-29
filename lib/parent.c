@@ -16,7 +16,9 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include "geometry.h"
 #include "object.h"
@@ -49,17 +51,21 @@ gboolean parent_list_expand(GList *obj_list)
   return nothing_affected;
 }
 
+
 /**
+ * parent_list_affected_hierarchy:
+ * obj_list: the #DiaObject list
+ *
  * Returns the original list minus any items that appear as children
- * (at any depth) of the objects in the original list.  This is very
+ * (at any depth) of the objects in the original list. This is very
  * different from the parent_list_affected function, which returns a
  * list of ALL objects affected.
-
+ *
  * The caller must call g_list_free() on the returned list
  * when the list is no longer needed.
  */
-
-GList *parent_list_affected_hierarchy(GList *obj_list)
+GList *
+parent_list_affected_hierarchy (GList *obj_list)
 {
   GHashTable *object_hash = g_hash_table_new(g_direct_hash, g_direct_equal);
   GList *all_list = g_list_copy(obj_list);
@@ -135,10 +141,10 @@ GList *parent_list_affected(GList *obj_list)
   going any further
 
   returns TRUE if resizing was obstructed*/
-gboolean 
+gboolean
 parent_handle_move_out_check(DiaObject *object, Point *to)
 {
-  Rectangle p_ext, c_ext;
+  DiaRectangle p_ext, c_ext;
   Point new_delta;
 
   if (!object->parent)
@@ -165,7 +171,7 @@ gboolean parent_handle_move_in_check(DiaObject *object, Point *to, Point *start_
 {
   GList *list = object->children;
   gboolean once = TRUE;
-  Rectangle common_ext;
+  DiaRectangle common_ext;
   gboolean restricted = FALSE;
 
   if (!object_flags_set(object, DIA_OBJECT_CAN_PARENT) || !list)
@@ -177,7 +183,7 @@ gboolean parent_handle_move_in_check(DiaObject *object, Point *to, Point *start_
       parent_handle_extents(list->data, &common_ext);
       once = FALSE;
     } else {
-      Rectangle c_ext;
+      DiaRectangle c_ext;
       parent_handle_extents (list->data, &c_ext);
       rectangle_union(&common_ext, &c_ext);
     }
@@ -212,15 +218,19 @@ gboolean parent_handle_move_in_check(DiaObject *object, Point *to, Point *start_
       If delta is not present, these are the extents *before* any moves
       If delta is present, delta is considered into the extents's position
       */
-Point parent_move_child_delta(Rectangle *p_ext, Rectangle *c_ext, Point *delta)
+Point
+parent_move_child_delta (DiaRectangle *p_ext,
+                         DiaRectangle *c_ext,
+                         Point        *delta)
 {
-    Point new_delta = {0, 0};
-    gboolean free_delta = FALSE;
-    if (delta == NULL)
-    {
-      delta = g_new0(Point, 1);
-      free_delta = TRUE;
-    }
+  Point new_delta = { 0, 0 };
+  gboolean free_delta = FALSE;
+
+  if (delta == NULL) {
+    delta = g_new0 (Point, 1);
+    free_delta = TRUE;
+  }
+
     /* we check if the child extent would be inside the parent extent after the move
       if not, we calculate how far we have to move the extent back to place it back
       inside the parent extent */
@@ -234,15 +244,16 @@ Point parent_move_child_delta(Rectangle *p_ext, Rectangle *c_ext, Point *delta)
     else if (c_ext->top + delta->y + (c_ext->bottom - c_ext->top) > p_ext->bottom)
       new_delta.y = p_ext->bottom  - (c_ext->top + delta->y + (c_ext->bottom - c_ext->top));
 
-    if (free_delta)
-      g_free(delta);
+  if (free_delta) {
+    g_clear_pointer (&delta, g_free);
+  }
 
-    return new_delta;
+  return new_delta;
 }
 
 /* the caller must free the returned rectangle */
 void
-parent_point_extents(Point *point, Rectangle *extents)
+parent_point_extents(Point *point, DiaRectangle *extents)
 {
   extents->left = point->x;
   extents->right = point->x;
@@ -250,13 +261,20 @@ parent_point_extents(Point *point, Rectangle *extents)
   extents->bottom = point->y;
 }
 
+
 /**
+ * parent_handle_extents:
+ * @obj: the #DiaObject
+ * @extents: the extend of the object
+ *
  * the caller must provide the 'returned' rectangle,
  * which is initialized to the biggest rectangle containing
  * all the objects handles
+ *
+ * Since: dawn-of-time
  */
 void
-parent_handle_extents(DiaObject *obj, Rectangle *extents)
+parent_handle_extents (DiaObject *obj, DiaRectangle *extents)
 {
   int idx;
 
@@ -271,18 +289,22 @@ parent_handle_extents(DiaObject *obj, Rectangle *extents)
   }
 }
 
-/** Apply a function to all children of the given object (recursively, 
+
+/**
+ * parent_apply_to_children:
+ * @obj: A parent object.
+ * @function: A function that takes a single DiaObject as an argument.
+ *
+ * Apply a function to all children of the given object (recursively,
  * depth-first).
- * @param obj A parent object.
- * @param function A function that takes a single DiaObject as an argument.
  */
 void
-parent_apply_to_children(DiaObject *obj, DiaObjectFunc function)
+parent_apply_to_children (DiaObject *obj, DiaObjectFunc function)
 {
   GList *children;
-  for (children = obj->children; children != NULL; children = g_list_next(children)) {
+  for (children = obj->children; children != NULL; children = g_list_next (children)) {
     DiaObject *child = children->data;
-    (*function)(child);
-    parent_apply_to_children(child, function);
+    (*function) (child);
+    parent_apply_to_children (child, function);
   }
 }

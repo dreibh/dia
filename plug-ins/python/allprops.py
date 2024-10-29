@@ -19,16 +19,20 @@
 #   along with this program; if not, write to the Free Software
 #   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
-import sys, dia, string
-	
+import sys, dia
+from functools import cmp_to_key
+
+import gettext
+_ = gettext.gettext
+
 def allprops_cb(data, flags) :
 
 	# copied from otypes.py
-	if data :
+	if data:
 		diagram = None # we may be running w/o GUI
 	else :
 		diagram = dia.new("All Object Properties.dia")
-		data = diagram.data
+		data = diagram
 	layer = data.active_layer
 
 	props_by_name = {}
@@ -39,19 +43,19 @@ def allprops_cb(data, flags) :
 		try :
 			obj, h1, h2 = dia.get_object_type(oname).create (0, 0)
 		except :
-			print "Huh?", oname
+			print("Huh?", oname)
 			continue
-		prop_keys = obj.properties.keys()
+		prop_keys = list(obj.properties.keys())
 		for k in prop_keys :
 			p = obj.properties[k]
-			if props_by_name.has_key(k) :
+			if k in props_by_name :
 				# check if it is the same type
 				p0, names = props_by_name[k]
 				try :
 					if p0.type != p.type :
 						# construct a unique name
 						uname = p.name + "<" + p.type + ">"
-						if props_by_name.has_key(uname) :
+						if uname in props_by_name :
 							props_by_name[uname][1].append(oname)
 						else :
 							props_by_name[uname] = (p, [oname])
@@ -60,7 +64,7 @@ def allprops_cb(data, flags) :
 						# remember the origin of the property
 						props_by_name[k][1].append(oname)
 				except KeyError :
-					print oname, "::", k, p, "?"
+					print(oname, "::", k, p, "?")
 			else :
 				props_by_name[k] = (p, [oname])
 		obj.destroy() # unsave delete, any method call will fail/crash afterweards
@@ -71,24 +75,24 @@ def allprops_cb(data, flags) :
 	dy = 5.0
 	ot = dia.get_object_type("UML - Class")
 
-	props_keys = props_by_name.keys()
+	props_keys = list(props_by_name.keys())
 	# alpha-numeric sorting by type; after by number of users
-	props_keys.sort (lambda a,b : len(props_by_name[b][1]) - len(props_by_name[a][1]))
-	props_keys.sort (lambda a,b : cmp(props_by_name[a][0].type, props_by_name[b][0].type))
-	
+	props_keys.sort (key=cmp_to_key (lambda a,b : len(props_by_name[b][1]) - len(props_by_name[a][1])))
+	props_keys.sort (key=lambda a: props_by_name[a][0].type)
+
 	almost_all = 98 * len(otypes) / 100 # 98 %
 
 	for pname in props_keys :
-	
+
 		p, names = props_by_name[pname]
 
 		x = 0.0
 		y = 0.0
-		if grid.has_key(p.type) :
+		if p.type in grid:
 			x, y = grid[p.type]
 		else :
 			x = 0.0
-			y = len(grid.keys()) * dy
+			y = len(list(grid.keys())) * dy
 		o, h1, h2 = ot.create (x,y)
 		o.properties["name"] = pname
 		o.properties["template"] = 1
@@ -108,7 +112,7 @@ def allprops_cb(data, flags) :
 			o.properties["visible_comments"] = 1
 			o.properties["comment_line_length"] = 60
 		else :
-			o.properties["comment"] = string.join(names, "; ")
+			o.properties["comment"] = "; ".join(names)
 			o.properties["visible_comments"] = 0
 			o.properties["comment_line_length"] = 60
 
@@ -123,9 +127,9 @@ def allprops_cb(data, flags) :
 		diagram.display()
 		diagram.flush()
 	if len(name_type_clashes) > 0 :
-		dia.message(0, "One name, one type?!\n" + string.join(name_type_clashes, "\n"))
+		dia.message(0, "One name, one type?!\n" + "\n".join(name_type_clashes))
 	return data
 
-dia.register_action ("HelpAllPropts", "All Object Properties",
-                     "/ToolboxMenu/Help/HelpExtensionStart", 
+dia.register_action ("HelpAllPropts", _("All Object _Properties"),
+                     "/ToolboxMenu/Help/HelpExtensionStart",
                      allprops_cb)

@@ -19,13 +19,13 @@
 /* Copyright 2003, W. Borgert <debacle@debian.org>
    copied a lot from UML/large_package.c and standard/polygon.c */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 
-#include "intl.h"
 #include "object.h"
 #include "polyshape.h"
 #include "diarenderer.h"
@@ -40,13 +40,13 @@
 typedef struct _RadioCell RadioCell;
 
 struct _RadioCell {
-  PolyShape poly;		/* always 1st! */
-  real radius;			/* pseudo-radius */
-  Point center;			/* point in the center */
+  PolyShape poly;  /* always 1st! */
+  double radius;   /* pseudo-radius */
+  Point center;    /* point in the center */
   Color line_colour;
-  LineStyle line_style;
-  real dashlength;
-  real line_width;
+  DiaLineStyle line_style;
+  double dashlength;
+  double line_width;
   gboolean show_background;
   Color fill_colour;
   Text *text;
@@ -58,12 +58,12 @@ struct _RadioCell {
 static real radiocell_distance_from(RadioCell *radiocell, Point *point);
 static void radiocell_select(RadioCell *radiocell, Point *clicked_point,
 			     DiaRenderer *interactive_renderer);
-static ObjectChange* radiocell_move_handle(RadioCell *radiocell,
+static DiaObjectChange* radiocell_move_handle(RadioCell *radiocell,
 					   Handle *handle,
 					   Point *to, ConnectionPoint *cp,
 					   HandleMoveReason reason,
 					   ModifierKeys modifiers);
-static ObjectChange* radiocell_move(RadioCell *radiocell, Point *to);
+static DiaObjectChange* radiocell_move(RadioCell *radiocell, Point *to);
 static void radiocell_draw(RadioCell *radiocell, DiaRenderer *renderer);
 static DiaObject *radiocell_create(Point *startpoint,
 				void *user_data,
@@ -193,7 +193,7 @@ radiocell_select(RadioCell *radiocell, Point *clicked_point,
   radiocell_update_data(radiocell);
 }
 
-static ObjectChange*
+static DiaObjectChange*
 radiocell_move_handle(RadioCell *radiocell, Handle *handle,
 		      Point *to, ConnectionPoint *cp,
 		      HandleMoveReason reason, ModifierKeys modifiers)
@@ -230,7 +230,7 @@ radiocell_move_handle(RadioCell *radiocell, Handle *handle,
   return NULL;
 }
 
-static ObjectChange*
+static DiaObjectChange*
 radiocell_move(RadioCell *radiocell, Point *to)
 {
   polyshape_move(&radiocell->poly, to);
@@ -241,32 +241,33 @@ radiocell_move(RadioCell *radiocell, Point *to)
   return NULL;
 }
 
+
 static void
-radiocell_draw(RadioCell *radiocell, DiaRenderer *renderer)
+radiocell_draw (RadioCell *radiocell, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   PolyShape *poly;
   Point *points;
   int n;
 
-  assert(radiocell != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (radiocell != NULL);
+  g_return_if_fail (renderer != NULL);
 
   poly = &radiocell->poly;
   points = &poly->points[0];
   n = poly->numpoints;
 
-  if (radiocell->show_background)
-    renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
-  renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
-  renderer_ops->set_linejoin(renderer, LINEJOIN_MITER);
-  renderer_ops->set_linestyle(renderer, radiocell->line_style, radiocell->dashlength);
-  renderer_ops->set_linewidth(renderer, radiocell->line_width);
-  renderer_ops->draw_polygon(renderer, points, n,
-			     (radiocell->show_background) ? &radiocell->fill_colour : NULL,
-			     &radiocell->line_colour);
+  if (radiocell->show_background) {
+    dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+  }
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
+  dia_renderer_set_linejoin (renderer, DIA_LINE_JOIN_MITER);
+  dia_renderer_set_linestyle (renderer, radiocell->line_style, radiocell->dashlength);
+  dia_renderer_set_linewidth (renderer, radiocell->line_width);
+  dia_renderer_draw_polygon (renderer, points, n,
+                             (radiocell->show_background) ? &radiocell->fill_colour : NULL,
+                             &radiocell->line_colour);
 
-  text_draw(radiocell->text, renderer);
+  text_draw (radiocell->text, renderer);
 }
 
 static void
@@ -275,7 +276,7 @@ radiocell_update_data(RadioCell *radiocell)
   PolyShape *poly = &radiocell->poly;
   DiaObject *obj = &poly->object;
   ElementBBExtras *extra = &poly->extra_spacing;
-  Rectangle text_box;
+  DiaRectangle text_box;
   Point textpos;
   int i;
   /* not exactly a regular hexagon, but this fits better in the grid */
@@ -331,13 +332,17 @@ radiocell_create(Point *startpoint,
   radiocell->fill_colour = color_white;
   radiocell->line_colour = color_black;
   radiocell->line_width = RADIOCELL_LINEWIDTH;
-  attributes_get_default_line_style(&radiocell->line_style,
-				    &radiocell->dashlength);
+  attributes_get_default_line_style (&radiocell->line_style,
+                                     &radiocell->dashlength);
 
-  font = dia_font_new_from_style(DIA_FONT_MONOSPACE, RADIOCELL_FONTHEIGHT);
-  radiocell->text = new_text("", font, RADIOCELL_FONTHEIGHT, startpoint,
-			     &color_black, ALIGN_CENTER);
-  dia_font_unref(font);
+  font = dia_font_new_from_style (DIA_FONT_MONOSPACE, RADIOCELL_FONTHEIGHT);
+  radiocell->text = new_text ("",
+                              font,
+                              RADIOCELL_FONTHEIGHT,
+                              startpoint,
+                              &color_black,
+                              DIA_ALIGN_CENTRE);
+  g_clear_object (&font);
 
   polyshape_init(poly, 6);
 

@@ -16,13 +16,13 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 
-#include "intl.h"
 #include "object.h"
 #include "orth_conn.h"
 #include "diarenderer.h"
@@ -41,7 +41,7 @@ struct _Generalization {
   OrthConn orth;
 
   Point text_pos;
-  Alignment text_align;
+  DiaAlignment text_align;
   real text_width;
 
   DiaFont *font;
@@ -62,10 +62,14 @@ struct _Generalization {
 static real generalization_distance_from(Generalization *genlz, Point *point);
 static void generalization_select(Generalization *genlz, Point *clicked_point,
 			      DiaRenderer *interactive_renderer);
-static ObjectChange* generalization_move_handle(Generalization *genlz, Handle *handle,
-						Point *to, ConnectionPoint *cp,
-						HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* generalization_move(Generalization *genlz, Point *to);
+static DiaObjectChange* generalization_move_handle   (Generalization   *genlz,
+                                                      Handle           *handle,
+                                                      Point            *to,
+                                                      ConnectionPoint  *cp,
+                                                      HandleMoveReason  reason,
+                                                      ModifierKeys      modifiers);
+static DiaObjectChange* generalization_move          (Generalization   *genlz,
+                                                      Point            *to);
 static void generalization_draw(Generalization *genlz, DiaRenderer *renderer);
 static DiaObject *generalization_create(Point *startpoint,
 				 void *user_data,
@@ -164,22 +168,25 @@ generalization_get_props(Generalization * generalization, GPtrArray *props)
                                 generalization_offsets,props);
 }
 
+
 static void
-generalization_set_props(Generalization *generalization, GPtrArray *props)
+generalization_set_props (Generalization *generalization, GPtrArray *props)
 {
-  object_set_props_from_offsets(&generalization->orth.object,
-                                generalization_offsets, props);
-  g_free(generalization->st_stereotype);
-  generalization->st_stereotype = NULL;
-  generalization_update_data(generalization);
+  object_set_props_from_offsets (&generalization->orth.object,
+                                 generalization_offsets, props);
+  g_clear_pointer (&generalization->st_stereotype, g_free);
+  generalization_update_data (generalization);
 }
 
-static real
-generalization_distance_from(Generalization *genlz, Point *point)
+
+static double
+generalization_distance_from (Generalization *genlz, Point *point)
 {
   OrthConn *orth = &genlz->orth;
-  return orthconn_distance_from(orth, point, genlz->line_width);
+
+  return orthconn_distance_from (orth, point, genlz->line_width);
 }
+
 
 static void
 generalization_select(Generalization *genlz, Point *clicked_point,
@@ -188,26 +195,32 @@ generalization_select(Generalization *genlz, Point *clicked_point,
   orthconn_update_data(&genlz->orth);
 }
 
-static ObjectChange*
-generalization_move_handle(Generalization *genlz, Handle *handle,
-			   Point *to, ConnectionPoint *cp,
-			   HandleMoveReason reason, ModifierKeys modifiers)
-{
-  ObjectChange *change;
-  assert(genlz!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
 
-  change = orthconn_move_handle(&genlz->orth, handle, to, cp, reason, modifiers);
-  generalization_update_data(genlz);
+static DiaObjectChange *
+generalization_move_handle (Generalization   *genlz,
+                            Handle           *handle,
+                            Point            *to,
+                            ConnectionPoint  *cp,
+                            HandleMoveReason  reason,
+                            ModifierKeys      modifiers)
+{
+  DiaObjectChange *change;
+
+  g_return_val_if_fail (genlz != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
+
+  change = orthconn_move_handle (&genlz->orth, handle, to, cp, reason, modifiers);
+  generalization_update_data (genlz);
 
   return change;
 }
 
-static ObjectChange*
-generalization_move(Generalization *genlz, Point *to)
+
+static DiaObjectChange *
+generalization_move (Generalization *genlz, Point *to)
 {
-  ObjectChange *change;
+  DiaObjectChange *change;
 
   change = orthconn_move(&genlz->orth, to);
   generalization_update_data(genlz);
@@ -215,10 +228,10 @@ generalization_move(Generalization *genlz, Point *to)
   return change;
 }
 
+
 static void
-generalization_draw(Generalization *genlz, DiaRenderer *renderer)
+generalization_draw (Generalization *genlz, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   OrthConn *orth = &genlz->orth;
   Point *points;
   int n;
@@ -228,40 +241,42 @@ generalization_draw(Generalization *genlz, DiaRenderer *renderer)
   points = &orth->points[0];
   n = orth->numpoints;
 
-  renderer_ops->set_linewidth(renderer, genlz->line_width);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
-  renderer_ops->set_linejoin(renderer, LINEJOIN_MITER);
-  renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
+  dia_renderer_set_linewidth (renderer, genlz->line_width);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
+  dia_renderer_set_linejoin (renderer, DIA_LINE_JOIN_MITER);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
 
   arrow.type = ARROW_HOLLOW_TRIANGLE;
   arrow.length = GENERALIZATION_TRIANGLESIZE;
   arrow.width = GENERALIZATION_TRIANGLESIZE;
 
-  renderer_ops->draw_polyline_with_arrows(renderer,
-					   points, n,
-					   genlz->line_width,
-					   &genlz->line_color,
-					   &arrow, NULL);
+  dia_renderer_draw_polyline_with_arrows (renderer,
+                                          points,
+                                          n,
+                                          genlz->line_width,
+                                          &genlz->line_color,
+                                          &arrow, NULL);
 
-  renderer_ops->set_font(renderer, genlz->font, genlz->font_height);
+  dia_renderer_set_font (renderer, genlz->font, genlz->font_height);
   pos = genlz->text_pos;
 
   if (genlz->st_stereotype != NULL && genlz->st_stereotype[0] != '\0') {
-    renderer_ops->draw_string(renderer,
-			       genlz->st_stereotype,
-			       &pos, genlz->text_align,
-			       &genlz->text_color);
+    dia_renderer_draw_string (renderer,
+                              genlz->st_stereotype,
+                              &pos,
+                              genlz->text_align,
+                              &genlz->text_color);
 
     pos.y += genlz->font_height;
   }
 
   if (genlz->name != NULL && genlz->name[0] != '\0') {
-    renderer_ops->draw_string(renderer,
-			       genlz->name,
-			       &pos, genlz->text_align,
-			       &genlz->text_color);
+    dia_renderer_draw_string (renderer,
+                              genlz->name,
+                              &pos,
+                              genlz->text_align,
+                              &genlz->text_color);
   }
-
 }
 
 static void
@@ -271,7 +286,7 @@ generalization_update_data(Generalization *genlz)
   DiaObject *obj = &orth->object;
   int num_segm, i;
   Point *points;
-  Rectangle rect;
+  DiaRectangle rect;
   PolyBBExtras *extra;
   real descent;
   real ascent;
@@ -329,22 +344,25 @@ generalization_update_data(Generalization *genlz)
   }
 
   switch (genlz->orth.orientation[i]) {
-  case HORIZONTAL:
-    genlz->text_align = ALIGN_CENTER;
-    genlz->text_pos.x = 0.5*(points[i].x+points[i+1].x);
-    genlz->text_pos.y = points[i].y - descent;
-    break;
-  case VERTICAL:
-    genlz->text_align = ALIGN_LEFT;
-    genlz->text_pos.x = points[i].x + 0.1;
-    genlz->text_pos.y = 0.5*(points[i].y+points[i+1].y) - descent;
-    break;
+    case HORIZONTAL:
+      genlz->text_align = DIA_ALIGN_CENTRE;
+      genlz->text_pos.x = 0.5*(points[i].x+points[i+1].x);
+      genlz->text_pos.y = points[i].y - descent;
+      break;
+    case VERTICAL:
+      genlz->text_align = DIA_ALIGN_LEFT;
+      genlz->text_pos.x = points[i].x + 0.1;
+      genlz->text_pos.y = 0.5*(points[i].y+points[i+1].y) - descent;
+      break;
+    default:
+      g_return_if_reached ();
   }
 
   /* Add the text recangle to the bounding box: */
   rect.left = genlz->text_pos.x;
-  if (genlz->text_align == ALIGN_CENTER)
-    rect.left -= genlz->text_width/2.0;
+  if (genlz->text_align == DIA_ALIGN_CENTRE) {
+    rect.left -= genlz->text_width / 2.0;
+  }
   rect.right = rect.left + genlz->text_width;
   rect.top = genlz->text_pos.y - ascent;
   rect.bottom = rect.top + 2*genlz->font_height;
@@ -352,21 +370,27 @@ generalization_update_data(Generalization *genlz)
   rectangle_union(&obj->bounding_box, &rect);
 }
 
-static ObjectChange *
-generalization_add_segment_callback(DiaObject *obj, Point *clicked, gpointer data)
+
+static DiaObjectChange *
+generalization_add_segment_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
-  ObjectChange *change;
-  change = orthconn_add_segment((OrthConn *)obj, clicked);
-  generalization_update_data((Generalization *)obj);
+  DiaObjectChange *change;
+
+  change = orthconn_add_segment ((OrthConn *) obj, clicked);
+  generalization_update_data ((Generalization *) obj);
+
   return change;
 }
 
-static ObjectChange *
-generalization_delete_segment_callback(DiaObject *obj, Point *clicked, gpointer data)
+
+static DiaObjectChange *
+generalization_delete_segment_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
-  ObjectChange *change;
-  change = orthconn_delete_segment((OrthConn *)obj, clicked);
-  generalization_update_data((Generalization *)obj);
+  DiaObjectChange *change;
+
+  change = orthconn_delete_segment ((OrthConn *) obj, clicked);
+  generalization_update_data ((Generalization *) obj);
+
   return change;
 }
 
@@ -439,15 +463,17 @@ generalization_create(Point *startpoint,
   return (DiaObject *)genlz;
 }
 
+
 static void
-generalization_destroy(Generalization *genlz)
+generalization_destroy (Generalization *genlz)
 {
-  g_free(genlz->name);
-  g_free(genlz->stereotype);
-  g_free(genlz->st_stereotype);
-  dia_font_unref(genlz->font);
-  orthconn_destroy(&genlz->orth);
+  g_clear_pointer (&genlz->name, g_free);
+  g_clear_pointer (&genlz->stereotype, g_free);
+  g_clear_pointer (&genlz->st_stereotype, g_free);
+  g_clear_object (&genlz->font);
+  orthconn_destroy (&genlz->orth);
 }
+
 
 static DiaObject *
 generalization_load(ObjectNode obj_node, int version,DiaContext *ctx)

@@ -16,12 +16,12 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 
-#include "intl.h"
 #include "object.h"
 #include "connection.h"
 #include "connectionpoint.h"
@@ -48,13 +48,22 @@ typedef struct _Tree {
   Color line_color;
 } Tree;
 
+
+#define DIA_MISC_TYPE_TREE_OBJECT_CHANGE dia_misc_tree_object_change_get_type ()
+G_DECLARE_FINAL_TYPE (DiaMiscTreeObjectChange,
+                      dia_misc_tree_object_change,
+                      DIA_MISC, TREE_OBJECT_CHANGE,
+                      DiaObjectChange)
+
+
 enum change_type {
   TYPE_ADD_POINT,
   TYPE_REMOVE_POINT
 };
 
-struct PointChange {
-  ObjectChange obj_change;
+
+struct _DiaMiscTreeObjectChange {
+  DiaObjectChange obj_change;
 
   enum change_type type;
   int applied;
@@ -65,10 +74,18 @@ struct PointChange {
   ConnectionPoint *connected_to; /* NULL if not connected */
 };
 
-static ObjectChange* tree_move_handle(Tree *tree, Handle *handle,
-				     Point *to, ConnectionPoint *cp,
-				     HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* tree_move(Tree *tree, Point *to);
+
+DIA_DEFINE_OBJECT_CHANGE (DiaMiscTreeObjectChange, dia_misc_tree_object_change)
+
+
+static DiaObjectChange *tree_move_handle         (Tree             *tree,
+                                                  Handle           *handle,
+                                                  Point            *to,
+                                                  ConnectionPoint  *cp,
+                                                  HandleMoveReason  reason,
+                                                  ModifierKeys      modifiers);
+static DiaObjectChange *tree_move                (Tree             *tree,
+                                                  Point            *to);
 static void tree_select(Tree *tree, Point *clicked_point,
 		       DiaRenderer *interactive_renderer);
 static void tree_draw(Tree *tree, DiaRenderer *renderer);
@@ -88,14 +105,14 @@ static void tree_save(Tree *tree, ObjectNode obj_node, DiaContext *ctx);
 static DiaObject *tree_load(ObjectNode obj_node, int version,DiaContext *ctx);
 static DiaMenu *tree_get_object_menu(Tree *tree, Point *clickedpoint);
 
-static ObjectChange *
-tree_create_change(Tree *tree, enum change_type type,
-		  Point *point, Handle *handle,
-		  ConnectionPoint *connected_to);
+static DiaObjectChange *tree_create_change (Tree             *tree,
+                                            enum change_type  type,
+                                            Point            *point,
+                                            Handle           *handle,
+                                            ConnectionPoint  *connected_to);
 
 
-static ObjectTypeOps tree_type_ops =
-{
+static ObjectTypeOps tree_type_ops = {
   (CreateFunc) tree_create,
   (LoadFunc)   tree_load,
   (SaveFunc)   tree_save,
@@ -190,10 +207,14 @@ tree_select(Tree *tree, Point *clicked_point,
   connection_update_handles(&tree->connection);
 }
 
-static ObjectChange*
-tree_move_handle(Tree *tree, Handle *handle,
-		Point *to, ConnectionPoint *cp,
-		HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+tree_move_handle (Tree             *tree,
+                  Handle           *handle,
+                  Point            *to,
+                  ConnectionPoint  *cp,
+                  HandleMoveReason  reason,
+                  ModifierKeys      modifiers)
 {
   Connection *conn = &tree->connection;
   Point *endpoints;
@@ -263,8 +284,9 @@ tree_move_handle(Tree *tree, Handle *handle,
   return NULL;
 }
 
-static ObjectChange*
-tree_move(Tree *tree, Point *to)
+
+static DiaObjectChange *
+tree_move (Tree *tree, Point *to)
 {
   Point delta;
   Point *endpoints = &tree->connection.endpoints[0];
@@ -290,31 +312,32 @@ tree_move(Tree *tree, Point *to)
   return NULL;
 }
 
+
 static void
-tree_draw(Tree *tree, DiaRenderer *renderer)
+tree_draw (Tree *tree, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point *endpoints;
   int i;
 
-  assert(tree != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (tree != NULL);
+  g_return_if_fail (renderer != NULL);
 
   endpoints = &tree->real_ends[0];
 
-  renderer_ops->set_linewidth(renderer, LINE_WIDTH);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
-  renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
+  dia_renderer_set_linewidth (renderer, LINE_WIDTH);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
 
-  renderer_ops->draw_line(renderer,
-			   &endpoints[0], &endpoints[1],
- 			   &tree->line_color);
+  dia_renderer_draw_line (renderer,
+                          &endpoints[0],
+                          &endpoints[1],
+                          &tree->line_color);
 
   for (i=0;i<tree->num_handles;i++) {
-    renderer_ops->draw_line(renderer,
-			     &tree->parallel_points[i],
-			     &tree->handles[i]->pos,
-			     &tree->line_color);
+    dia_renderer_draw_line (renderer,
+                            &tree->parallel_points[i],
+                            &tree->handles[i]->pos,
+                            &tree->line_color);
   }
 }
 
@@ -329,9 +352,8 @@ tree_create(Point *startpoint,
   LineBBExtras *extra;
   DiaObject *obj;
   Point defaultlen = { 0.0, 20.0 };
-  int i;
 
-  tree = g_malloc0(sizeof(Tree));
+  tree = g_new0 (Tree, 1);
 
   conn = &tree->connection;
   conn->endpoints[0] = *startpoint;
@@ -348,10 +370,10 @@ tree_create(Point *startpoint,
 
   connection_init(conn, 2+tree->num_handles, 0);
   tree->line_color = attributes_get_foreground();
-  tree->handles = g_malloc(sizeof(Handle *)*tree->num_handles);
-  tree->parallel_points = g_malloc(sizeof(Point)*tree->num_handles);
-  for (i=0;i<tree->num_handles;i++) {
-    tree->handles[i] = g_new0(Handle,1);
+  tree->handles = g_new0 (Handle *, tree->num_handles);
+  tree->parallel_points = g_new0 (Point, tree->num_handles);
+  for (int i = 0; i < tree->num_handles; i++) {
+    tree->handles[i] = g_new0 (Handle,1);
     tree->handles[i]->id = HANDLE_BUS;
     tree->handles[i]->type = HANDLE_MINOR_CONTROL;
     tree->handles[i]->connect_type = HANDLE_CONNECTABLE_NOBREAK;
@@ -373,16 +395,18 @@ tree_create(Point *startpoint,
   return &tree->connection.object;
 }
 
+
 static void
-tree_destroy(Tree *tree)
+tree_destroy (Tree *tree)
 {
-  int i;
-  connection_destroy(&tree->connection);
-  for (i=0;i<tree->num_handles;i++)
-    g_free(tree->handles[i]);
-  g_free(tree->handles);
-  g_free(tree->parallel_points);
+  connection_destroy (&tree->connection);
+  for (int i = 0; i < tree->num_handles; i++) {
+    g_clear_pointer (&tree->handles[i], g_free);
+  }
+  g_clear_pointer (&tree->handles, g_free);
+  g_clear_pointer (&tree->parallel_points, g_free);
 }
+
 
 static DiaObject *
 tree_copy(Tree *tree)
@@ -390,11 +414,10 @@ tree_copy(Tree *tree)
   Tree *newtree;
   Connection *conn, *newconn;
   DiaObject *newobj;
-  int i;
 
   conn = &tree->connection;
 
-  newtree = g_malloc0(sizeof(Tree));
+  newtree = g_new0 (Tree, 1);
   newconn = &newtree->connection;
   newobj = &newconn->object;
 
@@ -403,11 +426,11 @@ tree_copy(Tree *tree)
   newtree->num_handles = tree->num_handles;
   newtree->line_color = tree->line_color;
 
-  newtree->handles = g_malloc(sizeof(Handle *)*newtree->num_handles);
-  newtree->parallel_points = g_malloc(sizeof(Point)*newtree->num_handles);
+  newtree->handles = g_new0 (Handle *, newtree->num_handles);
+  newtree->parallel_points = g_new0 (Point, newtree->num_handles);
 
-  for (i=0;i<newtree->num_handles;i++) {
-    newtree->handles[i] = g_new0(Handle,1);
+  for (int i = 0; i < newtree->num_handles; i++) {
+    newtree->handles[i] = g_new0 (Handle, 1);
     *newtree->handles[i] = *tree->handles[i];
     newtree->handles[i]->connected_to = NULL;
     newobj->handles[2+i] = newtree->handles[i];
@@ -492,10 +515,8 @@ tree_add_handle(Tree *tree, Point *p, Handle *handle)
   tree->num_handles++;
 
   /* Allocate more handles */
-  tree->handles = g_realloc(tree->handles,
-			   sizeof(Handle *)*tree->num_handles);
-  tree->parallel_points = g_realloc(tree->parallel_points,
-				   sizeof(Point)*tree->num_handles);
+  tree->handles = g_renew (Handle *, tree->handles, tree->num_handles);
+  tree->parallel_points = g_renew (Point, tree->parallel_points, tree->num_handles);
 
   i = tree->num_handles - 1;
 
@@ -508,43 +529,44 @@ tree_add_handle(Tree *tree, Point *p, Handle *handle)
   object_add_handle(&tree->connection.object, tree->handles[i]);
 }
 
+
 static void
-tree_remove_handle(Tree *tree, Handle *handle)
+tree_remove_handle (Tree *tree, Handle *handle)
 {
-  int i, j;
-
-  for (i=0;i<tree->num_handles;i++) {
+  for (int i = 0; i < tree->num_handles; i++) {
     if (tree->handles[i] == handle) {
-      object_remove_handle(&tree->connection.object, handle);
+      object_remove_handle (&tree->connection.object, handle);
 
-      for (j=i;j<tree->num_handles-1;j++) {
-	tree->handles[j] = tree->handles[j+1];
-	tree->parallel_points[j] = tree->parallel_points[j+1];
+      for (int j = i; j < tree->num_handles - 1; j++) {
+        tree->handles[j] = tree->handles[j+1];
+        tree->parallel_points[j] = tree->parallel_points[j+1];
       }
 
       tree->num_handles--;
-      tree->handles = g_realloc(tree->handles,
-			       sizeof(Handle *)*tree->num_handles);
-      tree->parallel_points = g_realloc(tree->parallel_points,
-				       sizeof(Point)*tree->num_handles);
+      tree->handles = g_renew (Handle *, tree->handles, tree->num_handles);
+      tree->parallel_points = g_renew (Point,
+                                       tree->parallel_points,
+                                       tree->num_handles);
 
       break;
     }
   }
 }
 
-static ObjectChange *
+
+static DiaObjectChange *
 tree_add_handle_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
   Tree *tree = (Tree *) obj;
   Handle *handle;
 
-  handle = g_new0(Handle,1);
-  tree_add_handle(tree, clicked, handle);
-  tree_update_data(tree);
+  handle = g_new0 (Handle, 1);
+  tree_add_handle (tree, clicked, handle);
+  tree_update_data (tree);
 
-  return tree_create_change(tree, TYPE_ADD_POINT, clicked, handle, NULL);
+  return tree_create_change (tree, TYPE_ADD_POINT, clicked, handle, NULL);
 }
+
 
 static int
 tree_point_near_handle(Tree *tree, Point *p)
@@ -570,7 +592,8 @@ tree_point_near_handle(Tree *tree, Point *p)
     return -1;
 }
 
-static ObjectChange *
+
+static DiaObjectChange *
 tree_delete_handle_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
   Tree *tree = (Tree *) obj;
@@ -640,9 +663,8 @@ tree_load(ObjectNode obj_node, int version,DiaContext *ctx)
   DiaObject *obj;
   AttributeNode attr;
   DataNode data;
-  int i;
 
-  tree = g_malloc0(sizeof(Tree));
+  tree = g_new0 (Tree, 1);
 
   conn = &tree->connection;
   obj = &conn->object;
@@ -662,10 +684,10 @@ tree_load(ObjectNode obj_node, int version,DiaContext *ctx)
   connection_init(conn, 2 + tree->num_handles, 0);
 
   data = attribute_first_data(attr);
-  tree->handles = g_malloc(sizeof(Handle *)*tree->num_handles);
-  tree->parallel_points = g_malloc(sizeof(Point)*tree->num_handles);
-  for (i=0;i<tree->num_handles;i++) {
-    tree->handles[i] = g_new0(Handle,1);
+  tree->handles = g_new0 (Handle *, tree->num_handles);
+  tree->parallel_points = g_new0 (Point, tree->num_handles);
+  for (int i = 0; i < tree->num_handles; i++) {
+    tree->handles[i] = g_new0 (Handle, 1);
     tree->handles[i]->id = HANDLE_BUS;
     tree->handles[i]->type = HANDLE_MINOR_CONTROL;
     tree->handles[i]->connect_type = HANDLE_CONNECTABLE_NOBREAK;
@@ -690,63 +712,76 @@ tree_load(ObjectNode obj_node, int version,DiaContext *ctx)
   return &tree->connection.object;
 }
 
+
 static void
-tree_change_free(struct PointChange *change)
+dia_misc_tree_object_change_free (DiaObjectChange *self)
 {
-  if ( (change->type==TYPE_ADD_POINT && !change->applied) ||
-       (change->type==TYPE_REMOVE_POINT && change->applied) ){
-    if (change->handle)
-      g_free(change->handle);
-    change->handle = NULL;
+  DiaMiscTreeObjectChange *change = DIA_MISC_TREE_OBJECT_CHANGE (self);
+
+  if ((change->type == TYPE_ADD_POINT && !change->applied) ||
+      (change->type == TYPE_REMOVE_POINT && change->applied) ){
+    g_clear_pointer (&change->handle, g_free);
   }
 }
 
+
 static void
-tree_change_apply(struct PointChange *change, DiaObject *obj)
+dia_misc_tree_object_change_apply (DiaObjectChange *self, DiaObject *obj)
 {
+  DiaMiscTreeObjectChange *change = DIA_MISC_TREE_OBJECT_CHANGE (self);
+
   change->applied = 1;
+
   switch (change->type) {
-  case TYPE_ADD_POINT:
-    tree_add_handle((Tree *)obj, &change->point, change->handle);
-    break;
-  case TYPE_REMOVE_POINT:
-    object_unconnect(obj, change->handle);
-    tree_remove_handle((Tree *)obj, change->handle);
-    break;
+    case TYPE_ADD_POINT:
+      tree_add_handle ((Tree *) obj, &change->point, change->handle);
+      break;
+    case TYPE_REMOVE_POINT:
+      object_unconnect (obj, change->handle);
+      tree_remove_handle ((Tree *) obj, change->handle);
+      break;
+    default:
+      g_return_if_reached ();
   }
-  tree_update_data((Tree *)obj);
+  tree_update_data ((Tree *) obj);
 }
 
+
 static void
-tree_change_revert(struct PointChange *change, DiaObject *obj)
+dia_misc_tree_object_change_revert (DiaObjectChange *self, DiaObject *obj)
 {
+  DiaMiscTreeObjectChange *change = DIA_MISC_TREE_OBJECT_CHANGE (self);
+
   switch (change->type) {
-  case TYPE_ADD_POINT:
-    tree_remove_handle((Tree *)obj, change->handle);
-    break;
-  case TYPE_REMOVE_POINT:
-    tree_add_handle((Tree *)obj, &change->point, change->handle);
-    if (change->connected_to) {
-      object_connect(obj, change->handle, change->connected_to);
-    }
-    break;
+    case TYPE_ADD_POINT:
+      tree_remove_handle ((Tree *) obj, change->handle);
+      break;
+    case TYPE_REMOVE_POINT:
+      tree_add_handle ((Tree *) obj, &change->point, change->handle);
+      if (change->connected_to) {
+        object_connect (obj, change->handle, change->connected_to);
+      }
+      break;
+    default:
+      g_return_if_reached ();
   }
-  tree_update_data((Tree *)obj);
+
+  tree_update_data ((Tree *) obj);
+
   change->applied = 0;
 }
 
-static ObjectChange *
-tree_create_change(Tree *tree, enum change_type type,
-		  Point *point, Handle *handle,
-		  ConnectionPoint *connected_to)
+
+static DiaObjectChange *
+tree_create_change (Tree             *tree,
+                    enum change_type  type,
+                    Point            *point,
+                    Handle           *handle,
+                    ConnectionPoint  *connected_to)
 {
-  struct PointChange *change;
+  DiaMiscTreeObjectChange *change;
 
-  change = g_new0(struct PointChange, 1);
-
-  change->obj_change.apply = (ObjectChangeApplyFunc) tree_change_apply;
-  change->obj_change.revert = (ObjectChangeRevertFunc) tree_change_revert;
-  change->obj_change.free = (ObjectChangeFreeFunc) tree_change_free;
+  change = dia_object_change_new (DIA_MISC_TYPE_TREE_OBJECT_CHANGE);
 
   change->type = type;
   change->applied = 1;
@@ -754,5 +789,5 @@ tree_create_change(Tree *tree, enum change_type type,
   change->handle = handle;
   change->connected_to = connected_to;
 
-  return (ObjectChange *)change;
+  return DIA_OBJECT_CHANGE (change);
 }

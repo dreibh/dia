@@ -19,13 +19,13 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "diarenderer.h"
@@ -62,10 +62,10 @@ static const double NODE_TEXT_MARGIN = 0.5;
 static real node_distance_from(Node *node, Point *point);
 static void node_select(Node *node, Point *clicked_point,
 				DiaRenderer *interactive_renderer);
-static ObjectChange* node_move_handle(Node *node, Handle *handle,
+static DiaObjectChange* node_move_handle(Node *node, Handle *handle,
 				      Point *to, ConnectionPoint *cp,
 				      HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* node_move(Node *node, Point *to);
+static DiaObjectChange* node_move(Node *node, Point *to);
 static void node_draw(Node *node, DiaRenderer *renderer);
 static DiaObject *node_create(Point *startpoint,
 				   void *user_data,
@@ -189,24 +189,29 @@ node_select(Node *node, Point *clicked_point,
   element_update_handles(&node->element);
 }
 
-static ObjectChange*
-node_move_handle(Node *node, Handle *handle,
-		 Point *to, ConnectionPoint *cp,
-		 HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+node_move_handle (Node             *node,
+                  Handle           *handle,
+                  Point            *to,
+                  ConnectionPoint  *cp,
+                  HandleMoveReason  reason,
+                  ModifierKeys      modifiers)
 {
-  assert(node!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+  g_return_val_if_fail (node != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
-  assert(handle->id < 8);
+  g_return_val_if_fail (handle->id < 8, NULL);
 
-  element_move_handle(&node->element, handle->id, to, cp, reason, modifiers);
-  node_update_data(node);
+  element_move_handle (&node->element, handle->id, to, cp, reason, modifiers);
+  node_update_data (node);
 
   return NULL;
 }
 
-static ObjectChange*
+
+static DiaObjectChange*
 node_move(Node *node, Point *to)
 {
   Point p;
@@ -223,16 +228,17 @@ node_move(Node *node, Point *to)
   return NULL;
 }
 
-static void node_draw(Node *node, DiaRenderer *renderer)
+
+static void
+node_draw (Node *node, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Element *elem;
-  real x, y, w, h;
+  double x, y, w, h;
   Point points[7];
   int i;
 
-  assert(node != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (node != NULL);
+  g_return_if_fail (renderer != NULL);
 
   elem = &node->element;
 
@@ -241,9 +247,9 @@ static void node_draw(Node *node, DiaRenderer *renderer)
   w = elem->width;
   h = elem->height;
 
-  renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
-  renderer_ops->set_linewidth(renderer, node->line_width);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
+  dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+  dia_renderer_set_linewidth (renderer, node->line_width);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
 
   /* Draw outer box */
   points[0].x = x;                  points[0].y = y;
@@ -254,34 +260,33 @@ static void node_draw(Node *node, DiaRenderer *renderer)
   points[5].x = x;                  points[5].y = y + h;
   points[6].x = x;                  points[6].y = y;
 
-  renderer_ops->draw_polygon(renderer, points, 7, &node->fill_color, &node->line_color);
+  dia_renderer_draw_polygon (renderer, points, 7, &node->fill_color, &node->line_color);
 
   /* Draw interior lines */
   points[0].x = x;                  points[0].y = y;
   points[1].x = x + w;              points[1].y = y;
-  renderer_ops->draw_line(renderer, &points[0], &points[1], &node->line_color);
+  dia_renderer_draw_line (renderer, &points[0], &points[1], &node->line_color);
 
   points[0].x = x + w;              points[0].y = y;
   points[1].x = x + w + NODE_DEPTH; points[1].y = y - NODE_DEPTH;
-  renderer_ops->draw_line(renderer, &points[0], &points[1], &node->line_color);
+  dia_renderer_draw_line (renderer, &points[0], &points[1], &node->line_color);
 
   points[0].x = x + w;              points[0].y = y;
   points[1].x = x + w;              points[1].y = y + h;
-  renderer_ops->draw_line(renderer, &points[0], &points[1], &node->line_color);
+  dia_renderer_draw_line (renderer, &points[0], &points[1], &node->line_color);
 
   /* Draw text */
-  text_draw(node->name, renderer);
+  text_draw (node->name, renderer);
 
   /* Draw underlines (!) */
-  renderer_ops->set_linewidth(renderer, NODE_LINEWIDTH);
+  dia_renderer_set_linewidth (renderer, NODE_LINEWIDTH);
   points[0].x = node->name->position.x;
   points[0].y = points[1].y = node->name->position.y + node->name->descent;
-  for (i = 0; i < node->name->numlines; i++)
-    {
-      points[1].x = points[0].x + text_get_line_width(node->name, i);
-      renderer_ops->draw_line(renderer, points, points + 1, &node->name->color);
-      points[0].y = points[1].y += node->name->height;
-    }
+  for (i = 0; i < node->name->numlines; i++) {
+    points[1].x = points[0].x + text_get_line_width (node->name, i);
+    dia_renderer_draw_line (renderer, points, points + 1, &node->name->color);
+    points[0].y = points[1].y += node->name->height;
+  }
 }
 
 static void
@@ -325,7 +330,7 @@ static DiaObject *node_create(Point *startpoint, void *user_data, Handle **handl
   DiaFont *font;
   int i;
 
-  node = g_malloc0(sizeof(Node));
+  node = g_new0 (Node, 1);
 
   /* old defaults */
   node->line_width = NODE_BORDERWIDTH;
@@ -346,8 +351,13 @@ static DiaObject *node_create(Point *startpoint, void *user_data, Handle **handl
   /* The text position is recalculated later */
   p.x = 0.0;
   p.y = 0.0;
-  node->name = new_text("", font, NODE_FONTHEIGHT, &p, &color_black, ALIGN_LEFT);
-  dia_font_unref(font);
+  node->name = new_text ("",
+                         font,
+                         NODE_FONTHEIGHT,
+                         &p,
+                         &color_black,
+                         DIA_ALIGN_LEFT);
+  g_clear_object (&font);
 
   element_init(elem, 8, NUM_CONNECTIONS);
 

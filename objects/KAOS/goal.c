@@ -26,14 +26,14 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 #include <glib.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "connectionpoint.h"
@@ -57,11 +57,13 @@
 #define GOAL_BG_COLOR color_white
 #define GOAL_OFFSET 0.5
 
+
 typedef enum {
   ANCHOR_MIDDLE,
   ANCHOR_START,
   ANCHOR_END
 } AnchorShape;
+
 
 typedef enum {
   SOFTGOAL,
@@ -70,6 +72,7 @@ typedef enum {
   ASSUMPTION,
   OBSTACLE
 } GoalType;
+
 
 static PropEnumData prop_goal_type_data[] = {
   { N_("Softgoal"), SOFTGOAL },
@@ -80,6 +83,7 @@ static PropEnumData prop_goal_type_data[] = {
   { NULL, 0}
 };
 
+
 typedef struct _Goal {
   Element element;
   ConnPointLine *north,*south,*east,*west;
@@ -87,17 +91,22 @@ typedef struct _Goal {
   Text *text;
   real padding;
   GoalType type;
-
-  int init;
 } Goal;
 
-static real goal_distance_from(Goal *goal, Point *point);
-static void goal_select(Goal *goal, Point *clicked_point,
-		       DiaRenderer *interactive_renderer);
-static ObjectChange* goal_move_handle(Goal *goal, Handle *handle,
-			    Point *to, ConnectionPoint *cp,
-			    HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* goal_move(Goal *goal, Point *to);
+
+static double           goal_distance_from             (Goal             *goal,
+                                                        Point            *point);
+static void             goal_select                    (Goal             *goal,
+                                                        Point            *clicked_point,
+                                                        DiaRenderer      *interactive_renderer);
+static DiaObjectChange *goal_move_handle               (Goal             *goal,
+                                                        Handle           *handle,
+                                                        Point            *to,
+                                                        ConnectionPoint  *cp,
+                                                        HandleMoveReason  reason,
+                                                        ModifierKeys      modifiers);
+static DiaObjectChange *goal_move                      (Goal             *goal,
+                                                        Point            *to);
 static void goal_draw(Goal *goal, DiaRenderer *renderer);
 static void goal_update_data(Goal *goal, AnchorShape horix, AnchorShape vert);
 static DiaObject *goal_create(Point *startpoint,
@@ -113,6 +122,7 @@ static PropDescription *goal_describe_props(Goal *goal);
 static void goal_get_props(Goal *goal, GPtrArray *props);
 static void goal_set_props(Goal *goal, GPtrArray *props);
 
+
 static ObjectTypeOps kaos_goal_type_ops =
 {
   (CreateFunc) goal_create,
@@ -122,13 +132,16 @@ static ObjectTypeOps kaos_goal_type_ops =
   (ApplyDefaultsFunc) NULL,
 };
 
+
 DiaObjectType kaos_goal_type =
 {
   "KAOS - goal",     /* name */
   0,              /* version */
   kaos_goal_xpm,   /* pixmap */
-  &kaos_goal_type_ops /* ops */
+  &kaos_goal_type_ops, /* ops */
+
 };
+
 
 static ObjectOps goal_ops = {
   (DestroyFunc)         goal_destroy,
@@ -148,6 +161,7 @@ static ObjectOps goal_ops = {
   (ApplyPropertiesListFunc) object_apply_props,
 };
 
+
 static PropDescription goal_props[] = {
   ELEMENT_COMMON_PROPERTIES,
   { "type", PROP_TYPE_ENUM, PROP_FLAG_VISIBLE|PROP_FLAG_NO_DEFAULTS,
@@ -157,210 +171,253 @@ static PropDescription goal_props[] = {
 
   { "text", PROP_TYPE_TEXT, 0,NULL,NULL},
 
-  { "cpl_north",PROP_TYPE_CONNPOINT_LINE, 0, NULL, NULL},
-  { "cpl_west",PROP_TYPE_CONNPOINT_LINE, 0, NULL, NULL},
-  { "cpl_south",PROP_TYPE_CONNPOINT_LINE, 0, NULL, NULL},
-  { "cpl_east",PROP_TYPE_CONNPOINT_LINE, 0, NULL, NULL},
+  { "cpl_north", PROP_TYPE_CONNPOINT_LINE, 0, NULL, NULL},
+  { "cpl_west", PROP_TYPE_CONNPOINT_LINE, 0, NULL, NULL},
+  { "cpl_south", PROP_TYPE_CONNPOINT_LINE, 0, NULL, NULL},
+  { "cpl_east", PROP_TYPE_CONNPOINT_LINE, 0, NULL, NULL},
   PROP_DESC_END
 };
 
+
 static PropDescription *
-goal_describe_props(Goal *goal)
+goal_describe_props (Goal *goal)
 {
   if (goal_props[0].quark == 0) {
-    prop_desc_list_calculate_quarks(goal_props);
+    prop_desc_list_calculate_quarks (goal_props);
   }
   return goal_props;
 }
 
+
 static PropOffset goal_offsets[] = {
   ELEMENT_COMMON_PROPERTIES_OFFSETS,
-  { "type", PROP_TYPE_ENUM, offsetof(Goal,type)},
-  { "text", PROP_TYPE_TEXT, offsetof(Goal,text)},
-  { "cpl_north",PROP_TYPE_CONNPOINT_LINE, offsetof(Goal,north)},
-  { "cpl_west",PROP_TYPE_CONNPOINT_LINE, offsetof(Goal,west)},
-  { "cpl_south",PROP_TYPE_CONNPOINT_LINE, offsetof(Goal,south)},
-  { "cpl_east",PROP_TYPE_CONNPOINT_LINE, offsetof(Goal,east)},
+  { "type", PROP_TYPE_ENUM, offsetof (Goal, type)},
+  { "text", PROP_TYPE_TEXT, offsetof (Goal, text)},
+  { "cpl_north", PROP_TYPE_CONNPOINT_LINE, offsetof (Goal, north)},
+  { "cpl_west", PROP_TYPE_CONNPOINT_LINE, offsetof (Goal, west)},
+  { "cpl_south", PROP_TYPE_CONNPOINT_LINE, offsetof (Goal, south)},
+  { "cpl_east", PROP_TYPE_CONNPOINT_LINE, offsetof (Goal, east)},
   {NULL}
 };
 
-static void
-goal_get_props(Goal *goal, GPtrArray *props)
-{
-  object_get_props_from_offsets(&goal->element.object,
-                                goal_offsets,props);
-}
 
 static void
-goal_set_props(Goal *goal, GPtrArray *props)
+goal_get_props (Goal *goal, GPtrArray *props)
 {
-  if (goal->init==-1) { goal->init++; return; }    /* workaround init bug */
-
-  object_set_props_from_offsets(&goal->element.object,
-                                goal_offsets,props);
-  goal_update_data(goal, ANCHOR_MIDDLE, ANCHOR_MIDDLE);
+  object_get_props_from_offsets (DIA_OBJECT (goal),
+                                 goal_offsets, props);
 }
+
+
+static void
+goal_set_props (Goal *goal, GPtrArray *props)
+{
+  object_set_props_from_offsets (DIA_OBJECT (goal),
+                                 goal_offsets, props);
+  goal_update_data (goal, ANCHOR_MIDDLE, ANCHOR_MIDDLE);
+}
+
 
 static real
-goal_distance_from(Goal *goal, Point *point)
+goal_distance_from (Goal *goal, Point *point)
 {
   Element *elem = &goal->element;
-  Rectangle rect;
+  DiaRectangle rect;
 
   rect.left = elem->corner.x - GOAL_LINE_SIMPLE_WIDTH/2;
   rect.right = elem->corner.x + elem->width + GOAL_LINE_SIMPLE_WIDTH/2;
   rect.top = elem->corner.y - GOAL_LINE_SIMPLE_WIDTH/2;
   rect.bottom = elem->corner.y + elem->height + GOAL_LINE_SIMPLE_WIDTH/2;
-  return distance_rectangle_point(&rect, point);
+  return distance_rectangle_point (&rect, point);
 }
+
 
 static void
-goal_select(Goal *goal, Point *clicked_point,
-	   DiaRenderer *interactive_renderer)
+goal_select (Goal        *goal,
+             Point       *clicked_point,
+             DiaRenderer *interactive_renderer)
 {
-  text_set_cursor(goal->text, clicked_point, interactive_renderer);
-  text_grab_focus(goal->text, &goal->element.object);
-  element_update_handles(&goal->element);
+  text_set_cursor (goal->text, clicked_point, interactive_renderer);
+  text_grab_focus (goal->text, &goal->element.object);
+  element_update_handles (&goal->element);
 }
 
-static ObjectChange*
-goal_move_handle(Goal *goal, Handle *handle,
-		Point *to, ConnectionPoint *cp,
-		HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+goal_move_handle (Goal             *goal,
+                  Handle           *handle,
+                  Point            *to,
+                  ConnectionPoint  *cp,
+                  HandleMoveReason  reason,
+                  ModifierKeys      modifiers)
 {
   AnchorShape horiz = ANCHOR_MIDDLE, vert = ANCHOR_MIDDLE;
 
-  assert(goal!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+  g_return_val_if_fail (goal != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
-  element_move_handle(&goal->element, handle->id, to, cp, reason, modifiers);
+  element_move_handle (&goal->element,
+                       handle->id,
+                       to,
+                       cp,
+                       reason,
+                       modifiers);
 
   switch (handle->id) {
-  case HANDLE_RESIZE_NW:
-    horiz = ANCHOR_END; vert = ANCHOR_END; break;
-  case HANDLE_RESIZE_N:
-    vert = ANCHOR_END; break;
-  case HANDLE_RESIZE_NE:
-    horiz = ANCHOR_START; vert = ANCHOR_END; break;
-  case HANDLE_RESIZE_E:
-    horiz = ANCHOR_START; break;
-  case HANDLE_RESIZE_SE:
-    horiz = ANCHOR_START; vert = ANCHOR_START; break;
-  case HANDLE_RESIZE_S:
-    vert = ANCHOR_START; break;
-  case HANDLE_RESIZE_SW:
-    horiz = ANCHOR_END; vert = ANCHOR_START; break;
-  case HANDLE_RESIZE_W:
-    horiz = ANCHOR_END; break;
-  default:
-    break;
+    case HANDLE_RESIZE_NW:
+      horiz = ANCHOR_END;
+      vert = ANCHOR_END;
+      break;
+    case HANDLE_RESIZE_N:
+      vert = ANCHOR_END;
+      break;
+    case HANDLE_RESIZE_NE:
+      horiz = ANCHOR_START;
+      vert = ANCHOR_END;
+      break;
+    case HANDLE_RESIZE_E:
+      horiz = ANCHOR_START;
+      break;
+    case HANDLE_RESIZE_SE:
+      horiz = ANCHOR_START;
+      vert = ANCHOR_START;
+      break;
+    case HANDLE_RESIZE_S:
+      vert = ANCHOR_START;
+      break;
+    case HANDLE_RESIZE_SW:
+      horiz = ANCHOR_END;
+      vert = ANCHOR_START;
+      break;
+    case HANDLE_RESIZE_W:
+      horiz = ANCHOR_END;
+      break;
+    case HANDLE_MOVE_STARTPOINT:
+    case HANDLE_MOVE_ENDPOINT:
+    case HANDLE_CUSTOM1:
+    case HANDLE_CUSTOM2:
+    case HANDLE_CUSTOM3:
+    case HANDLE_CUSTOM4:
+    case HANDLE_CUSTOM5:
+    case HANDLE_CUSTOM6:
+    case HANDLE_CUSTOM7:
+    case HANDLE_CUSTOM8:
+    case HANDLE_CUSTOM9:
+    default:
+      break;
   }
-  goal_update_data(goal, horiz, vert);
+
+  goal_update_data (goal, horiz, vert);
+
   return NULL;
 }
 
-static ObjectChange*
-goal_move(Goal *goal, Point *to)
+
+static DiaObjectChange*
+goal_move (Goal *goal, Point *to)
 {
   goal->element.corner = *to;
 
-  goal_update_data(goal, ANCHOR_MIDDLE, ANCHOR_MIDDLE);
+  goal_update_data (goal, ANCHOR_MIDDLE, ANCHOR_MIDDLE);
+
   return NULL;
 }
 
+
 /* auxialliary computations */
-static void compute_cloud(Goal *goal, BezPoint* bpl) {
-     double wd,hd;
-     Element *elem;
+static void
+compute_cloud (Goal *goal, BezPoint* bpl) {
+  double wd,hd;
+  Element *elem;
 
-     elem=&goal->element;
-     wd=elem->width/4.0;
-     hd=elem->height/4.0;
+  elem=&goal->element;
+  wd=elem->width/4.0;
+  hd=elem->height/4.0;
 
-     bpl[0].type=BEZ_MOVE_TO;
-     bpl[0].p1.x=elem->corner.x+wd/2.0;
-     bpl[0].p1.y=elem->corner.y+hd;
+  bpl[0].type=BEZ_MOVE_TO;
+  bpl[0].p1.x=elem->corner.x+wd/2.0;
+  bpl[0].p1.y=elem->corner.y+hd;
 
-     bpl[1].type=BEZ_CURVE_TO;
-     bpl[1].p3.x=bpl[0].p1.x+wd;
-     bpl[1].p3.y=bpl[0].p1.y+2*hd/5.0;
-     bpl[1].p1.x=bpl[0].p1.x;
-     bpl[1].p1.y=bpl[0].p1.y-hd*1.6;
-     bpl[1].p2.x=bpl[1].p3.x;
-     bpl[1].p2.y=bpl[1].p3.y-hd*1.6;
+  bpl[1].type=BEZ_CURVE_TO;
+  bpl[1].p3.x=bpl[0].p1.x+wd;
+  bpl[1].p3.y=bpl[0].p1.y+2*hd/5.0;
+  bpl[1].p1.x=bpl[0].p1.x;
+  bpl[1].p1.y=bpl[0].p1.y-hd*1.6;
+  bpl[1].p2.x=bpl[1].p3.x;
+  bpl[1].p2.y=bpl[1].p3.y-hd*1.6;
 
-     bpl[2].type=BEZ_CURVE_TO;
-     bpl[2].p3.x=bpl[1].p3.x+wd;
-     bpl[2].p3.y=bpl[0].p1.y-hd/5.0;
-     bpl[2].p1.x=bpl[1].p3.x;
-     bpl[2].p1.y=bpl[1].p3.y-hd*1.45;
-     bpl[2].p2.x=bpl[2].p3.x;
-     bpl[2].p2.y=bpl[2].p3.y-hd*1.45;
+  bpl[2].type=BEZ_CURVE_TO;
+  bpl[2].p3.x=bpl[1].p3.x+wd;
+  bpl[2].p3.y=bpl[0].p1.y-hd/5.0;
+  bpl[2].p1.x=bpl[1].p3.x;
+  bpl[2].p1.y=bpl[1].p3.y-hd*1.45;
+  bpl[2].p2.x=bpl[2].p3.x;
+  bpl[2].p2.y=bpl[2].p3.y-hd*1.45;
 
-     bpl[3].type=BEZ_CURVE_TO;
-     bpl[3].p3.x=bpl[2].p3.x+wd;
-     bpl[3].p3.y=bpl[0].p1.y+2*hd/5.0;
-     bpl[3].p1.x=bpl[2].p3.x;
-     bpl[3].p1.y=bpl[2].p3.y-hd*1.45;
-     bpl[3].p2.x=bpl[3].p3.x+wd/2.0;
-     bpl[3].p2.y=bpl[3].p3.y-hd*1.45;
+  bpl[3].type=BEZ_CURVE_TO;
+  bpl[3].p3.x=bpl[2].p3.x+wd;
+  bpl[3].p3.y=bpl[0].p1.y+2*hd/5.0;
+  bpl[3].p1.x=bpl[2].p3.x;
+  bpl[3].p1.y=bpl[2].p3.y-hd*1.45;
+  bpl[3].p2.x=bpl[3].p3.x+wd/2.0;
+  bpl[3].p2.y=bpl[3].p3.y-hd*1.45;
 
-     /* bottom of cloud starts here */
-     bpl[4].type=BEZ_CURVE_TO;
-     bpl[4].p3.x=bpl[3].p3.x;
-     bpl[4].p3.y=bpl[0].p1.y+2*hd;
-     bpl[4].p1.x=bpl[3].p3.x+wd/1.5;
-     bpl[4].p1.y=bpl[3].p3.y;
-     bpl[4].p2.x=bpl[4].p3.x+wd/1.5;
-     bpl[4].p2.y=bpl[4].p3.y;
+  /* bottom of cloud starts here */
+  bpl[4].type=BEZ_CURVE_TO;
+  bpl[4].p3.x=bpl[3].p3.x;
+  bpl[4].p3.y=bpl[0].p1.y+2*hd;
+  bpl[4].p1.x=bpl[3].p3.x+wd/1.5;
+  bpl[4].p1.y=bpl[3].p3.y;
+  bpl[4].p2.x=bpl[4].p3.x+wd/1.5;
+  bpl[4].p2.y=bpl[4].p3.y;
 
-     bpl[5].type=BEZ_CURVE_TO;
-     bpl[5].p3.x=bpl[4].p3.x-wd-wd/5.0;
-     bpl[5].p3.y=bpl[4].p3.y+wd/20.0;
-     bpl[5].p1.x=bpl[4].p3.x+wd/2.0;
-     bpl[5].p1.y=bpl[4].p3.y+hd*1.3;
-     bpl[5].p2.x=bpl[5].p3.x-wd/20.0;
-     bpl[5].p2.y=bpl[5].p3.y+hd*1.3;
+  bpl[5].type=BEZ_CURVE_TO;
+  bpl[5].p3.x=bpl[4].p3.x-wd-wd/5.0;
+  bpl[5].p3.y=bpl[4].p3.y+wd/20.0;
+  bpl[5].p1.x=bpl[4].p3.x+wd/2.0;
+  bpl[5].p1.y=bpl[4].p3.y+hd*1.3;
+  bpl[5].p2.x=bpl[5].p3.x-wd/20.0;
+  bpl[5].p2.y=bpl[5].p3.y+hd*1.3;
 
-     bpl[6].type=BEZ_CURVE_TO;
-     bpl[6].p3.x=bpl[5].p3.x-wd;
-     bpl[6].p3.y=bpl[4].p3.y+wd/10.0;
-     bpl[6].p1.x=bpl[5].p3.x;
-     bpl[6].p1.y=bpl[5].p3.y+hd*1.3;
-     bpl[6].p2.x=bpl[6].p3.x;
-     bpl[6].p2.y=bpl[6].p3.y+hd*1.3;
+  bpl[6].type=BEZ_CURVE_TO;
+  bpl[6].p3.x=bpl[5].p3.x-wd;
+  bpl[6].p3.y=bpl[4].p3.y+wd/10.0;
+  bpl[6].p1.x=bpl[5].p3.x;
+  bpl[6].p1.y=bpl[5].p3.y+hd*1.3;
+  bpl[6].p2.x=bpl[6].p3.x;
+  bpl[6].p2.y=bpl[6].p3.y+hd*1.3;
 
-     bpl[7].type=BEZ_CURVE_TO;
-     bpl[7].p3.x=bpl[6].p3.x-wd+wd/10.0;
-     bpl[7].p3.y=bpl[4].p3.y-wd/5.0;
-     bpl[7].p1.x=bpl[6].p3.x;
-     bpl[7].p1.y=bpl[6].p3.y+hd*1.45;
-     bpl[7].p2.x=bpl[7].p3.x;
-     bpl[7].p2.y=bpl[7].p3.y+hd*1.45;
+  bpl[7].type=BEZ_CURVE_TO;
+  bpl[7].p3.x=bpl[6].p3.x-wd+wd/10.0;
+  bpl[7].p3.y=bpl[4].p3.y-wd/5.0;
+  bpl[7].p1.x=bpl[6].p3.x;
+  bpl[7].p1.y=bpl[6].p3.y+hd*1.45;
+  bpl[7].p2.x=bpl[7].p3.x;
+  bpl[7].p2.y=bpl[7].p3.y+hd*1.45;
 
-     bpl[8].type=BEZ_CURVE_TO;
-     bpl[8].p3.x=bpl[0].p1.x;
-     bpl[8].p3.y=bpl[0].p1.y;
-     bpl[8].p1.x=bpl[7].p3.x-wd/1.6;
-     bpl[8].p1.y=bpl[7].p3.y;
-     bpl[8].p2.x=bpl[0].p1.x-wd/1.6;
-     bpl[8].p2.y=bpl[0].p1.y;
+  bpl[8].type=BEZ_CURVE_TO;
+  bpl[8].p3.x=bpl[0].p1.x;
+  bpl[8].p3.y=bpl[0].p1.y;
+  bpl[8].p1.x=bpl[7].p3.x-wd/1.6;
+  bpl[8].p1.y=bpl[7].p3.y;
+  bpl[8].p2.x=bpl[0].p1.x-wd/1.6;
+  bpl[8].p2.y=bpl[0].p1.y;
 }
+
 
 /* drawing stuff */
 static void
-goal_draw(Goal *goal, DiaRenderer *renderer)
+goal_draw (Goal *goal, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   double dx,ix;
   Point pl[4],p1,p2;
   BezPoint bpl[9];
   Element *elem;
 
   /* some asserts */
-  assert(goal != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (goal != NULL);
+  g_return_if_fail (renderer != NULL);
 
   elem = &goal->element;
 
@@ -388,47 +445,52 @@ goal_draw(Goal *goal, DiaRenderer *renderer)
       pl[3].x=elem->corner.x + GOAL_OFFSET;
       pl[3].y= elem->corner.y + elem->height;
       break;
+    // TODO: Should this be handled?
+    case SOFTGOAL:
     default:
       break;
   }
 
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
-  renderer_ops->set_linejoin(renderer, LINEJOIN_MITER);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
+  dia_renderer_set_linejoin (renderer, DIA_LINE_JOIN_MITER);
 
-  if (goal->type!=SOFTGOAL) {
-    renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
+  if (goal->type != SOFTGOAL) {
+    dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
 
-    if ((goal->type==REQUIREMENT) || (goal->type==ASSUMPTION)) {
-      renderer_ops->set_linewidth(renderer, GOAL_LINE_DOUBLE_WIDTH);
+    if ((goal->type == REQUIREMENT) || (goal->type == ASSUMPTION)) {
+      dia_renderer_set_linewidth (renderer, GOAL_LINE_DOUBLE_WIDTH);
     } else {
-      renderer_ops->set_linewidth(renderer, GOAL_LINE_SIMPLE_WIDTH);
+      dia_renderer_set_linewidth (renderer, GOAL_LINE_SIMPLE_WIDTH);
     }
 
-    renderer_ops->draw_polygon(renderer, pl, 4, &GOAL_BG_COLOR, &GOAL_FG_COLOR);
+    dia_renderer_draw_polygon (renderer, pl, 4, &GOAL_BG_COLOR, &GOAL_FG_COLOR);
 
     /* adding decoration for assumption */
-    if (goal->type==ASSUMPTION) {
+    if (goal->type == ASSUMPTION) {
       dx=GOAL_OFFSET+elem->height/10;
-      if (dx+GOAL_OFFSET>elem->height) dx=elem->height-GOAL_OFFSET; /* min size */
+      if (dx + GOAL_OFFSET > elem->height) {
+        dx=elem->height-GOAL_OFFSET; /* min size */
+      }
       p1.x=elem->corner.x+ GOAL_OFFSET + dx;
       p1.y=elem->corner.y;
       ix=GOAL_OFFSET*(GOAL_OFFSET+dx-elem->height)/(GOAL_OFFSET-elem->height);
       p2.x=elem->corner.x+ix;
       p2.y=elem->corner.y+GOAL_OFFSET+dx-ix;
-      renderer_ops->draw_line(renderer,&p1,&p2,&GOAL_FG_COLOR);
+      dia_renderer_draw_line (renderer, &p1, &p2, &GOAL_FG_COLOR);
     }
   } else { /* SOFTGOAL IS HERE */
-     compute_cloud(goal,bpl);
-     renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
-     renderer_ops->draw_beziergon(renderer,bpl,9,&GOAL_BG_COLOR,&GOAL_FG_COLOR);
+    compute_cloud (goal,bpl);
+    dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+    dia_renderer_draw_beziergon (renderer, bpl, 9, &GOAL_BG_COLOR, &GOAL_FG_COLOR);
   }
 
   /* drawing text */
-  text_draw(goal->text, renderer);
+  text_draw (goal->text, renderer);
 }
 
+
 static void
-goal_update_data(Goal *goal, AnchorShape horiz, AnchorShape vert)
+goal_update_data (Goal *goal, AnchorShape horiz, AnchorShape vert)
 {
   Element *elem = &goal->element;
   ElementBBExtras *extra = &elem->extra_spacing;
@@ -445,44 +507,51 @@ goal_update_data(Goal *goal, AnchorShape horiz, AnchorShape vert)
   center.y += elem->height/2;
   bottom_right.y += elem->height;
 
-  text_calc_boundingbox(goal->text, NULL);
+  text_calc_boundingbox (goal->text, NULL);
   width = goal->text->max_width + goal->padding*2;
   height = goal->text->height * goal->text->numlines + goal->padding*2;
 
-  if (width<2*GOAL_OFFSET) width=2*GOAL_OFFSET;
+  if (width < 2 * GOAL_OFFSET) width = 2 * GOAL_OFFSET;
   if (width > elem->width) elem->width = width;
   if (height > elem->height) elem->height = height;
 
   /* move shape if necessary ... */
   switch (horiz) {
-  case ANCHOR_MIDDLE:
-    elem->corner.x = center.x - elem->width/2; break;
-  case ANCHOR_END:
-    elem->corner.x = bottom_right.x - elem->width; break;
-  default:
-    break;
+    case ANCHOR_MIDDLE:
+      elem->corner.x = center.x - elem->width/2;
+      break;
+    case ANCHOR_END:
+      elem->corner.x = bottom_right.x - elem->width;
+      break;
+    case ANCHOR_START:
+    default:
+      break;
   }
+
   switch (vert) {
-  case ANCHOR_MIDDLE:
-    elem->corner.y = center.y - elem->height/2; break;
-  case ANCHOR_END:
-    elem->corner.y = bottom_right.y - elem->height; break;
-  default:
-    break;
+    case ANCHOR_MIDDLE:
+      elem->corner.y = center.y - elem->height/2;
+      break;
+    case ANCHOR_END:
+      elem->corner.y = bottom_right.y - elem->height;
+      break;
+    case ANCHOR_START:
+    default:
+      break;
   }
 
   p = elem->corner;
   p.x += elem->width / 2.0;
   p.y += elem->height / 2.0 - goal->text->height * goal->text->numlines / 2 +
     goal->text->ascent;
-  text_set_position(goal->text, &p);
+  text_set_position (goal->text, &p);
 
   extra->border_trans = GOAL_LINE_DOUBLE_WIDTH / 2.0;
-  element_update_boundingbox(elem);
+  element_update_boundingbox (elem);
 
   obj->position = elem->corner;
 
-  element_update_handles(elem);
+  element_update_handles (elem);
 
   /* Update connections: */
   nw = elem->corner;
@@ -493,52 +562,74 @@ goal_update_data(Goal *goal, AnchorShape horiz, AnchorShape vert)
   sw.y = se.y;
   sw.x = nw.x;
 
-  connpointline_update(goal->north);
-  connpointline_putonaline(goal->north,&ne,&nw,DIR_NORTH);
-  connpointline_update(goal->west);
-  connpointline_putonaline(goal->west,&nw,&sw,DIR_SOUTH);
-  connpointline_update(goal->south);
-  connpointline_putonaline(goal->south,&sw,&se,DIR_SOUTH);
-  connpointline_update(goal->east);
-  connpointline_putonaline(goal->east,&se,&ne,DIR_EAST);
+  connpointline_update (goal->north);
+  connpointline_putonaline (goal->north, &ne, &nw, DIR_NORTH);
+  connpointline_update (goal->west);
+  connpointline_putonaline (goal->west, &nw, &sw, DIR_SOUTH);
+  connpointline_update (goal->south);
+  connpointline_putonaline (goal->south, &sw, &se, DIR_SOUTH);
+  connpointline_update (goal->east);
+  connpointline_putonaline (goal->east, &se, &ne, DIR_EAST);
 }
 
+
 static ConnPointLine *
-goal_get_clicked_border(Goal *goal, Point *clicked)
+goal_get_clicked_border (Goal *goal, Point *clicked)
 {
   ConnPointLine *cpl;
   real dist,dist2;
 
   cpl = goal->north;
-  dist = distance_line_point(&goal->north->start,&goal->north->end,0,clicked);
+  dist = distance_line_point (&goal->north->start,
+                              &goal->north->end,
+                              0,
+                              clicked);
 
-  dist2 = distance_line_point(&goal->west->start,&goal->west->end,0,clicked);
+  dist2 = distance_line_point (&goal->west->start,
+                               &goal->west->end,
+                               0,
+                               clicked);
+
   if (dist2 < dist) {
     cpl = goal->west;
     dist = dist2;
   }
-  dist2 = distance_line_point(&goal->south->start,&goal->south->end,0,clicked);
+
+  dist2 = distance_line_point (&goal->south->start,
+                               &goal->south->end,
+                               0,
+                               clicked);
+
   if (dist2 < dist) {
     cpl = goal->south;
     dist = dist2;
   }
-  dist2 = distance_line_point(&goal->east->start,&goal->east->end,0,clicked);
+
+  dist2 = distance_line_point (&goal->east->start,
+                               &goal->east->end,
+                               0,
+                               clicked);
+
   if (dist2 < dist) {
     cpl = goal->east;
     /*dist = dist2;*/
   }
+
   return cpl;
 }
 
-inline static ObjectChange *
-goal_create_change(Goal *goal, ObjectChange *inner, ConnPointLine *cpl) {
-  return (ObjectChange *)inner;
+
+inline static DiaObjectChange *
+goal_create_change (Goal *goal, DiaObjectChange *inner, ConnPointLine *cpl)
+{
+  return (DiaObjectChange *) inner;
 }
 
-static ObjectChange *
-goal_add_connpoint_callback(DiaObject *obj, Point *clicked, gpointer data)
+
+static DiaObjectChange *
+goal_add_connpoint_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
-  ObjectChange *change;
+  DiaObjectChange *change;
   ConnPointLine *cpl;
   Goal *goal = (Goal *)obj;
 
@@ -548,10 +639,11 @@ goal_add_connpoint_callback(DiaObject *obj, Point *clicked, gpointer data)
   return goal_create_change(goal,change,cpl);
 }
 
-static ObjectChange *
-goal_remove_connpoint_callback(DiaObject *obj, Point *clicked, gpointer data)
+
+static DiaObjectChange *
+goal_remove_connpoint_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
-  ObjectChange *change;
+  DiaObjectChange *change;
   ConnPointLine *cpl;
   Goal *goal = (Goal *)obj;
 
@@ -599,7 +691,7 @@ goal_create(Point *startpoint,
   Point p;
   DiaFont* font;
 
-  goal = g_malloc0(sizeof(Goal));
+  goal = g_new0 (Goal, 1);
   elem = &goal->element;
   obj = &elem->object;
 
@@ -619,11 +711,11 @@ goal_create(Point *startpoint,
 
   font = dia_font_new_from_style( DIA_FONT_SANS , DEFAULT_FONT);
 
-  goal->text = new_text("", font,
-                       DEFAULT_FONT, &p,
-                       &color_black,
-                       ALIGN_CENTER);
-  dia_font_unref(font);
+  goal->text = new_text ("", font,
+                         DEFAULT_FONT, &p,
+                         &color_black,
+                         DIA_ALIGN_CENTRE);
+  g_clear_object (&font);
 
   element_init(elem, 8, 0);
 
@@ -647,8 +739,6 @@ goal_create(Point *startpoint,
     case 5:  goal->type=OBSTACLE; break;
     default: goal->type=GOAL; break;
   }
-
-  if (GPOINTER_TO_INT(user_data)!=0) goal->init=-1; else goal->init=0;
 
   return &goal->element.object;
 }

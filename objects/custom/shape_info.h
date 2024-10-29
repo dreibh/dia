@@ -21,8 +21,8 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef _SHAPE_INFO_H_
-#define _SHAPE_INFO_H_
+
+#pragma once
 
 #include <glib.h>
 
@@ -31,8 +31,9 @@
 #include "object.h"
 #include "text.h"
 #include "properties.h"
-#include "intl.h"
 #include "dia_svg.h"
+
+G_BEGIN_DECLS
 
 typedef enum {
   GE_LINE,
@@ -100,7 +101,7 @@ struct _GraphicElementText {
   Point anchor;
   char *string;
   Text *object;
-  Rectangle text_bounds;
+  DiaRectangle text_bounds;
 };
 
 struct _GraphicElementImage {
@@ -117,14 +118,14 @@ struct _GraphicElementImage {
 struct _GraphicElementSubShape {
   SHAPE_INFO_COMMON;
   GList *display_list;
-  
+
   gint h_anchor_method;
   gint v_anchor_method;
-  
+
   real default_scale;
-  
+
   /* subshape bounding box, center, ... */
-  
+
   Point center;
   real half_width;
   real half_height;
@@ -178,18 +179,18 @@ struct _ShapeInfo {
   /*! the filename is info required to load the real data on demand */
   gchar *filename;
   gboolean loaded;
-  
+
   /*! everything below could be put into it's own struct to also spare memory when the shapes are not created */
   /* @{ */
   int nconnections;
   Point *connections;
   int main_cp; /*!< the cp that gets connections from the whole object */
   int object_flags; /*!< set of PropFlags e.g. parenting */
-  Rectangle shape_bounds;
+  DiaRectangle shape_bounds;
   gboolean has_text;
   gboolean resize_with_text;
   gint text_align;
-  Rectangle text_bounds;
+  DiaRectangle text_bounds;
 
   ShapeAspectType aspect_type;
   real aspect_min, aspect_max;
@@ -199,11 +200,11 @@ struct _ShapeInfo {
 
 
   GList *display_list;
-  
+
   GList *subshapes;
 
   DiaObjectType *object_type; /* back link so we can find the correct type */
-  
+
   /*MC 11/03 added */
   int n_ext_attr;
   int ext_attr_size;
@@ -227,9 +228,20 @@ void shape_info_print(ShapeInfo *info);
 void shape_info_register (ShapeInfo *);
 gboolean shape_typeinfo_load (ShapeInfo* info);
 
-/*MC 11/03 handy g_new0 variant for struct with variable size */
-#define g_new0_ext(struct_type, ext_size)		\
-    ((struct_type *) g_malloc0 ((gsize) (sizeof (struct_type) + ext_size)))
+static inline gpointer G_GNUC_MALLOC
+dia_new_with_extra (size_t n_main_bytes, size_t n_extra, size_t n_extra_bytes)
+{
+  if (G_LIKELY (n_extra_bytes == 0 || n_extra <= G_MAXSIZE / n_extra_bytes)) {
+    size_t points_size = n_extra * n_extra_bytes;
+    if (G_LIKELY (G_MAXSIZE - points_size >= n_main_bytes)) {
+      return g_malloc0 (points_size + n_main_bytes);
+    }
+  }
 
-#endif
+  g_error ("%s: overflow allocating %"G_GSIZE_FORMAT"+(%"G_GSIZE_FORMAT"*%"G_GSIZE_FORMAT") bytes",
+           G_STRLOC, n_main_bytes, n_extra, n_extra_bytes);
 
+  return NULL;
+}
+
+G_END_DECLS

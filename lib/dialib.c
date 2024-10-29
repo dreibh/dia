@@ -16,7 +16,9 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,44 +30,28 @@
 
 #include "dialib.h"
 #include "message.h"
-#include "utils.h"
 #include "color.h"
 #include "object.h"
 #include "dia_dirs.h"
 #include "properties.h" /* stdprops_init() */
 #include "standard-path.h"
 
-static void
-stderr_message_internal(const char *title, enum ShowAgainStyle showAgain,
-			const char *fmt, va_list args,  va_list args2) G_GNUC_PRINTF(3, 0);
 
+G_GNUC_PRINTF(3, 0)
 static void
-stderr_message_internal(const char *title, enum ShowAgainStyle showAgain,
-			const char *fmt, va_list args,  va_list args2)
+stderr_message_internal (const char          *title,
+                         enum ShowAgainStyle  showAgain,
+                         const char          *fmt,
+                         va_list              args)
 {
-  static gchar *buf = NULL;
-  static gint   alloc = 0;
-  gint len;
-
-  len = g_printf_string_upper_bound (fmt, args);
-
-  if (len >= alloc) {
-    if (buf)
-      g_free (buf);
-    
-    alloc = nearest_pow (MAX(len + 1, 1024));
-    
-    buf = g_new (char, alloc);
-  }
-  
-  vsprintf (buf, fmt, args2);
-  
-  fprintf(stderr,
-          "%s: %s\n", 
-          title,buf);
+  char *msg = g_strdup_vprintf (fmt, args);
+  g_printerr ("%s: %s\n", title, msg);
+  g_clear_pointer (&msg, g_free);
 }
 
+
 #ifdef G_OS_WIN32
+G_GNUC_PRINTF(2, 3)
 static void
 myXmlErrorReporting (void *ctx, const char* msg, ...)
 {
@@ -74,29 +60,33 @@ myXmlErrorReporting (void *ctx, const char* msg, ...)
 
   va_start(args, msg);
   string = g_strdup_vprintf (msg, args);
-  g_print ("%s", string ? string : "xml error (null)?");
+  g_printerr ("%s", string ? string : "xml error (null)?");
   va_end(args);
 
-  g_free(string);
+  g_clear_pointer (&string, g_free);
 }
 #endif
 
+
 /**
- * Basic (i.e. minimal) initialization of libdia. 
+ * libdia_init:
+ * @flags: a set of #DiaInitFlags
  *
- * It does not load any plug-ins but instead brings libdia to a state that plug-in loading can take place.
- * @param flags a set of DIA_INTERACTIVE, DIA_MESSAGE_STDERR
+ * Basic (i.e. minimal) initialization of libdia.
+ *
+ * It does not load any plug-ins but instead brings libdia to a state that
+ * plug-in loading can take place.
  */
 void
 libdia_init (guint flags)
 {
   static gboolean initialized = FALSE;
-  
+
   if (initialized)
     return;
 
   if (flags & DIA_MESSAGE_STDERR)
-    set_message_func(stderr_message_internal);    
+    set_message_func(stderr_message_internal);
   LIBXML_TEST_VERSION;
 
 #ifdef G_OS_WIN32
@@ -110,16 +100,14 @@ libdia_init (guint flags)
   stdprops_init();
 
   if (flags & DIA_INTERACTIVE) {
+#if !GTK_CHECK_VERSION (3, 0, 0)
     char *diagtkrc;
-
-    gtk_widget_set_default_colormap(gdk_rgb_get_cmap());
 
     diagtkrc = dia_config_filename("diagtkrc");
     dia_log_message ("Config from %s", diagtkrc);
     gtk_rc_parse(diagtkrc);
-    g_free(diagtkrc);
-
-    color_init();
+    g_clear_pointer (&diagtkrc, g_free);
+#endif
   }
   initialized = TRUE;
 

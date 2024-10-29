@@ -15,18 +15,27 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef POLY_CONN_H
-#define POLY_CONN_H
+
+#pragma once
 
 #include "diatypes.h"
 #include "object.h"
 #include "boundingbox.h"
 
+G_BEGIN_DECLS
+
+#define DIA_TYPE_POLY_CONN_OBJECT_CHANGE dia_poly_conn_object_change_get_type ()
+G_DECLARE_FINAL_TYPE (DiaPolyConnObjectChange,
+                      dia_poly_conn_object_change,
+                      DIA, POLY_CONN_OBJECT_CHANGE,
+                      DiaObjectChange)
+
+
 #define HANDLE_CORNER (HANDLE_CUSTOM1)
 
 /*!
  * \brief helper for implementing polyline connections
- * 
+ *
  * This is a subclass of DiaObject used to help implementing objects
  * that connect points with polygonal line-segments.
  *
@@ -51,13 +60,19 @@ void polyconn_destroy(PolyConn *poly);
 void polyconn_copy(PolyConn *from, PolyConn *to);
 void polyconn_save(PolyConn *poly, ObjectNode obj_node, DiaContext *ctx);
 void polyconn_load(PolyConn *poly, ObjectNode obj_node, DiaContext *ctx);  /* NOTE: Does object_init() */
-ObjectChange *polyconn_add_point(PolyConn *poly, int segment, Point *point);
-ObjectChange *polyconn_remove_point(PolyConn *poly, int point);
-ObjectChange *polyconn_move_handle(PolyConn *poly, Handle *id,
-				   Point *to, ConnectionPoint *cp,
-				   HandleMoveReason reason,
-				   ModifierKeys modifiers);
-ObjectChange *polyconn_move(PolyConn *poly, Point *to);
+DiaObjectChange *polyconn_add_point       (PolyConn         *poly,
+                                           int               segment,
+                                           Point            *point);
+DiaObjectChange *polyconn_remove_point    (PolyConn         *poly,
+                                           int               point);
+DiaObjectChange *polyconn_move_handle     (PolyConn         *poly,
+                                           Handle           *id,
+                                           Point            *to,
+                                           ConnectionPoint  *cp,
+                                           HandleMoveReason  reason,
+                                           ModifierKeys      modifiers);
+DiaObjectChange *polyconn_move            (PolyConn         *poly,
+                                           Point            *to);
 real polyconn_distance_from(PolyConn *poly, Point *point,
 			    real line_width);
 Handle *polyconn_closest_handle(PolyConn *poly, Point *point);
@@ -73,4 +88,4 @@ int polyconn_closest_segment(PolyConn *poly, Point *point,
   { "poly_points", PROP_TYPE_POINTARRAY, \
      offsetof(PolyConn,points), offsetof(PolyConn,numpoints)} \
 
-#endif /* POLY_CONN_H */
+G_END_DECLS

@@ -16,13 +16,13 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 
-#include "intl.h"
 #include "object.h"
 #include "connection.h"
 #include "diarenderer.h"
@@ -62,10 +62,10 @@ struct _Constraint {
 #define HANDLE_MOVE_TEXT (HANDLE_CUSTOM1)
 
 
-static ObjectChange* constraint_move_handle(Constraint *constraint, Handle *handle,
+static DiaObjectChange* constraint_move_handle(Constraint *constraint, Handle *handle,
 					    Point *to, ConnectionPoint *cp,
 					    HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* constraint_move(Constraint *constraint, Point *to);
+static DiaObjectChange* constraint_move(Constraint *constraint, Point *to);
 static void constraint_select(Constraint *constraint, Point *clicked_point,
 			      DiaRenderer *interactive_renderer);
 static void constraint_draw(Constraint *constraint, DiaRenderer *renderer);
@@ -165,8 +165,7 @@ constraint_set_props(Constraint *constraint, GPtrArray *props)
 {
   object_set_props_from_offsets(&constraint->connection.object,
                                 constraint_offsets, props);
-  g_free(constraint->brtext);
-  constraint->brtext = NULL;
+  g_clear_pointer (&constraint->brtext, g_free);
   constraint_update_data(constraint);
 }
 
@@ -190,17 +189,21 @@ constraint_select(Constraint *constraint, Point *clicked_point,
   connection_update_handles(&constraint->connection);
 }
 
-static ObjectChange*
-constraint_move_handle(Constraint *constraint, Handle *handle,
-		       Point *to, ConnectionPoint *cp,
-		       HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+constraint_move_handle (Constraint       *constraint,
+                        Handle           *handle,
+                        Point            *to,
+                        ConnectionPoint  *cp,
+                        HandleMoveReason  reason,
+                        ModifierKeys      modifiers)
 {
   Point p1, p2;
   Point *endpoints;
 
-  assert(constraint!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+  g_return_val_if_fail (constraint != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
   if (handle->id == HANDLE_MOVE_TEXT) {
     constraint->text_pos = *to;
@@ -208,21 +211,26 @@ constraint_move_handle(Constraint *constraint, Handle *handle,
     endpoints = &constraint->connection.endpoints[0];
     p1.x = 0.5*(endpoints[0].x + endpoints[1].x);
     p1.y = 0.5*(endpoints[0].y + endpoints[1].y);
-    connection_move_handle(&constraint->connection, handle->id, to, cp,
-			   reason, modifiers);
-    connection_adjust_for_autogap(&constraint->connection);
-    p2.x = 0.5*(endpoints[0].x + endpoints[1].x);
-    p2.y = 0.5*(endpoints[0].y + endpoints[1].y);
-    point_sub(&p2, &p1);
-    point_add(&constraint->text_pos, &p2);
+    connection_move_handle (&constraint->connection,
+                            handle->id,
+                            to,
+                            cp,
+                            reason,
+                            modifiers);
+    connection_adjust_for_autogap (&constraint->connection);
+    p2.x = 0.5 * (endpoints[0].x + endpoints[1].x);
+    p2.y = 0.5 * (endpoints[0].y + endpoints[1].y);
+    point_sub (&p2, &p1);
+    point_add (&constraint->text_pos, &p2);
   }
 
-  constraint_update_data(constraint);
+  constraint_update_data (constraint);
 
   return NULL;
 }
 
-static ObjectChange*
+
+static DiaObjectChange*
 constraint_move(Constraint *constraint, Point *to)
 {
   Point start_to_end;
@@ -246,37 +254,40 @@ constraint_move(Constraint *constraint, Point *to)
 }
 
 static void
-constraint_draw(Constraint *constraint, DiaRenderer *renderer)
+constraint_draw (Constraint *constraint, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point *endpoints;
   Arrow arrow;
 
-  assert(constraint != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (constraint != NULL);
+  g_return_if_fail (renderer != NULL);
 
   endpoints = &constraint->connection.endpoints[0];
 
-  renderer_ops->set_linewidth(renderer, constraint->line_width);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_DASHED, CONSTRAINT_DASHLEN);
-  renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
+  dia_renderer_set_linewidth (renderer, constraint->line_width);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_DASHED, CONSTRAINT_DASHLEN);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
 
   arrow.type = ARROW_LINES;
   arrow.length = CONSTRAINT_ARROWLEN;
   arrow.width = CONSTRAINT_ARROWWIDTH;
 
-  renderer_ops->draw_line_with_arrows(renderer,
-				       &endpoints[0], &endpoints[1],
-				       constraint->line_width,
-				       &constraint->line_color,
-				       NULL, &arrow);
+  dia_renderer_draw_line_with_arrows (renderer,
+                                      &endpoints[0],
+                                      &endpoints[1],
+                                      constraint->line_width,
+                                      &constraint->line_color,
+                                      NULL,
+                                      &arrow);
 
-  renderer_ops->set_font(renderer, constraint->font,
-			  constraint->font_height);
-  renderer_ops->draw_string(renderer,
-			     constraint->brtext,
-			     &constraint->text_pos, ALIGN_LEFT,
-			     &constraint->text_color);
+  dia_renderer_set_font (renderer,
+                         constraint->font,
+                         constraint->font_height);
+  dia_renderer_draw_string (renderer,
+                            constraint->brtext,
+                            &constraint->text_pos,
+                            DIA_ALIGN_LEFT,
+                            &constraint->text_color);
 }
 
 static DiaObject *
@@ -290,7 +301,7 @@ constraint_create(Point *startpoint,
   DiaObject *obj;
   Point defaultlen = { 1.0, 1.0 };
 
-  constraint = g_malloc0(sizeof(Constraint));
+  constraint = g_new0 (Constraint, 1);
 
   /* old defaults */
   constraint->font_height = 0.8;
@@ -332,12 +343,12 @@ constraint_create(Point *startpoint,
 
 
 static void
-constraint_destroy(Constraint *constraint)
+constraint_destroy (Constraint *constraint)
 {
-  connection_destroy(&constraint->connection);
-  dia_font_unref(constraint->font);
-  g_free(constraint->brtext);
-  g_free(constraint->text);
+  connection_destroy (&constraint->connection);
+  g_clear_object (&constraint->font);
+  g_clear_pointer (&constraint->brtext, g_free);
+  g_clear_pointer (&constraint->text, g_free);
 }
 
 static void
@@ -345,12 +356,12 @@ constraint_update_data(Constraint *constraint)
 {
   Connection *conn = &constraint->connection;
   DiaObject *obj = &conn->object;
-  Rectangle rect;
+  DiaRectangle rect;
   LineBBExtras *extra;
 
   if ((constraint->text) && (constraint->text[0] == '{')) {
     /* we might have a string loaded from an older dia. Clean it up. */
-    g_free(constraint->brtext);
+    g_clear_pointer (&constraint->brtext, g_free);
     constraint->brtext = constraint->text;
     constraint->text = bracketted_to_string(constraint->text,"{","}");
   } else if (!constraint->brtext) {

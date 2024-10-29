@@ -22,11 +22,13 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <config.h>
+
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <gtk/gtk.h>
 #define WIDGET GtkWidget
-#include "widgets.h"
 #include "properties.h"
 #include "propinternals.h"
 #include "message.h"
@@ -43,18 +45,19 @@ pixbufprop_new(const PropDescription *pdesc, PropDescToPropPredicate reason)
   return prop;
 }
 
+
 static void
-pixbufprop_free(PixbufProperty *prop) 
+pixbufprop_free(PixbufProperty *prop)
 {
-  if (prop->pixbuf)
-    g_object_unref(prop->pixbuf);
-  g_free(prop);
-} 
+  g_clear_object (&prop->pixbuf);
+  g_clear_pointer (&prop, g_free);
+}
+
 
 static PixbufProperty *
-pixbufprop_copy(PixbufProperty *src) 
+pixbufprop_copy(PixbufProperty *src)
 {
-  PixbufProperty *prop = 
+  PixbufProperty *prop =
     (PixbufProperty *)src->common.ops->new_prop(src->common.descr,
                                               src->common.reason);
   if (src->pixbuf) /* TODO: rething on edit - gdk_pixbuf_copy() ? */
@@ -63,11 +66,15 @@ pixbufprop_copy(PixbufProperty *src)
   return prop;
 }
 
-/** Convert Base64 to pixbuf
- * @param b64 Base64 encoded data
+
+/**
+ * pixbuf_decode_base64:
+ * @b64: Base64 encoded data
+ *
+ * Convert Base64 to pixbuf
  */
 GdkPixbuf *
-pixbuf_decode_base64 (const gchar *b64)
+pixbuf_decode_base64 (const char *b64)
 {
   /* see lib/prop_pixbuf.c(data_pixbuf) for a very similar implementation */
   GdkPixbuf *pixbuf = NULL;
@@ -76,13 +83,13 @@ pixbuf_decode_base64 (const gchar *b64)
 
   loader = gdk_pixbuf_loader_new ();
   if (loader) {
-    gint state = 0;
+    int state = 0;
     guint save = 0;
 #   define BUF_SIZE 4096
     guchar buf[BUF_SIZE];
-    gchar *in = (gchar *)b64; /* direct access, not involving another xmlStrDup/xmlFree */
+    char *in = (gchar *)b64; /* direct access, not involving another xmlStrDup/xmlFree */
     gssize len = strlen (b64);
-	
+
     do {
       gsize step = g_base64_decode_step (in,
 					 len > BUF_SIZE ? BUF_SIZE : len,
@@ -93,29 +100,31 @@ pixbuf_decode_base64 (const gchar *b64)
       in += BUF_SIZE;
       len -= BUF_SIZE;
     } while (len > 0);
+
     if (gdk_pixbuf_loader_close (loader, error ? NULL : &error)) {
       GdkPixbufFormat *format = gdk_pixbuf_loader_get_format (loader);
-      gchar  *format_name = gdk_pixbuf_format_get_name (format);
-      gchar **mime_types = gdk_pixbuf_format_get_mime_types (format);
+      char  *format_name = gdk_pixbuf_format_get_name (format);
+      char **mime_types = gdk_pixbuf_format_get_mime_types (format);
 
       dia_log_message ("Loaded pixbuf from '%s' with '%s'", format_name, mime_types[0]);
       pixbuf = g_object_ref (gdk_pixbuf_loader_get_pixbuf (loader));
       /* attach the mime-type to the pixbuf */
       g_object_set_data_full (G_OBJECT (pixbuf), "mime-type",
-			      g_strdup (mime_types[0]),
-			      (GDestroyNotify)g_free);
+                              g_strdup (mime_types[0]),
+                              (GDestroyNotify) g_free);
       g_strfreev (mime_types);
-      g_free (format_name);
+      g_clear_pointer (&format_name, g_free);
     } else {
       message_warning (_("Failed to load image form diagram:\n%s"), error->message);
-      g_error_free (error);
+      g_clear_error (&error);
     }
 
-    g_object_unref (loader);
+    g_clear_object (&loader);
   }
   return pixbuf;
 # undef BUF_SIZE
 }
+
 
 GdkPixbuf *
 data_pixbuf (DataNode data, DiaContext *ctx)
@@ -151,20 +160,21 @@ data_pixbuf (DataNode data, DiaContext *ctx)
       in += BUF_SIZE;
       len -= BUF_SIZE;
     } while (len > 0);
+
     if (gdk_pixbuf_loader_close (loader, error ? NULL : &error)) {
       pixbuf = g_object_ref (gdk_pixbuf_loader_get_pixbuf (loader));
     } else {
       message_warning (_("Failed to load image form diagram:\n%s"), error->message);
-      g_error_free (error);
+      g_clear_error (&error);
     }
 
-    g_object_unref (loader);
+    g_clear_object (&loader);
   }
 #  undef BUF_SIZE
   return pixbuf;
 }
 
-static void 
+static void
 pixbufprop_load(PixbufProperty *prop, AttributeNode attr, DataNode data, DiaContext *ctx)
 {
   prop->pixbuf = data_pixbuf (data, ctx);
@@ -172,7 +182,7 @@ pixbufprop_load(PixbufProperty *prop, AttributeNode attr, DataNode data, DiaCont
 
 typedef struct _EncodeData {
   GByteArray *array;
-  
+
   gsize size;
 
   gint state;
@@ -190,25 +200,34 @@ _pixbuf_encode (const gchar *buf,
 
   g_byte_array_set_size (ed->array, ed->size + growth);
   out = (gchar *)&ed->array->data[ed->size];
-  ed->size += g_base64_encode_step ((guchar *)buf, count, TRUE, 
+  ed->size += g_base64_encode_step ((guchar *)buf, count, TRUE,
                                     out, &ed->state, &ed->save);
 
   return TRUE;
 }
 
-static const gchar *
+
+static const char *
 _make_pixbuf_type_name (const char *p)
 {
-  if (p && strstr (p, "image/jpeg"))
+  if (p && strstr (p, "image/jpeg")) {
     return "jpeg";
-  if (p && strstr (p, "image/jp2"))
+  }
+  if (p && strstr (p, "image/jp2")) {
     return "jpeg2000";
+  }
   return "png";
 }
 
-/** Reusable variant of pixbuf to base64 string conversion
+
+/**
+ * pixbuf_encode_base64:
+ * @pixbuf: the #GdkPixbuf to encode
+ * @prefix: mime type
+ *
+ * Reusable variant of pixbuf to base64 string conversion
  */
-gchar *
+char *
 pixbuf_encode_base64 (const GdkPixbuf *pixbuf, const char *prefix)
 {
   GError *error = NULL;
@@ -220,11 +239,13 @@ pixbuf_encode_base64 (const GdkPixbuf *pixbuf, const char *prefix)
     ed.size = strlen (prefix);
     g_byte_array_append (ed.array, (guint8 *)prefix, ed.size);
   }
+
   if (!gdk_pixbuf_save_to_callback ((GdkPixbuf *)pixbuf, _pixbuf_encode, &ed, type, &error, NULL)) {
     message_error (_("Saving inline pixbuf failed:\n%s"), error->message);
-    g_error_free (error);
+    g_clear_error (&error);
     return NULL;
   }
+
   /* g_base64_encode_close ... [needs] up to 5 bytes if line-breaking is enabled */
   /* also make the array 0-terminated */
   g_byte_array_append (ed.array, (guint8 *)"\0\0\0\0\0", 6);
@@ -246,20 +267,20 @@ data_add_pixbuf (AttributeNode attr, GdkPixbuf *pixbuf, DiaContext *ctx)
   if (b64)
     (void)xmlNewChild (comp_attr, NULL, (const xmlChar *)"data", (xmlChar *)b64);
 
-  g_free (b64);
+  g_clear_pointer (&b64, g_free);
 }
 
-static void 
-pixbufprop_save(PixbufProperty *prop, AttributeNode attr, DiaContext *ctx) 
+static void
+pixbufprop_save(PixbufProperty *prop, AttributeNode attr, DiaContext *ctx)
 {
   if (prop->pixbuf) {
     data_add_pixbuf (attr, prop->pixbuf, ctx);
   }
 }
 
-static void 
+static void
 pixbufprop_get_from_offset(PixbufProperty *prop,
-                         void *base, guint offset, guint offset2) 
+                         void *base, guint offset, guint offset2)
 {
   /* before we start editing a simple reference should be enough */
   GdkPixbuf *pixbuf = struct_member(base,offset,GdkPixbuf *);
@@ -270,22 +291,30 @@ pixbufprop_get_from_offset(PixbufProperty *prop,
     prop->pixbuf = NULL;
 }
 
-static void 
-pixbufprop_set_from_offset(PixbufProperty *prop,
-                           void *base, guint offset, guint offset2)
+
+static void
+pixbufprop_set_from_offset (PixbufProperty *prop,
+                            void           *base,
+                            guint           offset,
+                            guint           offset2)
 {
-  GdkPixbuf *dest = struct_member(base,offset,GdkPixbuf *);
-  if (dest == prop->pixbuf)
+  GdkPixbuf *dest = struct_member (base, offset, GdkPixbuf *);
+
+  if (dest == prop->pixbuf) {
     return;
-  if (dest)
-    g_object_unref (dest);
-  if (prop->pixbuf)
-    struct_member(base,offset, GdkPixbuf *) = g_object_ref (prop->pixbuf);
-  else
-    struct_member(base,offset, GdkPixbuf *) = NULL;
+  }
+
+  g_clear_object (&dest);
+
+  if (prop->pixbuf) {
+    struct_member (base, offset, GdkPixbuf *) = g_object_ref (prop->pixbuf);
+  } else {
+    struct_member (base, offset, GdkPixbuf *) = NULL;
+  }
 }
 
-/* GUI stuff - not yet 
+
+/* GUI stuff - not yet
    - allow to crop
    - maybe scale
  */
@@ -299,8 +328,8 @@ _pixbuf_toggled(GtkWidget *wid)
 }
 
 static GtkWidget *
-pixbufprop_get_widget (PixbufProperty *prop, PropDialog *dialog) 
-{ 
+pixbufprop_get_widget (PixbufProperty *prop, PropDialog *dialog)
+{
   GtkWidget *ret = gtk_toggle_button_new_with_label(_("No"));
   g_signal_connect(G_OBJECT(ret), "toggled",
                    G_CALLBACK (_pixbuf_toggled), NULL);
@@ -308,24 +337,25 @@ pixbufprop_get_widget (PixbufProperty *prop, PropDialog *dialog)
   return ret;
 }
 
-static void 
+static void
 pixbufprop_reset_widget(PixbufProperty *prop, GtkWidget *widget)
 {
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(widget),prop->pixbuf != NULL);
 }
 
-static void 
-pixbufprop_set_from_widget(PixbufProperty *prop, GtkWidget *widget) 
+
+static void
+pixbufprop_set_from_widget(PixbufProperty *prop, GtkWidget *widget)
 {
   if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(widget))) {
-    if (!prop->pixbuf)
+    if (!prop->pixbuf) {
       message_warning (_("Cant create image data from scratch!"));
+    }
   } else {
-    if (prop->pixbuf)
-      g_object_unref (prop->pixbuf);
-    prop->pixbuf = NULL;
+    g_clear_object (&prop->pixbuf);
   }
 }
+
 
 static const PropertyOps pixbufprop_ops = {
   (PropertyType_New) pixbufprop_new,
@@ -342,7 +372,7 @@ static const PropertyOps pixbufprop_ops = {
   (PropertyType_SetFromOffset) pixbufprop_set_from_offset
 };
 
-void 
+void
 prop_pixbuftypes_register(void)
 {
   prop_type_register(PROP_TYPE_PIXBUF, &pixbufprop_ops);

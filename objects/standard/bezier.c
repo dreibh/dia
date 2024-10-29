@@ -19,16 +19,17 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 
-#include "intl.h"
 #include "object.h"
 #include "bezier_conn.h"
 #include "connectionpoint.h"
 #include "diarenderer.h"
+#include "diainteractiverenderer.h"
 #include "attributes.h"
 #include "diamenu.h"
 #include "properties.h"
@@ -47,20 +48,24 @@ struct _Bezierline {
   BezierConn bez;
 
   Color line_color;
-  LineStyle line_style;
-  LineJoin line_join;
-  LineCaps line_caps;
-  real dashlength;
-  real line_width;
+  DiaLineStyle line_style;
+  DiaLineJoin line_join;
+  DiaLineCaps line_caps;
+  double dashlength;
+  double line_width;
   Arrow start_arrow, end_arrow;
-  real absolute_start_gap, absolute_end_gap;
+  double absolute_start_gap, absolute_end_gap;
 };
 
 
-static ObjectChange* bezierline_move_handle(Bezierline *bezierline, Handle *handle,
-					    Point *to, ConnectionPoint *cp,
-					    HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* bezierline_move(Bezierline *bezierline, Point *to);
+static DiaObjectChange* bezierline_move_handle     (Bezierline       *bezierline,
+                                                    Handle           *handle,
+                                                    Point            *to,
+                                                    ConnectionPoint  *cp,
+                                                    HandleMoveReason  reason,
+                                                    ModifierKeys      modifiers);
+static DiaObjectChange* bezierline_move            (Bezierline       *bezierline,
+                                                    Point            *to);
 static void bezierline_select(Bezierline *bezierline, Point *clicked_point,
 			      DiaRenderer *interactive_renderer);
 static void bezierline_draw(Bezierline *bezierline, DiaRenderer *renderer);
@@ -221,14 +226,18 @@ bezierline_select(Bezierline *bezierline, Point *clicked_point,
   bezierconn_update_data(&bezierline->bez);
 }
 
-static ObjectChange*
-bezierline_move_handle(Bezierline *bezierline, Handle *handle,
-		       Point *to, ConnectionPoint *cp,
-		       HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+bezierline_move_handle (Bezierline       *bezierline,
+                        Handle           *handle,
+                        Point            *to,
+                        ConnectionPoint  *cp,
+                        HandleMoveReason  reason,
+                        ModifierKeys      modifiers)
 {
-  assert(bezierline!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+  g_return_val_if_fail (bezierline != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
   if (reason == HANDLE_MOVE_CREATE || reason == HANDLE_MOVE_CREATE_FINAL) {
     /* During creation, change the control points */
@@ -255,14 +264,15 @@ bezierline_move_handle(Bezierline *bezierline, Handle *handle,
 }
 
 
-static ObjectChange*
-bezierline_move(Bezierline *bezierline, Point *to)
+static DiaObjectChange *
+bezierline_move (Bezierline *bezierline, Point *to)
 {
-  bezierconn_move(&bezierline->bez, to);
-  bezierline_update_data(bezierline);
+  bezierconn_move (&bezierline->bez, to);
+  bezierline_update_data (bezierline);
 
   return NULL;
 }
+
 
 static void
 exchange_bez_gap_points(BezierConn * bez, Point* gap_points)
@@ -358,44 +368,45 @@ compute_gap_points(Bezierline *bezierline, Point *gap_points)
         /* adds the absolute end gap  according to the slope at the last point */
         point_add_scaled(&gap_points[2], &vec_end, bezierline->absolute_end_gap);
         point_add_scaled(&gap_points[3], &vec_end, bezierline->absolute_end_gap);
-
-
 }
+
 static void
-bezierline_draw(Bezierline *bezierline, DiaRenderer *renderer)
+bezierline_draw (Bezierline *bezierline, DiaRenderer *renderer)
 {
   Point gap_points[4]; /* two first and two last bez points */
-
   BezierConn *bez = &bezierline->bez;
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
 
-  renderer_ops->set_linewidth(renderer, bezierline->line_width);
-  renderer_ops->set_linestyle(renderer, bezierline->line_style, bezierline->dashlength);
-  renderer_ops->set_linejoin(renderer, bezierline->line_join);
-  renderer_ops->set_linecaps(renderer, bezierline->line_caps);
+  dia_renderer_set_linewidth (renderer, bezierline->line_width);
+  dia_renderer_set_linestyle (renderer, bezierline->line_style, bezierline->dashlength);
+  dia_renderer_set_linejoin (renderer, bezierline->line_join);
+  dia_renderer_set_linecaps (renderer, bezierline->line_caps);
 
-  if (connpoint_is_autogap(bez->object.handles[0]->connected_to) ||
-      connpoint_is_autogap(bez->object.handles[3*(bez->bezier.num_points-1)]->connected_to) ||
+  if (connpoint_is_autogap (bez->object.handles[0]->connected_to) ||
+      connpoint_is_autogap (bez->object.handles[3*(bez->bezier.num_points-1)]->connected_to) ||
       bezierline->absolute_start_gap || bezierline->absolute_end_gap) {
 
-    compute_gap_points(bezierline,gap_points);
-    exchange_bez_gap_points(bez,gap_points);
-    renderer_ops->draw_bezier_with_arrows(renderer, bez->bezier.points, bez->bezier.num_points,
-					 bezierline->line_width,
-					 &bezierline->line_color,
-					 &bezierline->start_arrow,
-					 &bezierline->end_arrow);
-    exchange_bez_gap_points(bez,gap_points);
+    compute_gap_points (bezierline,gap_points);
+    exchange_bez_gap_points (bez,gap_points);
+    dia_renderer_draw_bezier_with_arrows (renderer,
+                                          bez->bezier.points,
+                                          bez->bezier.num_points,
+                                          bezierline->line_width,
+                                          &bezierline->line_color,
+                                          &bezierline->start_arrow,
+                                          &bezierline->end_arrow);
+    exchange_bez_gap_points (bez,gap_points);
   } else {
-    renderer_ops->draw_bezier_with_arrows(renderer, bez->bezier.points, bez->bezier.num_points,
-					  bezierline->line_width,
-					  &bezierline->line_color,
-					  &bezierline->start_arrow,
-					  &bezierline->end_arrow);
+    dia_renderer_draw_bezier_with_arrows (renderer,
+                                          bez->bezier.points,
+                                          bez->bezier.num_points,
+                                          bezierline->line_width,
+                                          &bezierline->line_color,
+                                          &bezierline->start_arrow,
+                                          &bezierline->end_arrow);
   }
 
 #if 0
-  renderer_ops->draw_bezier(renderer, bez->bezier.points, bez->bezier.num_points,
+  dia_renderer_draw_bezier(renderer, bez->bezier.points, bez->bezier.num_points,
 			     &bezierline->line_color);
 
   if (bezierline->start_arrow.type != ARROW_NONE) {
@@ -420,9 +431,11 @@ bezierline_draw(Bezierline *bezierline, DiaRenderer *renderer)
    * whether the object is currently selected in bezierline_select, and
    * only checking while selected.  But we'll do that if needed.
    */
-  if (renderer->is_interactive &&
-      dia_object_is_selected(&bezierline->bez.object)) {
-    bezier_draw_control_lines(bezierline->bez.bezier.num_points, bezierline->bez.bezier.points, renderer);
+  if (DIA_IS_INTERACTIVE_RENDERER (renderer) &&
+      dia_object_is_selected (&bezierline->bez.object)) {
+    bezier_draw_control_lines (bezierline->bez.bezier.num_points,
+                               bezierline->bez.bezier.points,
+                               renderer);
   }
 }
 
@@ -438,7 +451,7 @@ bezierline_create(Point *startpoint,
   Point defaultlen = { .3, .3 };
 
   bezierline = g_new0(Bezierline, 1);
-  bezierline->bez.object.enclosing_box = g_new0 (Rectangle, 1);
+  bezierline->bez.object.enclosing_box = g_new0 (DiaRectangle, 1);
   bez = &bezierline->bez;
   obj = &bez->object;
 
@@ -464,10 +477,10 @@ bezierline_create(Point *startpoint,
 
   bezierline->line_width =  attributes_get_default_linewidth();
   bezierline->line_color = attributes_get_foreground();
-  attributes_get_default_line_style(&bezierline->line_style,
-				    &bezierline->dashlength);
-  bezierline->line_join = LINEJOIN_MITER;
-  bezierline->line_caps = LINECAPS_BUTT;
+  attributes_get_default_line_style (&bezierline->line_style,
+                                     &bezierline->dashlength);
+  bezierline->line_join = DIA_LINE_JOIN_MITER;
+  bezierline->line_caps = DIA_LINE_CAPS_BUTT;
   bezierline->start_arrow = attributes_get_default_start_arrow();
   bezierline->end_arrow = attributes_get_default_end_arrow();
 
@@ -482,8 +495,7 @@ bezierline_create(Point *startpoint,
 static void
 bezierline_destroy(Bezierline *bezierline)
 {
-  g_free (bezierline->bez.object.enclosing_box);
-  bezierline->bez.object.enclosing_box = NULL;
+  g_clear_pointer (&bezierline->bez.object.enclosing_box, g_free);
   bezierconn_destroy(&bezierline->bez);
 }
 
@@ -496,7 +508,7 @@ bezierline_copy(Bezierline *bezierline)
   bez = &bezierline->bez;
 
   newbezierline = g_new0(Bezierline, 1);
-  newbezierline->bez.object.enclosing_box = g_new0 (Rectangle, 1);
+  newbezierline->bez.object.enclosing_box = g_new0 (DiaRectangle, 1);
   newbez = &newbezierline->bez;
 
   bezierconn_copy(bez, newbez);
@@ -536,13 +548,13 @@ bezierline_update_data(Bezierline *bezierline)
       bezierline->absolute_start_gap || bezierline->absolute_end_gap ||
       bezierline->start_arrow.type != ARROW_NONE || bezierline->end_arrow.type != ARROW_NONE) {
     Point gap_points[4];
-    Rectangle bbox_union = {bez->bezier.points[0].p1.x, bez->bezier.points[0].p1.y,
+    DiaRectangle bbox_union = {bez->bezier.points[0].p1.x, bez->bezier.points[0].p1.y,
 			    bez->bezier.points[0].p1.x, bez->bezier.points[0].p1.y};
     compute_gap_points(bezierline, gap_points);
     exchange_bez_gap_points(bez,gap_points);
     /* further modifying the points data, accounts for corrcet arrow and bezier bounding box */
     if (bezierline->start_arrow.type != ARROW_NONE) {
-      Rectangle bbox;
+      DiaRectangle bbox;
       Point move_arrow, move_line;
       Point to = bez->bezier.points[0].p1, from = bez->bezier.points[1].p1;
 
@@ -553,7 +565,7 @@ bezierline_update_data(Bezierline *bezierline)
       rectangle_union (&bbox_union, &bbox);
     }
     if (bezierline->end_arrow.type != ARROW_NONE) {
-      Rectangle bbox;
+      DiaRectangle bbox;
       Point move_arrow, move_line;
       int num_points = bez->bezier.num_points;
       Point to = bez->bezier.points[num_points-1].p3, from = bez->bezier.points[num_points-1].p2;
@@ -609,30 +621,47 @@ bezierline_save(Bezierline *bezierline, ObjectNode obj_node,
     data_add_real(new_attribute(obj_node, PROP_STDNAME_LINE_WIDTH),
 		  bezierline->line_width, ctx);
 
-  if (bezierline->line_style != LINESTYLE_SOLID)
-    data_add_enum(new_attribute(obj_node, "line_style"),
-		  bezierline->line_style, ctx);
+  if (bezierline->line_style != DIA_LINE_STYLE_SOLID) {
+    data_add_enum (new_attribute (obj_node, "line_style"),
+                   bezierline->line_style,
+                   ctx);
+  }
 
-  if (bezierline->line_style != LINESTYLE_SOLID &&
-      bezierline->dashlength != DEFAULT_LINESTYLE_DASHLEN)
-    data_add_real(new_attribute(obj_node, "dashlength"),
-		  bezierline->dashlength, ctx);
+  if (bezierline->line_style != DIA_LINE_STYLE_SOLID &&
+      bezierline->dashlength != DEFAULT_LINESTYLE_DASHLEN) {
+    data_add_real (new_attribute (obj_node, "dashlength"),
+                   bezierline->dashlength,
+                   ctx);
+  }
 
-  if (bezierline->line_join != LINEJOIN_MITER)
-    data_add_enum(new_attribute(obj_node, "line_join"),
-                  bezierline->line_join, ctx);
-  if (bezierline->line_caps != LINECAPS_BUTT)
-    data_add_enum(new_attribute(obj_node, "line_caps"),
-                  bezierline->line_caps, ctx);
+  if (bezierline->line_join != DIA_LINE_JOIN_MITER) {
+    data_add_enum (new_attribute (obj_node, "line_join"),
+                   bezierline->line_join,
+                   ctx);
+  }
+
+  if (bezierline->line_caps != DIA_LINE_CAPS_BUTT) {
+    data_add_enum (new_attribute (obj_node, "line_caps"),
+                   bezierline->line_caps,
+                   ctx);
+  }
 
   if (bezierline->start_arrow.type != ARROW_NONE) {
-    save_arrow(obj_node, &bezierline->start_arrow, "start_arrow",
-	     "start_arrow_length", "start_arrow_width", ctx);
+    dia_arrow_save (&bezierline->start_arrow,
+                    obj_node,
+                    "start_arrow",
+                    "start_arrow_length",
+                    "start_arrow_width",
+                    ctx);
   }
 
   if (bezierline->end_arrow.type != ARROW_NONE) {
-    save_arrow(obj_node, &bezierline->end_arrow, "end_arrow",
-	     "end_arrow_length", "end_arrow_width", ctx);
+    dia_arrow_save (&bezierline->end_arrow,
+                    obj_node,
+                    "end_arrow",
+                    "end_arrow_length",
+                    "end_arrow_width",
+                    ctx);
   }
 
   if (bezierline->absolute_start_gap)
@@ -652,7 +681,7 @@ bezierline_load(ObjectNode obj_node, int version, DiaContext *ctx)
   AttributeNode attr;
 
   bezierline = g_new0(Bezierline, 1);
-  bezierline->bez.object.enclosing_box = g_new0 (Rectangle, 1);
+  bezierline->bez.object.enclosing_box = g_new0 (DiaRectangle, 1);
 
   bez = &bezierline->bez;
   obj = &bez->object;
@@ -672,31 +701,41 @@ bezierline_load(ObjectNode obj_node, int version, DiaContext *ctx)
   if (attr != NULL)
     bezierline->line_width = data_real(attribute_first_data(attr), ctx);
 
-  bezierline->line_style = LINESTYLE_SOLID;
+  bezierline->line_style = DIA_LINE_STYLE_SOLID;
   attr = object_find_attribute(obj_node, "line_style");
   if (attr != NULL)
     bezierline->line_style = data_enum(attribute_first_data(attr), ctx);
 
-  bezierline->line_join = LINEJOIN_MITER;
-  attr = object_find_attribute(obj_node, "line_join");
-  if (attr != NULL)
-    bezierline->line_join = data_enum(attribute_first_data(attr), ctx);
+  bezierline->line_join = DIA_LINE_JOIN_MITER;
+  attr = object_find_attribute (obj_node, "line_join");
+  if (attr != NULL) {
+    bezierline->line_join = data_enum (attribute_first_data (attr), ctx);
+  }
 
-  bezierline->line_caps = LINECAPS_BUTT;
-  attr = object_find_attribute(obj_node, "line_caps");
-  if (attr != NULL)
-    bezierline->line_caps = data_enum(attribute_first_data(attr), ctx);
+  bezierline->line_caps = DIA_LINE_CAPS_BUTT;
+  attr = object_find_attribute (obj_node, "line_caps");
+  if (attr != NULL) {
+    bezierline->line_caps = data_enum (attribute_first_data (attr), ctx);
+  }
 
   bezierline->dashlength = DEFAULT_LINESTYLE_DASHLEN;
   attr = object_find_attribute(obj_node, "dashlength");
   if (attr != NULL)
     bezierline->dashlength = data_real(attribute_first_data(attr), ctx);
 
-  load_arrow(obj_node, &bezierline->start_arrow, "start_arrow",
-	     "start_arrow_length", "start_arrow_width", ctx);
+  dia_arrow_load (&bezierline->start_arrow,
+                  obj_node,
+                  "start_arrow",
+                  "start_arrow_length",
+                  "start_arrow_width",
+                  ctx);
 
-  load_arrow(obj_node, &bezierline->end_arrow, "end_arrow",
-	     "end_arrow_length", "end_arrow_width", ctx);
+  dia_arrow_load (&bezierline->end_arrow,
+                  obj_node,
+                  "end_arrow",
+                  "end_arrow_length",
+                  "end_arrow_width",
+                  ctx);
 
   bezierline->absolute_start_gap = 0.0;
   attr = object_find_attribute(obj_node, "absolute_start_gap");
@@ -716,47 +755,57 @@ bezierline_load(ObjectNode obj_node, int version, DiaContext *ctx)
   return &bezierline->bez.object;
 }
 
-static ObjectChange *
+
+static DiaObjectChange *
 bezierline_add_segment_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
   Bezierline *bezierline = (Bezierline*) obj;
   int segment;
-  ObjectChange *change;
+  DiaObjectChange *change;
 
-  segment = bezierline_closest_segment(bezierline, clicked);
-  change = bezierconn_add_segment(&bezierline->bez, segment, clicked);
-  bezierline_update_data(bezierline);
+  segment = bezierline_closest_segment (bezierline, clicked);
+  change = bezierconn_add_segment (&bezierline->bez, segment, clicked);
+  bezierline_update_data (bezierline);
+
   return change;
 }
 
-static ObjectChange *
+
+static DiaObjectChange *
 bezierline_delete_segment_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
   int seg_nr;
   Bezierline *bezierline = (Bezierline*) obj;
-  ObjectChange *change;
+  DiaObjectChange *change;
 
-  seg_nr = beziercommon_closest_segment(&bezierline->bez.bezier, clicked, bezierline->line_width);
+  seg_nr = beziercommon_closest_segment (&bezierline->bez.bezier, clicked, bezierline->line_width);
 
-  change = bezierconn_remove_segment(&bezierline->bez, seg_nr+1);
-  bezierline_update_data(bezierline);
+  change = bezierconn_remove_segment (&bezierline->bez, seg_nr+1);
+  bezierline_update_data (bezierline);
+
   return change;
 }
 
-static ObjectChange *
-bezierline_set_corner_type_callback (DiaObject *obj, Point *clicked, gpointer data)
+
+static DiaObjectChange *
+bezierline_set_corner_type_callback (DiaObject *obj,
+                                     Point     *clicked,
+                                     gpointer   data)
 {
   Handle *closest;
   Bezierline *bezierline = (Bezierline*) obj;
-  ObjectChange *change;
+  DiaObjectChange *change;
 
-  closest = bezierconn_closest_major_handle(&bezierline->bez, clicked);
-  change = bezierconn_set_corner_type(&bezierline->bez, closest,
-				      GPOINTER_TO_INT(data));
+  closest = bezierconn_closest_major_handle (&bezierline->bez, clicked);
+  change = bezierconn_set_corner_type (&bezierline->bez,
+                                       closest,
+                                       GPOINTER_TO_INT (data));
 
-  bezierline_update_data(bezierline);
+  bezierline_update_data (bezierline);
+
   return change;
 }
+
 
 static DiaMenuItem bezierline_menu_items[] = {
   { N_("Add Segment"), bezierline_add_segment_callback, NULL, 1 },

@@ -13,15 +13,15 @@
       <description>File</description>
     </object>
     <object name="Misc - expensible node">
-      <description>expansible node</description>
+      <description>Expansible node</description>
     </object>
     <object name="Misc - expended node">
-      <description>expanded node</description>
+      <description>Expanded node</description>
     </object>
     <object name="Misc - Analog Clock">
       <description>Traditional clock</description>
     </object>
-    <object name="Misc - Measure" intdata="0">
+    <object name="Misc - Measure">
       <description>Measure distance</description>
     </object>
     <object name="Misc - Grid">

@@ -18,12 +18,15 @@
 * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <gtk/gtk.h>
 #include <string.h>
 #include "aadl.h"
 #include "edit_port_declaration.h"
+
 
 int aadlbox_point_near_port(Aadlbox *aadlbox, Point *p);
 
@@ -33,21 +36,27 @@ int aadlbox_point_near_port(Aadlbox *aadlbox, Point *p);
  **           U N D O  /  R E D O             **
  ***********************************************/
 
-struct EditPortDeclarationChange
-{
-  ObjectChange obj_change;
+struct _DiaAADLEditPortDeclarationObjectChange {
+  DiaObjectChange obj_change;
 
   int applied;
 
   int port_num;
 
-  gchar *oldvalue;
-  gchar *newvalue;
+  char *oldvalue;
+  char *newvalue;
 };
 
-static void edit_port_declaration_apply
-                     (struct EditPortDeclarationChange *change, DiaObject *obj)
+
+DIA_DEFINE_OBJECT_CHANGE (DiaAADLEditPortDeclarationObjectChange,
+                          dia_aadl_edit_port_declaration_object_change)
+
+
+static void
+dia_aadl_edit_port_declaration_object_change_apply (DiaObjectChange *self,
+                                                    DiaObject       *obj)
 {
+  DiaAADLEditPortDeclarationObjectChange *change = DIA_AADL_EDIT_PORT_DECLARATION_OBJECT_CHANGE (self);
   Aadlbox *aadlbox = (Aadlbox *) obj;
   int port_num = change->port_num;
 
@@ -56,23 +65,30 @@ static void edit_port_declaration_apply
 
 }
 
-static void edit_port_declaration_revert
-                     (struct EditPortDeclarationChange *change, DiaObject *obj)
+
+static void
+dia_aadl_edit_port_declaration_object_change_revert (DiaObjectChange *self,
+                                                     DiaObject       *obj)
 {
+  DiaAADLEditPortDeclarationObjectChange *change = DIA_AADL_EDIT_PORT_DECLARATION_OBJECT_CHANGE (self);
   Aadlbox *aadlbox = (Aadlbox *) obj;
   int port_num = change->port_num;
 
   change->applied = 0;
   aadlbox->ports[port_num]->declaration = change->oldvalue;
-
 }
 
-static void edit_port_declaration_free (struct EditPortDeclarationChange *change)
+
+static void
+dia_aadl_edit_port_declaration_object_change_free (DiaObjectChange *self)
 {
-  if (change->applied)
-    g_free(change->oldvalue);
-  else
-    g_free(change->newvalue);
+  DiaAADLEditPortDeclarationObjectChange *change = DIA_AADL_EDIT_PORT_DECLARATION_OBJECT_CHANGE (self);
+
+  if (change->applied) {
+    g_clear_pointer (&change->oldvalue, g_free);
+  } else {
+    g_clear_pointer (&change->newvalue, g_free);
+  }
 }
 
 
@@ -82,13 +98,16 @@ static void edit_port_declaration_free (struct EditPortDeclarationChange *change
  ***********************************************/
 
 static GtkWidget *entry;
-static gchar *text;
+static char *text = NULL;
 
-static void save_text()
+
+static void
+save_text (void)
 {
-  text = (gchar *) g_malloc (strlen(gtk_entry_get_text (GTK_ENTRY (entry)))+1);
-  strcpy(text, gtk_entry_get_text (GTK_ENTRY (entry)));
+  g_clear_pointer (&text, g_free);
+  text = g_strdup (gtk_entry_get_text (GTK_ENTRY (entry)));
 }
+
 
 static gboolean delete_event ( GtkWidget *widget,
 			       GdkEvent  *event,
@@ -119,13 +138,15 @@ static gboolean focus_out_event( GtkWidget      *widget,
 /* I have to write this little GTK code, because there's no way to know
    which point was clicked if I use the properties functions (get_props, ...)*/
 
-ObjectChange *edit_port_declaration_callback (DiaObject *obj,
-				    Point *clicked, gpointer data)
+DiaObjectChange *
+edit_port_declaration_callback (DiaObject *obj,
+                                Point     *clicked,
+                                gpointer   data)
 {
   GtkWidget *window;
   GtkWidget *vbox;
   GtkWidget *button;
-  struct EditPortDeclarationChange *change;
+  DiaAADLEditPortDeclarationObjectChange *change;
   Aadlport *port;
   Aadlbox *aadlbox = (Aadlbox *) obj;
   int port_num;
@@ -142,7 +163,7 @@ ObjectChange *edit_port_declaration_callback (DiaObject *obj,
   gtk_window_set_title(GTK_WINDOW(window) , "Port Declaration");
   gtk_container_set_border_width(GTK_CONTAINER(window),5);
 
-  vbox = gtk_vbox_new (FALSE, 0);
+  vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
   gtk_container_add (GTK_CONTAINER (window), vbox);
   gtk_widget_show (vbox);
 
@@ -152,7 +173,7 @@ ObjectChange *edit_port_declaration_callback (DiaObject *obj,
   gtk_box_pack_start (GTK_BOX (vbox), entry, TRUE, TRUE, 0);
   gtk_widget_show(entry);
 
-  button = gtk_button_new_from_stock (GTK_STOCK_OK);
+  button = gtk_button_new_with_mnemonic (_("_OK"));
   gtk_box_pack_start (GTK_BOX (vbox), button, TRUE, TRUE, 0);
   gtk_widget_set_can_default (GTK_WIDGET (button), TRUE);
   gtk_widget_grab_default (button);
@@ -186,26 +207,14 @@ ObjectChange *edit_port_declaration_callback (DiaObject *obj,
 
   /* Text has been edited - widgets destroyed  */
 
-  change = (struct EditPortDeclarationChange *)
-                           g_malloc (sizeof(struct EditPortDeclarationChange));
-
-  change->obj_change.apply =
-    (ObjectChangeApplyFunc) edit_port_declaration_apply;
-
-  change->obj_change.revert =
-    (ObjectChangeRevertFunc) edit_port_declaration_revert;
-
-  change->obj_change.free =
-    (ObjectChangeFreeFunc) edit_port_declaration_free;
+  change = dia_object_change_new (DIA_AADL_TYPE_EDIT_PORT_DECLARATION_OBJECT_CHANGE);
 
   change->port_num = port_num;
 
   change->newvalue = text;
   change->oldvalue = aadlbox->ports[port_num]->declaration;
 
-  change->obj_change.apply((ObjectChange *)change, obj);
+  dia_object_change_apply (DIA_OBJECT_CHANGE (change), obj);
 
-  return (ObjectChange *) change;
+  return DIA_OBJECT_CHANGE (change);
 }
-
-

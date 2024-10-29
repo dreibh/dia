@@ -21,12 +21,12 @@
 
 /* DO NOT USE THIS OBJECT AS A BASIS FOR A NEW OBJECT. */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "connectionpoint.h"
@@ -56,17 +56,17 @@ struct _Diamond {
   Element element;
 
   ConnectionPoint connections[NUM_CONNECTIONS];
-  real border_width;
+  double border_width;
   Color border_color;
   Color inner_color;
   gboolean show_background;
-  LineStyle line_style;
-  real dashlength;
+  DiaLineStyle line_style;
+  double dashlength;
 
   Text *text;
-  real padding;
+  double padding;
 
-  TextFitting text_fitting;
+  DiaTextFitting text_fitting;
 };
 
 typedef struct _DiamondProperties {
@@ -80,11 +80,14 @@ static DiamondProperties default_properties;
 static real diamond_distance_from(Diamond *diamond, Point *point);
 static void diamond_select(Diamond *diamond, Point *clicked_point,
 		       DiaRenderer *interactive_renderer);
-static ObjectChange* diamond_move_handle(Diamond *diamond, Handle *handle,
-					 Point *to, ConnectionPoint *cp,
-					 HandleMoveReason reason,
-			    ModifierKeys modifiers);
-static ObjectChange* diamond_move(Diamond *diamond, Point *to);
+static DiaObjectChange* diamond_move_handle     (Diamond          *diamond,
+                                                 Handle           *handle,
+                                                 Point            *to,
+                                                 ConnectionPoint  *cp,
+                                                 HandleMoveReason  reason,
+                                                 ModifierKeys      modifiers);
+static DiaObjectChange* diamond_move            (Diamond          *diamond,
+                                                 Point            *to);
 static void diamond_draw(Diamond *diamond, DiaRenderer *renderer);
 static void diamond_update_data(Diamond *diamond, AnchorShape h,AnchorShape v);
 static DiaObject *diamond_create(Point *startpoint,
@@ -197,8 +200,10 @@ diamond_set_props(Diamond *diamond, GPtrArray *props)
   diamond_update_data(diamond,ANCHOR_MIDDLE,ANCHOR_MIDDLE);
 }
 
+
 static void
-init_default_values() {
+init_default_values (void)
+{
   static int defaults_initialized = 0;
 
   if (!defaults_initialized) {
@@ -208,128 +213,164 @@ init_default_values() {
   }
 }
 
+
 static real
-diamond_distance_from(Diamond *diamond, Point *point)
+diamond_distance_from (Diamond *diamond, Point *point)
 {
   Element *elem = &diamond->element;
-  Rectangle rect;
+  DiaRectangle rect;
 
   rect.left = elem->corner.x - diamond->border_width/2;
   rect.right = elem->corner.x + elem->width + diamond->border_width/2;
   rect.top = elem->corner.y - diamond->border_width/2;
   rect.bottom = elem->corner.y + elem->height + diamond->border_width/2;
 
-  if (rect.top > point->y)
+  if (rect.top > point->y) {
     return rect.top - point->y +
       fabs(point->x - elem->corner.x + elem->width / 2.0);
-  else if (point->y > rect.bottom)
+  } else if (point->y > rect.bottom) {
     return point->y - rect.bottom +
       fabs(point->x - elem->corner.x + elem->width / 2.0);
-  else if (rect.left > point->x)
+  } else if (rect.left > point->x) {
     return rect.left - point->x +
       fabs(point->y - elem->corner.y + elem->height / 2.0);
-  else if (point->x > rect.right)
+  } else if (point->x > rect.right) {
     return point->x - rect.right +
       fabs(point->y - elem->corner.y + elem->height / 2.0);
-  else {
+  } else {
     /* inside the bounding box of diamond ... this is where it gets harder */
     real x = point->x, y = point->y;
     real dx, dy;
 
     /* reflect point into upper left quadrant of diamond */
-    if (x > elem->corner.x + elem->width / 2.0)
+    if (x > elem->corner.x + elem->width / 2.0) {
       x = 2 * (elem->corner.x + elem->width / 2.0) - x;
-    if (y > elem->corner.y + elem->height / 2.0)
+    }
+    if (y > elem->corner.y + elem->height / 2.0) {
       y = 2 * (elem->corner.y + elem->height / 2.0) - y;
+    }
 
     dx = -x + elem->corner.x + elem->width / 2.0 -
       elem->width/elem->height * (y-elem->corner.y) - diamond->border_width/2;
     dy = -y + elem->corner.y + elem->height / 2.0 -
       elem->height/elem->width * (x-elem->corner.x) - diamond->border_width/2;
+
     if (dx <= 0 || dy <= 0)
       return 0;
-    return MIN(dx, dy);
+
+    return MIN (dx, dy);
   }
 }
 
-static void
-diamond_select(Diamond *diamond, Point *clicked_point,
-	   DiaRenderer *interactive_renderer)
-{
-  text_set_cursor(diamond->text, clicked_point, interactive_renderer);
-  text_grab_focus(diamond->text, &diamond->element.object);
 
-  element_update_handles(&diamond->element);
+static void
+diamond_select (Diamond     *diamond,
+                Point       *clicked_point,
+                DiaRenderer *interactive_renderer)
+{
+  text_set_cursor (diamond->text, clicked_point, interactive_renderer);
+  text_grab_focus (diamond->text, &diamond->element.object);
+
+  element_update_handles (&diamond->element);
 }
 
-static ObjectChange*
-diamond_move_handle(Diamond *diamond, Handle *handle,
-		    Point *to, ConnectionPoint *cp,
-		    HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+diamond_move_handle (Diamond          *diamond,
+                     Handle           *handle,
+                     Point            *to,
+                     ConnectionPoint  *cp,
+                     HandleMoveReason  reason,
+                     ModifierKeys      modifiers)
 {
   AnchorShape horiz = ANCHOR_MIDDLE, vert = ANCHOR_MIDDLE;
   Point corner;
-  real width, height;
+  double width, height;
 
-  assert(diamond!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+  g_return_val_if_fail (diamond != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
   /* remember ... */
   corner = diamond->element.corner;
   width = diamond->element.width;
   height = diamond->element.height;
 
-  element_move_handle(&diamond->element, handle->id, to, cp,
-		      reason, modifiers);
+  element_move_handle (&diamond->element, handle->id, to, cp,
+                       reason, modifiers);
 
   switch (handle->id) {
-  case HANDLE_RESIZE_NW:
-    horiz = ANCHOR_END; vert = ANCHOR_END; break;
-  case HANDLE_RESIZE_N:
-    vert = ANCHOR_END; break;
-  case HANDLE_RESIZE_NE:
-    horiz = ANCHOR_START; vert = ANCHOR_END; break;
-  case HANDLE_RESIZE_E:
-    horiz = ANCHOR_START; break;
-  case HANDLE_RESIZE_SE:
-    horiz = ANCHOR_START; vert = ANCHOR_START; break;
-  case HANDLE_RESIZE_S:
-    vert = ANCHOR_START; break;
-  case HANDLE_RESIZE_SW:
-    horiz = ANCHOR_END; vert = ANCHOR_START; break;
-  case HANDLE_RESIZE_W:
-    horiz = ANCHOR_END; break;
-  default:
-    break;
+    case HANDLE_RESIZE_NW:
+      horiz = ANCHOR_END;
+      vert = ANCHOR_END;
+      break;
+    case HANDLE_RESIZE_N:
+      vert = ANCHOR_END;
+      break;
+    case HANDLE_RESIZE_NE:
+      horiz = ANCHOR_START;
+      vert = ANCHOR_END;
+      break;
+    case HANDLE_RESIZE_E:
+      horiz = ANCHOR_START;
+      break;
+    case HANDLE_RESIZE_SE:
+      horiz = ANCHOR_START;
+      vert = ANCHOR_START;
+      break;
+    case HANDLE_RESIZE_S:
+      vert = ANCHOR_START;
+      break;
+    case HANDLE_RESIZE_SW:
+      horiz = ANCHOR_END;
+      vert = ANCHOR_START;
+      break;
+    case HANDLE_RESIZE_W:
+      horiz = ANCHOR_END;
+      break;
+    case HANDLE_MOVE_STARTPOINT:
+    case HANDLE_MOVE_ENDPOINT:
+    case HANDLE_CUSTOM1:
+    case HANDLE_CUSTOM2:
+    case HANDLE_CUSTOM3:
+    case HANDLE_CUSTOM4:
+    case HANDLE_CUSTOM5:
+    case HANDLE_CUSTOM6:
+    case HANDLE_CUSTOM7:
+    case HANDLE_CUSTOM8:
+    case HANDLE_CUSTOM9:
+    default:
+      break;
   }
-  diamond_update_data(diamond, horiz, vert);
+  diamond_update_data (diamond, horiz, vert);
 
-  if (width != diamond->element.width && height != diamond->element.height)
+  if (width != diamond->element.width && height != diamond->element.height) {
     return element_change_new (&corner, width, height, &diamond->element);
+  }
 
   return NULL;
 }
 
-static ObjectChange*
-diamond_move(Diamond *diamond, Point *to)
+
+static DiaObjectChange*
+diamond_move (Diamond *diamond, Point *to)
 {
   diamond->element.corner = *to;
 
-  diamond_update_data(diamond, ANCHOR_MIDDLE, ANCHOR_MIDDLE);
+  diamond_update_data (diamond, ANCHOR_MIDDLE, ANCHOR_MIDDLE);
 
   return NULL;
 }
 
+
 static void
-diamond_draw(Diamond *diamond, DiaRenderer *renderer)
+diamond_draw (Diamond *diamond, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point pts[4];
   Element *elem;
 
-  assert(diamond != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (diamond != NULL);
+  g_return_if_fail (renderer != NULL);
 
   elem = &diamond->element;
 
@@ -341,19 +382,21 @@ diamond_draw(Diamond *diamond, DiaRenderer *renderer)
   pts[2].y += elem->height;
   pts[3].y += elem->height / 2.0;
 
-  if (diamond->show_background)
-    renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
+  if (diamond->show_background) {
+    dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+  }
 
-  renderer_ops->set_linewidth(renderer, diamond->border_width);
-  renderer_ops->set_linestyle(renderer, diamond->line_style, diamond->dashlength);
-  renderer_ops->set_linejoin(renderer, LINEJOIN_MITER);
+  dia_renderer_set_linewidth (renderer, diamond->border_width);
+  dia_renderer_set_linestyle (renderer, diamond->line_style, diamond->dashlength);
+  dia_renderer_set_linejoin (renderer, DIA_LINE_JOIN_MITER);
 
-  renderer_ops->draw_polygon (renderer,
-			      pts, 4,
-			      (diamond->show_background) ? &diamond->inner_color : NULL,
-			      &diamond->border_color);
+  dia_renderer_draw_polygon (renderer,
+                             pts,
+                             4,
+                             (diamond->show_background) ? &diamond->inner_color : NULL,
+                             &diamond->border_color);
 
-  text_draw(diamond->text, renderer);
+  text_draw (diamond->text, renderer);
 }
 
 static void
@@ -379,8 +422,8 @@ diamond_update_data(Diamond *diamond, AnchorShape horiz, AnchorShape vert)
   height = diamond->text->height * diamond->text->numlines +
     2 * diamond->padding + diamond->border_width;
 
-  if (diamond->text_fitting == TEXTFIT_ALWAYS
-      || (   diamond->text_fitting == TEXTFIT_WHEN_NEEDED
+  if (diamond->text_fitting == DIA_TEXT_FIT_ALWAYS
+      || (   diamond->text_fitting == DIA_TEXT_FIT_WHEN_NEEDED
           && height > (elem->width - width) * elem->height / elem->width)) {
     /* increase size of the diamond while keeping its aspect ratio */
     real grad = elem->width/elem->height;
@@ -398,20 +441,27 @@ diamond_update_data(Diamond *diamond, AnchorShape horiz, AnchorShape vert)
 
   /* move shape if necessary ... */
   switch (horiz) {
-  case ANCHOR_MIDDLE:
-    elem->corner.x = center.x - elem->width/2; break;
-  case ANCHOR_END:
-    elem->corner.x = bottom_right.x - elem->width; break;
-  default:
-    break;
+    case ANCHOR_MIDDLE:
+      elem->corner.x = center.x - elem->width/2;
+      break;
+    case ANCHOR_END:
+      elem->corner.x = bottom_right.x - elem->width;
+      break;
+    case ANCHOR_START:
+    default:
+      break;
   }
+
   switch (vert) {
-  case ANCHOR_MIDDLE:
-    elem->corner.y = center.y - elem->height/2; break;
-  case ANCHOR_END:
-    elem->corner.y = bottom_right.y - elem->height; break;
-  default:
-    break;
+    case ANCHOR_MIDDLE:
+      elem->corner.y = center.y - elem->height/2;
+      break;
+    case ANCHOR_END:
+      elem->corner.y = bottom_right.y - elem->height;
+      break;
+    case ANCHOR_START:
+    default:
+      break;
   }
 
   p = elem->corner;
@@ -419,16 +469,17 @@ diamond_update_data(Diamond *diamond, AnchorShape horiz, AnchorShape vert)
   p.y += elem->height / 2.0 - diamond->text->height*diamond->text->numlines/2 +
       diamond->text->ascent;
   switch (diamond->text->alignment) {
-  case ALIGN_LEFT:
-    p.x -= width/2;
-    break;
-  case ALIGN_RIGHT:
-    p.x += width/2;
-    break;
-  case ALIGN_CENTER:
-    break;
+    case DIA_ALIGN_LEFT:
+      p.x -= width / 2;
+      break;
+    case DIA_ALIGN_RIGHT:
+      p.x += width / 2;
+      break;
+    case DIA_ALIGN_CENTRE:
+    default:
+      break;
   }
-  text_set_position(diamond->text, &p);
+  text_set_position (diamond->text, &p);
 
   dw = elem->width / 8.0;
   dh = elem->height / 8.0;
@@ -495,7 +546,7 @@ diamond_create(Point *startpoint,
 
   init_default_values();
 
-  diamond = g_malloc0(sizeof(Diamond));
+  diamond = g_new0 (Diamond, 1);
   elem = &diamond->element;
   obj = &elem->object;
 
@@ -519,12 +570,16 @@ diamond_create(Point *startpoint,
   p = *startpoint;
   p.x += elem->width / 2.0;
   p.y += elem->height / 2.0 + font_height / 2;
-  diamond->text = new_text("", font, font_height, &p, &diamond->border_color,
-			   ALIGN_CENTER);
-  dia_font_unref(font);
+  diamond->text = new_text ("",
+                            font,
+                            font_height,
+                            &p,
+                            &diamond->border_color,
+                            DIA_ALIGN_CENTRE);
+  g_clear_object (&font);
 
   /* new default: let the user decide the size */
-  diamond->text_fitting = TEXTFIT_WHEN_NEEDED;
+  diamond->text_fitting = DIA_TEXT_FIT_WHEN_NEEDED;
 
   element_init(elem, 8, NUM_CONNECTIONS);
 
@@ -572,22 +627,28 @@ diamond_save(Diamond *diamond, ObjectNode obj_node, DiaContext *ctx)
   data_add_boolean(new_attribute(obj_node, "show_background"),
 		   diamond->show_background, ctx);
 
-  if (diamond->line_style != LINESTYLE_SOLID)
-    data_add_enum(new_attribute(obj_node, "line_style"),
-		  diamond->line_style, ctx);
+  if (diamond->line_style != DIA_LINE_STYLE_SOLID) {
+    data_add_enum (new_attribute (obj_node, "line_style"),
+                   diamond->line_style,
+                   ctx);
+  }
 
-  if (diamond->line_style != LINESTYLE_SOLID &&
-      diamond->dashlength != DEFAULT_LINESTYLE_DASHLEN)
-    data_add_real(new_attribute(obj_node, "dashlength"),
-                  diamond->dashlength, ctx);
+  if (diamond->line_style != DIA_LINE_STYLE_SOLID &&
+      diamond->dashlength != DEFAULT_LINESTYLE_DASHLEN) {
+    data_add_real (new_attribute (obj_node, "dashlength"),
+                   diamond->dashlength,
+                   ctx);
+  }
 
   data_add_real(new_attribute(obj_node, "padding"), diamond->padding, ctx);
 
   data_add_text(new_attribute(obj_node, "text"), diamond->text, ctx);
 
-  if (diamond->text_fitting != TEXTFIT_WHEN_NEEDED)
-    data_add_enum(new_attribute(obj_node, PROP_STDNAME_TEXT_FITTING),
-		  diamond->text_fitting, ctx);
+  if (diamond->text_fitting != DIA_TEXT_FIT_WHEN_NEEDED) {
+    data_add_enum (new_attribute (obj_node, PROP_STDNAME_TEXT_FITTING),
+                   diamond->text_fitting,
+                   ctx);
+  }
 }
 
 static DiaObject *
@@ -599,7 +660,7 @@ diamond_load(ObjectNode obj_node, int version,DiaContext *ctx)
   int i;
   AttributeNode attr;
 
-  diamond = g_malloc0(sizeof(Diamond));
+  diamond = g_new0 (Diamond, 1);
   elem = &diamond->element;
   obj = &elem->object;
 
@@ -628,7 +689,7 @@ diamond_load(ObjectNode obj_node, int version,DiaContext *ctx)
   if (attr != NULL)
     diamond->show_background = data_boolean(attribute_first_data(attr), ctx);
 
-  diamond->line_style = LINESTYLE_SOLID;
+  diamond->line_style = DIA_LINE_STYLE_SOLID;
   attr = object_find_attribute(obj_node, "line_style");
   if (attr != NULL)
     diamond->line_style =  data_enum(attribute_first_data(attr), ctx);
@@ -644,17 +705,22 @@ diamond_load(ObjectNode obj_node, int version,DiaContext *ctx)
     diamond->padding =  data_real(attribute_first_data(attr), ctx);
 
   diamond->text = NULL;
-  attr = object_find_attribute(obj_node, "text");
-  if (attr != NULL)
-    diamond->text = data_text(attribute_first_data(attr), ctx);
-  else /* paranoid */
-    diamond->text = new_text_default(&obj->position, &diamond->border_color, ALIGN_CENTER);
+  attr = object_find_attribute (obj_node, "text");
+  if (attr != NULL) {
+    diamond->text = data_text (attribute_first_data (attr), ctx);
+  } else {
+    /* paranoid */
+    diamond->text = new_text_default (&obj->position,
+                                      &diamond->border_color,
+                                      DIA_ALIGN_CENTRE);
+  }
 
   /* old default: only growth, manual shrink */
-  diamond->text_fitting = TEXTFIT_WHEN_NEEDED;
-  attr = object_find_attribute(obj_node, PROP_STDNAME_TEXT_FITTING);
-  if (attr != NULL)
-    diamond->text_fitting = data_enum(attribute_first_data(attr), ctx);
+  diamond->text_fitting = DIA_TEXT_FIT_WHEN_NEEDED;
+  attr = object_find_attribute (obj_node, PROP_STDNAME_TEXT_FITTING);
+  if (attr != NULL) {
+    diamond->text_fitting = data_enum (attribute_first_data (attr), ctx);
+  }
 
   element_init(elem, 8, NUM_CONNECTIONS);
 

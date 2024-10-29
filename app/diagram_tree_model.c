@@ -6,7 +6,7 @@
  *
  * complete rewrite to get rid of deprecated widgets
  * Copyright (C) 2009 Hans Breuer
- * 
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -24,14 +24,16 @@
 
 #include "config.h"
 
+#include <glib/gi18n-lib.h>
+
 #include <gtk/gtk.h>
 #include "diagram.h"
 #include "object.h"
 #include "dia-application.h"
-
+#include "dia-layer.h"
 #include "diagram_tree_model.h"
 
-/* accessing iter fileds by name by */
+/* accessing iter fields by name */
 #if defined(_MSC_VER) && !defined(__clang__)
 /* GCC does not like the pattern */
 /* error: lvalue required as left operand of assignment */
@@ -60,7 +62,7 @@ static void
 _dtm_class_init (DiagramTreeModelClass *klass)
 {
   GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
-  
+
   gobject_class->finalize = _dtm_finalize;
 }
 
@@ -77,17 +79,21 @@ _dtm_get_flags (GtkTreeModel *tree_model)
 {
   return GTK_TREE_MODEL_ITERS_PERSIST; /* NOT: ; */
 }
-static gint
+
+
+static  int
 _dtm_get_n_columns (GtkTreeModel *tree_model)
 {
   return NUM_COLUMNS;
 }
+
+
 static GType
 _dtm_get_column_type (GtkTreeModel *tree_model,
-		      gint          index)
+                      int           index)
 {
   g_return_val_if_fail (index >= DIAGRAM_COLUMN || index < NUM_COLUMNS, G_TYPE_NONE);
-  
+
   switch (index) {
   case DIAGRAM_COLUMN :
     return DIA_TYPE_DIAGRAM;
@@ -102,21 +108,23 @@ _dtm_get_column_type (GtkTreeModel *tree_model,
     return G_TYPE_NONE;
   }
 }
+
+
 static gboolean
 _dtm_get_iter (GtkTreeModel *tree_model,
-	       GtkTreeIter  *iter,
-	       GtkTreePath  *path)
+               GtkTreeIter  *iter,
+               GtkTreePath  *path)
 {
   /* copy&paste from Gtk */
   GtkTreeIter parent;
-  gint *indices;
-  gint depth, i;
-  
+  int *indices;
+  int depth, i;
+
   indices = gtk_tree_path_get_indices (path);
   depth = gtk_tree_path_get_depth (path);
 
   g_return_val_if_fail (depth > 0, FALSE);
-  
+
   if (!gtk_tree_model_iter_nth_child (tree_model, iter, NULL, indices[0]))
     return FALSE;
 
@@ -148,14 +156,14 @@ _dtm_get_path (GtkTreeModel *tree_model,
     gtk_tree_path_append_index (result, g_list_index (list, NODE_DIAGRAM(iter)));
   }
   if (NODE_LAYER(iter)) {
-    g_return_val_if_fail (NODE_DIAGRAM(iter) == layer_get_parent_diagram (NODE_LAYER(iter)), NULL);
+    g_return_val_if_fail (NODE_DIAGRAM(iter) == dia_layer_get_parent_diagram (NODE_LAYER(iter)), NULL);
     index = data_layer_get_index (NODE_DIAGRAM(iter), NODE_LAYER(iter));
     if (index >= 0)
       gtk_tree_path_append_index (result, index);
   }
   if (index >= 0 && NODE_OBJECT(iter)) {
     g_return_val_if_fail (NODE_LAYER(iter) == dia_object_get_parent_layer (NODE_OBJECT(iter)), NULL);
-    index = layer_object_get_index (NODE_LAYER(iter), NODE_OBJECT(iter));
+    index = dia_layer_object_get_index (NODE_LAYER(iter), NODE_OBJECT(iter));
     if (index >= 0)
       gtk_tree_path_append_index (result, index);
   }
@@ -167,9 +175,10 @@ _dtm_get_path (GtkTreeModel *tree_model,
   return result;
 }
 
-static gint
+
+static int
 _dtm_iter_n_children (GtkTreeModel *tree_model,
-		      GtkTreeIter  *iter)
+                      GtkTreeIter  *iter)
 {
   if (!iter)
     return g_list_length (dia_open_diagrams());
@@ -180,7 +189,7 @@ _dtm_iter_n_children (GtkTreeModel *tree_model,
   } else if (NODE_LAYER(iter)) {
     if (!NODE_LAYER(iter))
       return 0;
-    return layer_object_count (NODE_LAYER(iter));
+    return dia_layer_object_count (NODE_LAYER(iter));
   } else if (NODE_DIAGRAM(iter)) {
      if (!NODE_DIAGRAM(iter))
        return 0;
@@ -188,11 +197,13 @@ _dtm_iter_n_children (GtkTreeModel *tree_model,
   }
   return 0;
 }
+
+
 static void
 _dtm_get_value (GtkTreeModel *tree_model,
-		GtkTreeIter  *iter,
-		gint          column,
-		GValue       *value)
+                GtkTreeIter  *iter,
+                int           column,
+                GValue       *value)
 {
 
   switch (column) {
@@ -214,7 +225,7 @@ _dtm_get_value (GtkTreeModel *tree_model,
     if (NODE_OBJECT(iter))
       g_value_set_string (value, object_get_displayname (NODE_OBJECT (iter)));
     else if (NODE_LAYER(iter))
-      g_value_set_string (value, layer_get_name (NODE_LAYER (iter)));
+      g_value_set_string (value, dia_layer_get_name (NODE_LAYER (iter)));
     else if (NODE_DIAGRAM(iter))
       g_value_set_string (value, diagram_get_name (DIA_DIAGRAM(NODE_DIAGRAM(iter))));
     else /* warn on it? */
@@ -232,16 +243,16 @@ _dtm_iter_next (GtkTreeModel *tree_model,
   if (NODE_OBJECT(iter)) {
     if (!NODE_LAYER(iter))
       return FALSE;
-    i = layer_object_get_index (NODE_LAYER(iter), NODE_OBJECT(iter));
+    i = dia_layer_object_get_index (NODE_LAYER(iter), NODE_OBJECT(iter));
     ++i;
-    NODE_OBJECT(iter) = layer_object_get_nth(NODE_LAYER(iter), i);
+    NODE_OBJECT(iter) = dia_layer_object_get_nth (NODE_LAYER (iter), i);
     return NODE_OBJECT(iter) != NULL;
   } else if (NODE_LAYER(iter)) {
     if (!NODE_DIAGRAM(iter))
       return FALSE;
     i = data_layer_get_index (NODE_DIAGRAM(iter), NODE_LAYER(iter));
     ++i;
-    NODE_LAYER(iter) = data_layer_get_nth(NODE_DIAGRAM(iter), i);
+    NODE_LAYER(iter) = data_layer_get_nth (NODE_DIAGRAM(iter), i);
     return NODE_LAYER(iter) != NULL;
   } else if (NODE_DIAGRAM(iter)) {
     GList *list = dia_open_diagrams();
@@ -251,34 +262,35 @@ _dtm_iter_next (GtkTreeModel *tree_model,
     NODE_DIAGRAM(iter) = list ? list->data : NULL;
     return NODE_DIAGRAM(iter) != NULL;
   } else {
-    /* empy iter? */
+    /* empty iter? */
     GList *list = dia_open_diagrams();
     NODE_DIAGRAM(iter) = list ? list->data : NULL;
     return NODE_DIAGRAM(iter) != NULL;
   }
   return FALSE;
 }
+
 static gboolean
 _dtm_iter_children (GtkTreeModel *tree_model,
-		    GtkTreeIter  *iter,
-		    GtkTreeIter  *parent)
+                    GtkTreeIter  *iter,
+                    GtkTreeIter  *parent)
 {
   if (parent) {
     if (NODE_OBJECT(parent))
       return FALSE;
     else if (NODE_LAYER(parent)) {
-      NODE_OBJECT(iter) = layer_object_get_nth(NODE_LAYER(parent), 0);
+      NODE_OBJECT(iter) = dia_layer_object_get_nth (NODE_LAYER(parent), 0);
       if (NODE_OBJECT(iter)) {
         NODE_LAYER(iter) = dia_object_get_parent_layer(NODE_OBJECT(iter));
-	NODE_DIAGRAM(iter) = layer_get_parent_diagram (NODE_LAYER(iter));
-	return TRUE;
+        NODE_DIAGRAM(iter) = dia_layer_get_parent_diagram (NODE_LAYER(iter));
+        return TRUE;
       }
     } else if (NODE_DIAGRAM(parent)) {
       NODE_LAYER(iter) = data_layer_get_nth(NODE_DIAGRAM(parent), 0);
       if (NODE_LAYER(iter)) {
-	NODE_DIAGRAM(iter) = layer_get_parent_diagram (NODE_LAYER(iter));
-	NODE_OBJECT(iter) = NULL;
-	return TRUE;
+        NODE_DIAGRAM(iter) = dia_layer_get_parent_diagram (NODE_LAYER(iter));
+        NODE_OBJECT(iter) = NULL;
+        return TRUE;
       }
     } else {
       /* deliver root's children */
@@ -301,18 +313,20 @@ _dtm_iter_has_child (GtkTreeModel *tree_model,
 {
   return _dtm_iter_n_children (tree_model, iter) > 0;
 }
+
+
 static gboolean
 _dtm_iter_nth_child (GtkTreeModel *tree_model,
-		     GtkTreeIter  *iter,
-		     GtkTreeIter  *parent,
-		     gint          n)
+                     GtkTreeIter  *iter,
+                     GtkTreeIter  *parent,
+                     int           n)
 {
   if (parent) {
     *iter = *parent;
     if (NODE_OBJECT(parent)) {
       return FALSE;
     } else if (NODE_LAYER(parent)) {
-      NODE_OBJECT(iter) = layer_object_get_nth(NODE_LAYER(iter), n);
+      NODE_OBJECT(iter) = dia_layer_object_get_nth (NODE_LAYER(iter), n);
       return NODE_OBJECT(iter) != NULL;
     } else if (NODE_DIAGRAM(parent)) {
       NODE_LAYER(iter) = data_layer_get_nth(NODE_DIAGRAM(iter), n);
@@ -392,8 +406,8 @@ _recurse_row_inserted (GtkTreeModel *model, GtkTreeIter *parent)
     GtkTreePath *path = _dtm_get_path (model, &iter);
     gtk_tree_model_row_inserted (model, path, &iter);
     /* gtk_tree_model_row_has_child_toggled
-     * ... emitted when a row has gotten the first child row ... 
-     * So no need to do it here. Or maybe not for the sorted model? 
+     * ... emitted when a row has gotten the first child row ...
+     * So no need to do it here. Or maybe not for the sorted model?
      */
     if (_recurse_row_inserted (model, &iter))
       gtk_tree_model_row_has_child_toggled (model, path, &iter);
@@ -406,15 +420,15 @@ _recurse_row_inserted (GtkTreeModel *model, GtkTreeIter *parent)
 /* listen on the diagram for object add/remove */
 static void
 _object_add (DiagramData      *dia,
-	     Layer            *layer,
+             DiaLayer         *layer,
              DiaObject        *obj,
-	     DiagramTreeModel *dtm)
+             DiagramTreeModel *dtm)
 {
   GtkTreePath *path;
   GtkTreeIter _iter;
   GtkTreeIter *iter = &_iter;
   /* a bit backward: the first child is in the diagram, but not the tree yet */
-  gboolean had_child = layer_object_count (layer) > 1;
+  gboolean had_child = dia_layer_object_count (layer) > 1;
 
   g_return_if_fail (DIA_DIAGRAM(dia) != NULL);
 
@@ -433,19 +447,20 @@ _object_add (DiagramData      *dia,
     gtk_tree_path_free (path);
   }
 }
+
 static void
-_object_remove(DiagramData      *dia,
-	       Layer            *layer,
-               DiaObject        *obj,
-	       DiagramTreeModel *dtm)
+_object_remove (DiagramData      *dia,
+                DiaLayer         *layer,
+                DiaObject        *obj,
+                DiagramTreeModel *dtm)
 {
   GtkTreePath *path;
   GtkTreeIter _iter;
   GtkTreeIter *iter = &_iter;
-  gboolean last_child = layer_object_count (layer) == 0;
+  gboolean last_child = dia_layer_object_count (layer) == 0;
 
   g_return_if_fail (DIA_DIAGRAM(dia) != NULL);
-  
+
   NODE_DIAGRAM(iter) = dia;
   NODE_LAYER(iter)   = layer;
   NODE_OBJECT(iter)  = obj;
@@ -502,7 +517,7 @@ _diagram_change (DiaApplication   *app,
   GtkTreePath *path;
   GtkTreeIter _iter = {0,};
   GtkTreeIter *iter = &_iter;
-  
+
   NODE_DIAGRAM(iter) = DIA_DIAGRAM_DATA(dia);
 
   if (flags & DIAGRAM_CHANGE_NAME)
@@ -526,7 +541,7 @@ _diagram_remove (DiaApplication   *app,
   GtkTreePath *path;
   GtkTreeIter _iter = {0,};
   GtkTreeIter *iter = &_iter;
-  
+
   NODE_DIAGRAM(iter) = DIA_DIAGRAM_DATA(dia);
   NODE_LAYER(iter)   = NULL;
   NODE_OBJECT(iter)  = NULL;
@@ -543,12 +558,12 @@ _diagram_remove (DiaApplication   *app,
 static void
 _dtm_init (DiagramTreeModel *dtm)
 {
-  /* connect to intersting state changes */
-  g_signal_connect (G_OBJECT (dia_application_get ()),
+  /* connect to interesting state changes */
+  g_signal_connect (G_OBJECT (dia_application_get_default ()),
                     "diagram_add", G_CALLBACK (_diagram_add), dtm);
-  g_signal_connect (G_OBJECT (dia_application_get ()),
+  g_signal_connect (G_OBJECT (dia_application_get_default ()),
                     "diagram_change", G_CALLBACK (_diagram_change), dtm);
-  g_signal_connect (G_OBJECT(dia_application_get ()),
+  g_signal_connect (G_OBJECT(dia_application_get_default ()),
                     "diagram_remove", G_CALLBACK (_diagram_remove), dtm);
   /* also connect to every already existing diagram */
   {
@@ -566,87 +581,114 @@ _dtm_finalize (GObject *object)
 {
   DiagramTreeModel *dtm = (DiagramTreeModel *)object;
 
-  g_signal_handlers_disconnect_by_func (G_OBJECT (dia_application_get ()), _diagram_add, dtm);
-  g_signal_handlers_disconnect_by_func (G_OBJECT (dia_application_get ()), _diagram_change, dtm);
-  g_signal_handlers_disconnect_by_func (G_OBJECT (dia_application_get ()), _diagram_remove, dtm);
-  
+  g_signal_handlers_disconnect_by_func (G_OBJECT (dia_application_get_default ()), _diagram_add, dtm);
+  g_signal_handlers_disconnect_by_func (G_OBJECT (dia_application_get_default ()), _diagram_change, dtm);
+  g_signal_handlers_disconnect_by_func (G_OBJECT (dia_application_get_default ()), _diagram_remove, dtm);
+
   G_OBJECT_CLASS(_dtm_parent_class)->finalize (object);
 }
 
-/* SORTABLE 
+
+/* SORTABLE
  * Wrapper around the original model to allow sorting by various columns IDs
  */
-static gint
-cmp_diagram (GtkTreeIter  *a,
-	     GtkTreeIter  *b)
+static int
+cmp_diagram (GtkTreeIter *a,
+             GtkTreeIter *b)
 {
-  DiagramData *pa = NODE_DIAGRAM(a), *pb = NODE_DIAGRAM(b);
-  gchar *na, *nb;
-  gint ret;
-  if (pa == pb)
+  DiagramData *pa = NODE_DIAGRAM (a), *pb = NODE_DIAGRAM (b);
+  char *na, *nb;
+  int ret;
+
+  if (pa == pb) {
     return 0;
-  na = diagram_get_name (DIA_DIAGRAM(pa));
-  nb = diagram_get_name (DIA_DIAGRAM(pa));
-  if (!na || !nb)
+  }
+
+  na = diagram_get_name (DIA_DIAGRAM (pa));
+  nb = diagram_get_name (DIA_DIAGRAM (pa));
+
+  if (!na || !nb) {
     return (na > nb) ? -1 : 1;
+  }
+
   ret = strcmp (na, nb);
-  g_free (na);
-  g_free (nb);
+
+  g_clear_pointer (&na, g_free);
+  g_clear_pointer (&nb, g_free);
+
   return ret;
 }
-static gint
+
+
+static int
 cmp_layer (GtkTreeIter  *a,
-	   GtkTreeIter  *b)
+           GtkTreeIter  *b)
 {
-  Layer *pa = NODE_LAYER(a), *pb = NODE_LAYER(b);
-  gchar *na, *nb;
-  gint ret;
+  DiaLayer *pa = NODE_LAYER(a), *pb = NODE_LAYER(b);
+  const char *na, *nb;
+  int ret;
   if (pa == pb)
     return 0;
-  na = layer_get_name (pa);
-  nb = layer_get_name (pb);
+  na = dia_layer_get_name (pa);
+  nb = dia_layer_get_name (pb);
   if (!na || !nb)
     return (na > nb) ? -1 : 1;
   ret = strcmp (na, nb);
-  g_free (na);
-  g_free (nb);
+
   return ret;
 }
-static gint
+
+
+static int
 name_sort_func (GtkTreeModel *model,
-		GtkTreeIter  *a,
-		GtkTreeIter  *b,
-		gpointer      user_data)
+                GtkTreeIter  *a,
+                GtkTreeIter  *b,
+                gpointer      user_data)
 {
-  DiaObject *pa = NODE_OBJECT(a), *pb = NODE_OBJECT(b);
-  gchar *na, *nb;
-  gint ret = cmp_diagram (a, b);
-  if (ret)
+  DiaObject *pa = NODE_OBJECT (a), *pb = NODE_OBJECT (b);
+  char *na, *nb;
+  int ret = cmp_diagram (a, b);
+
+  if (ret) {
     return ret;
+  }
+
   ret = cmp_layer (a, b);
-  if (ret)
+
+  if (ret) {
     return ret;
-  if (pa == pb)
+  }
+
+  if (pa == pb) {
     return 0;
-  else if (!pa || !pb)
+  } else if (!pa || !pb) {
     return (pa > pb) ? -1 : 1;
+  }
+
   na = object_get_displayname (pa);
   nb = object_get_displayname (pb);
-  if (!na || !nb)
-      return (na > nb) ? -1 : 1;
+
+  if (!na || !nb) {
+    return (na > nb) ? -1 : 1;
+  }
+
   ret = strcmp (na, nb);
-  g_free (na);
-  g_free (nb);
+
+  g_clear_pointer (&na, g_free);
+  g_clear_pointer (&nb, g_free);
+
   return ret;
 }
-static gint
+
+
+static int
 type_sort_func (GtkTreeModel *model,
-		GtkTreeIter  *a,
-		GtkTreeIter  *b,
-		gpointer      user_data)
+                GtkTreeIter  *a,
+                GtkTreeIter  *b,
+                gpointer      user_data)
 {
   DiaObject *pa = NODE_OBJECT(a), *pb = NODE_OBJECT(b);
-  gint ret = cmp_diagram (a, b);
+  int ret = cmp_diagram (a, b);
   if (ret)
     return ret;
   ret = cmp_layer (a, b);
@@ -658,14 +700,16 @@ type_sort_func (GtkTreeModel *model,
     return (pa > pb) ? -1 : 1;
   return strcmp (pa->type->name, pb->type->name);
 }
+
+
 static GtkTreeModel *
 wrap_as_sortable_model (GtkTreeModel *model)
 {
   GtkTreeModel *sort_model = gtk_tree_model_sort_new_with_model (GTK_TREE_MODEL (model));
-  
+
   gtk_tree_sortable_set_sort_func (GTK_TREE_SORTABLE (sort_model), NAME_COLUMN, name_sort_func, model, NULL);
   gtk_tree_sortable_set_sort_func (GTK_TREE_SORTABLE (sort_model), OBJECT_COLUMN, type_sort_func, model, NULL);
-  
+
   return sort_model;
 }
 

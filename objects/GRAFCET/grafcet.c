@@ -19,11 +19,12 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include "object.h"
 
-#include "intl.h"
 #include "grafcet.h"
 #include "plug-ins.h"
 
@@ -37,21 +38,22 @@ extern DiaObjectType condition_type;
 
 DIA_PLUGIN_CHECK_INIT
 
-PluginInitResult
-dia_plugin_init(PluginInfo *info)
-{
-  if (!dia_plugin_info_init(info, "GRAFCET", _("GRAFCET diagram objects"),
-			    NULL, NULL))
-    return DIA_PLUGIN_INIT_ERROR;
 
-  object_register_type(&step_type);
-  object_register_type(&action_type);
-  object_register_type(&transition_type);
-  object_register_type(&vergent_type);
-  object_register_type(&grafcet_arc_type);
-  object_register_type(&old_arc_type);
-  object_register_type(&condition_type);
+PluginInitResult
+dia_plugin_init (PluginInfo *info)
+{
+  if (!dia_plugin_info_init (info, "GRAFCET", _("GRAFCET diagram objects"),
+                             NULL, NULL)) {
+    return DIA_PLUGIN_INIT_ERROR;
+  }
+
+  object_register_type (&step_type);
+  object_register_type (&action_type);
+  object_register_type (&transition_type);
+  object_register_type (&vergent_type);
+  object_register_type (&grafcet_arc_type);
+  object_register_type (&old_arc_type);
+  object_register_type (&condition_type);
 
   return DIA_PLUGIN_INIT_OK;
 }
-

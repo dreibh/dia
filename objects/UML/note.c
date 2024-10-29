@@ -16,13 +16,13 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "diarenderer.h"
@@ -55,10 +55,10 @@ struct _Note {
 static real note_distance_from(Note *note, Point *point);
 static void note_select(Note *note, Point *clicked_point,
 			DiaRenderer *interactive_renderer);
-static ObjectChange* note_move_handle(Note *note, Handle *handle,
+static DiaObjectChange* note_move_handle(Note *note, Handle *handle,
 				      Point *to, ConnectionPoint *cp,
 				      HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* note_move(Note *note, Point *to);
+static DiaObjectChange* note_move(Note *note, Point *to);
 static void note_draw(Note *note, DiaRenderer *renderer);
 static DiaObject *note_create(Point *startpoint,
 			   void *user_data,
@@ -184,21 +184,26 @@ note_select(Note *note, Point *clicked_point,
   element_update_handles(&note->element);
 }
 
-static ObjectChange*
-note_move_handle(Note *note, Handle *handle,
-		 Point *to, ConnectionPoint *cp,
-		 HandleMoveReason reason, ModifierKeys modifiers)
-{
-  assert(note!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
 
-  assert(handle->id < 8);
+static DiaObjectChange *
+note_move_handle (Note             *note,
+                  Handle           *handle,
+                  Point            *to,
+                  ConnectionPoint  *cp,
+                  HandleMoveReason  reason,
+                  ModifierKeys      modifiers)
+{
+  g_return_val_if_fail (note != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
+
+  g_return_val_if_fail (handle->id < 8, NULL);
 
   return NULL;
 }
 
-static ObjectChange*
+
+static DiaObjectChange*
 note_move(Note *note, Point *to)
 {
   note->element.corner = *to;
@@ -208,16 +213,16 @@ note_move(Note *note, Point *to)
   return NULL;
 }
 
+
 static void
-note_draw(Note *note, DiaRenderer *renderer)
+note_draw (Note *note, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Element *elem;
-  real x, y, w, h;
+  double x, y, w, h;
   Point poly[5];
 
-  assert(note != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (note != NULL);
+  g_return_if_fail (renderer != NULL);
 
   elem = &note->element;
 
@@ -226,9 +231,9 @@ note_draw(Note *note, DiaRenderer *renderer)
   w = elem->width;
   h = elem->height;
 
-  renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
-  renderer_ops->set_linewidth(renderer, note->line_width);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
+  dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+  dia_renderer_set_linewidth (renderer, note->line_width);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
 
   poly[0].x = x;
   poly[0].y = y;
@@ -241,22 +246,24 @@ note_draw(Note *note, DiaRenderer *renderer)
   poly[4].x = x;
   poly[4].y = y+h;
 
-  renderer_ops->draw_polygon(renderer,
-			      poly, 5,
-			      &note->fill_color,
-			      &note->line_color);
+  dia_renderer_draw_polygon (renderer,
+                             poly,
+                             5,
+                             &note->fill_color,
+                             &note->line_color);
 
   poly[0] = poly[1];
   poly[1].x = x + w - NOTE_CORNER;
   poly[1].y = y + NOTE_CORNER;
   poly[2] = poly[2];
 
-  renderer_ops->set_linewidth(renderer, note->line_width / 2);
-  renderer_ops->draw_polyline(renderer,
-			   poly, 3,
-			   &note->line_color);
+  dia_renderer_set_linewidth (renderer, note->line_width / 2);
+  dia_renderer_draw_polyline (renderer,
+                              poly,
+                              3,
+                              &note->line_color);
 
-  text_draw(note->text, renderer);
+  text_draw (note->text, renderer);
 }
 
 static void
@@ -299,7 +306,7 @@ note_create(Point *startpoint,
   DiaFont *font;
   int i;
 
-  note = g_malloc0(sizeof(Note));
+  note = g_new0 (Note, 1);
   elem = &note->element;
   obj = &elem->object;
 
@@ -318,8 +325,8 @@ note_create(Point *startpoint,
   p.x += note->line_width/2.0 + NOTE_MARGIN_X;
   p.y += note->line_width/2.0 + NOTE_CORNER + dia_font_ascent("A",font, 0.8);
 
-  note->text = new_text("", font, 0.8, &p, &color_black, ALIGN_LEFT);
-  dia_font_unref(font);
+  note->text = new_text ("", font, 0.8, &p, &color_black, DIA_ALIGN_LEFT);
+  g_clear_object (&font);
 
   element_init(elem, 8, NUM_CONNECTIONS);
 

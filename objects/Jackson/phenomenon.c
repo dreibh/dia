@@ -25,16 +25,16 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
 
 #include <glib.h>
 
-#include "intl.h"
 #include "object.h"
 #include "connection.h"
 #include "diarenderer.h"
@@ -56,12 +56,11 @@ struct _Message {
 
   Handle text_handle;
 
-  gchar *text;
+  char *text;
   Point text_pos;
   real text_width;
 
   MessageType type;
-  int init;
 };
 
 #define MESSAGE_WIDTH 0.09
@@ -74,10 +73,10 @@ struct _Message {
 
 static DiaFont *message_font = NULL;
 
-static ObjectChange* message_move_handle(Message *message, Handle *handle,
+static DiaObjectChange* message_move_handle(Message *message, Handle *handle,
 				   Point *to, ConnectionPoint *cp,
 				   HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* message_move(Message *message, Point *to);
+static DiaObjectChange* message_move(Message *message, Point *to);
 static void message_select(Message *message, Point *clicked_point,
 			      DiaRenderer *interactive_renderer);
 static void message_draw(Message *message, DiaRenderer *renderer);
@@ -108,7 +107,12 @@ DiaObjectType jackson_phenomenon_type =
   "Jackson - phenomenon",    /* name */
   0,                      /* version */
   jackson_shared_phen_xpm, /* pixmap */
-  &message_type_ops           /* ops */
+  &message_type_ops,          /* ops */
+  NULL, /* pixmap_file */
+  NULL, /* default_user_data */
+  NULL, /* prop_descs */
+  NULL, /* prop_offsets */
+  DIA_OBJECT_HAS_VARIANTS /* flags */
 };
 
 static ObjectOps message_ops = {
@@ -173,7 +177,6 @@ message_get_props(Message * message, GPtrArray *props)
 static void
 message_set_props(Message *message, GPtrArray *props)
 {
-  if (message->init==-1) { message->init++; return; }
   object_set_props_from_offsets(&message->connection.object,
                                 message_offsets, props);
   message_update_data(message);
@@ -200,17 +203,21 @@ message_select(Message *message, Point *clicked_point,
   connection_update_handles(&message->connection);
 }
 
-static ObjectChange*
-message_move_handle(Message *message, Handle *handle,
-		 Point *to, ConnectionPoint *cp,
-		 HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+message_move_handle (Message          *message,
+                     Handle           *handle,
+                     Point            *to,
+                     ConnectionPoint  *cp,
+                     HandleMoveReason  reason,
+                     ModifierKeys      modifiers)
 {
   Point p1, p2;
   Point *endpoints;
 
-  assert(message!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+  g_return_val_if_fail (message != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
   if (handle->id == HANDLE_MOVE_TEXT) {
     message->text_pos = *to;
@@ -230,7 +237,7 @@ message_move_handle(Message *message, Handle *handle,
   return NULL;
 }
 
-static ObjectChange*
+static DiaObjectChange*
 message_move(Message *message, Point *to)
 {
   Point start_to_end;
@@ -254,30 +261,31 @@ message_move(Message *message, Point *to)
 
 /* drawing here -- TBD inverse flow ??  */
 static void
-message_draw(Message *message, DiaRenderer *renderer)
+message_draw (Message *message, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point *endpoints, p1, p2;
   Arrow arrow;
   int n1 = 1, n2 = 0;
-  gchar *mname = g_strdup(message->text);
+  char *mname = g_strdup (message->text);
 
   /* some asserts */
-  assert(message != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (message != NULL);
+  g_return_if_fail (renderer != NULL);
 
   /* arrow type */
   endpoints = &message->connection.endpoints[0];
 
-  renderer_ops->set_linewidth(renderer, MESSAGE_WIDTH);
-  renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
+  dia_renderer_set_linewidth (renderer, MESSAGE_WIDTH);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
 
   if (message->type==MSG_REQ) {
-      renderer_ops->set_linestyle(renderer, LINESTYLE_DASHED, MESSAGE_DASHLEN);
-      arrow.type = ARROW_FILLED_TRIANGLE;
+    dia_renderer_set_linestyle (renderer,
+                                DIA_LINE_STYLE_DASHED,
+                                MESSAGE_DASHLEN);
+    arrow.type = ARROW_FILLED_TRIANGLE;
   } else {
-      renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
-      arrow.type = ARROW_NONE;
+    dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
+    arrow.type = ARROW_NONE;
   }
 
   arrow.length = MESSAGE_ARROWLEN;
@@ -288,15 +296,26 @@ message_draw(Message *message, DiaRenderer *renderer)
   p2 = endpoints[n2];
 
   /* drawing directed line */
-  renderer_ops->draw_line_with_arrows(renderer, &p1, &p2, MESSAGE_WIDTH, &color_black, &arrow, NULL);
+  dia_renderer_draw_line_with_arrows (renderer,
+                                      &p1,
+                                      &p2,
+                                      MESSAGE_WIDTH,
+                                      &color_black,
+                                      &arrow,
+                                      NULL);
 
   /* writing text on arrow (maybe not a good idea) */
-  renderer_ops->set_font(renderer, message_font, MESSAGE_FONTHEIGHT);
+  dia_renderer_set_font (renderer, message_font, MESSAGE_FONTHEIGHT);
 
-  if (mname && strlen(mname) != 0)
-      renderer_ops->draw_string(renderer, mname, &message->text_pos, ALIGN_CENTER, &color_black);
+  if (mname && strlen (mname) != 0) {
+    dia_renderer_draw_string (renderer,
+                              mname,
+                              &message->text_pos,
+                              DIA_ALIGN_CENTRE,
+                              &color_black);
+  }
 
-  if (mname) g_free(mname);
+  g_clear_pointer (&mname, g_free);
 }
 
 /* creation here */
@@ -316,7 +335,7 @@ message_create(Point *startpoint,
       dia_font_new_from_style (DIA_FONT_SANS, MESSAGE_FONTHEIGHT);
   }
 
-  message = g_malloc0(sizeof(Message));
+  message = g_new0 (Message, 1);
 
   conn = &message->connection;
   conn->endpoints[0] = *startpoint;
@@ -357,7 +376,6 @@ message_create(Point *startpoint,
     default: message->type=MSG_SHARED; break;
   }
 
-  if (GPOINTER_TO_INT(user_data)!=0) message->init=-1; else message->init=0;
   return &message->connection.object;
 }
 
@@ -366,7 +384,7 @@ message_destroy(Message *message)
 {
   connection_destroy(&message->connection);
 
-  g_free(message->text);
+  g_clear_pointer (&message->text, g_free);
 }
 
 static void
@@ -374,7 +392,7 @@ message_update_data(Message *message)
 {
   Connection *conn = &message->connection;
   DiaObject *obj = &conn->object;
-  Rectangle rect;
+  DiaRectangle rect;
 
   if (connpoint_is_autogap(conn->endpoint_handles[0].connected_to) ||
       connpoint_is_autogap(conn->endpoint_handles[1].connected_to)) {

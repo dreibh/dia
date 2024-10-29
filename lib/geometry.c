@@ -19,8 +19,11 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
+
 /* include glib.h first, so we don't pick up its inline functions as well */
-#include <config.h>
 
 #include <glib.h>
 /* include normal versions of the inlined functions here ... */
@@ -30,7 +33,7 @@
 #include "units.h"
 
 void
-rectangle_union(Rectangle *r1, const Rectangle *r2)
+rectangle_union (DiaRectangle *r1, const DiaRectangle *r2)
 {
   r1->top = MIN( r1->top, r2->top );
   r1->bottom = MAX( r1->bottom, r2->bottom );
@@ -38,17 +41,9 @@ rectangle_union(Rectangle *r1, const Rectangle *r2)
   r1->right = MAX( r1->right, r2->right );
 }
 
-void
-int_rectangle_union(IntRectangle *r1, const IntRectangle *r2)
-{
-  r1->top = MIN( r1->top, r2->top );
-  r1->bottom = MAX( r1->bottom, r2->bottom );
-  r1->left = MIN( r1->left, r2->left );
-  r1->right = MAX( r1->right, r2->right );
-}
 
 void
-rectangle_intersection(Rectangle *r1, const Rectangle *r2)
+rectangle_intersection (DiaRectangle *r1, const DiaRectangle *r2)
 {
   r1->top = MAX( r1->top, r2->top );
   r1->bottom = MIN( r1->bottom, r2->bottom );
@@ -63,7 +58,7 @@ rectangle_intersection(Rectangle *r1, const Rectangle *r2)
 }
 
 int
-rectangle_intersects(const Rectangle *r1, const Rectangle *r2)
+rectangle_intersects (const DiaRectangle *r1, const DiaRectangle *r2)
 {
   if ( (r1->right < r2->left) ||
        (r1->left > r2->right) ||
@@ -75,7 +70,7 @@ rectangle_intersects(const Rectangle *r1, const Rectangle *r2)
 }
 
 int
-point_in_rectangle(const Rectangle* r, const Point *p)
+point_in_rectangle (const DiaRectangle* r, const Point *p)
 {
   if ( (p->x < r->left) ||
        (p->x > r->right) ||
@@ -87,19 +82,19 @@ point_in_rectangle(const Rectangle* r, const Point *p)
 }
 
 int
-rectangle_in_rectangle(const Rectangle* outer, const Rectangle *inner)
+rectangle_in_rectangle (const DiaRectangle* outer, const DiaRectangle *inner)
 {
   if ( (inner->left < outer->left) ||
        (inner->right > outer->right) ||
        (inner->top < outer->top) ||
        (inner->bottom > outer->bottom))
     return FALSE;
-  
+
   return TRUE;
 }
 
 void
-rectangle_add_point(Rectangle *r, const Point *p)
+rectangle_add_point (DiaRectangle *r, const Point *p)
 {
   if (p->x < r->left)
     r->left = p->x;
@@ -120,7 +115,7 @@ rectangle_add_point(Rectangle *r, const Point *p)
  * on the rectangle is returned.
  */
 real
-distance_rectangle_point(const Rectangle *rect, const Point *point)
+distance_rectangle_point (const DiaRectangle *rect, const Point *point)
 {
   real dx = 0.0;
   real dy = 0.0;
@@ -171,11 +166,11 @@ distance_line_point(const Point *line_start, const Point *line_end,
   }
 
   projlen = point_dot(&v1,&v2) / v1_lensq;
-  
+
   if (projlen<0.0) {
     return sqrt(point_dot(&v2,&v2));
   }
-  
+
   if (projlen>1.0) {
     Point v3 = *point;
     point_sub(&v3,line_end);
@@ -191,7 +186,7 @@ distance_line_point(const Point *line_start, const Point *line_end,
   if (perp_dist < 0.0) {
     perp_dist = 0.0;
   }
-  
+
   return perp_dist;
 }
 
@@ -239,10 +234,10 @@ distance_polygon_point(const Point *poly, guint npoints, real line_width,
 
 /* if cross is not NULL, it will be incremented for each ray crossing */
 static real
-bez_point_distance_and_ray_crosses(const Point *b1, 
-                                   const Point *b2, const Point *b3, 
+bez_point_distance_and_ray_crosses(const Point *b1,
+                                   const Point *b2, const Point *b3,
                                    const Point *b4,
-				   real line_width, const Point *point, 
+				   real line_width, const Point *point,
                                    guint *cross)
 {
   static gboolean calculated_coeff = FALSE;
@@ -287,7 +282,7 @@ bez_point_distance_and_ray_crosses(const Point *b1,
 }
 
 real
-distance_bez_seg_point(const Point *b1, const BezPoint *b2, 
+distance_bez_seg_point(const Point *b1, const BezPoint *b2,
 		       real line_width, const Point *point)
 {
   if (b2->type == BEZ_CURVE_TO)
@@ -296,106 +291,122 @@ distance_bez_seg_point(const Point *b1, const BezPoint *b2,
   else
     return distance_line_point(b1, &b2->p1, line_width, point);
 }
-			     
-real
-distance_bez_line_point(const BezPoint *b, guint npoints,
-			real line_width, const Point *point)
+
+
+double
+distance_bez_line_point (const BezPoint *b,
+                         guint           npoints,
+                         double          line_width,
+                         const Point    *point)
 {
   Point last;
   guint i;
-  real line_dist = G_MAXFLOAT;
+  double line_dist = G_MAXFLOAT;
 
-  g_return_val_if_fail(b[0].type == BEZ_MOVE_TO, -1);
+  g_return_val_if_fail (b[0].type == BEZ_MOVE_TO, -1);
 
   last = b[0].p1;
 
   for (i = 1; i < npoints; i++) {
-    real dist;
+    double dist;
 
     switch (b[i].type) {
-    case BEZ_MOVE_TO:
-      last = b[i].p1;
-      break;
-    case BEZ_LINE_TO:
-      dist = distance_line_point(&last, &b[i].p1, line_width, point);
-      line_dist = MIN(line_dist, dist);
-      last = b[i].p1;
-      break;
-    case BEZ_CURVE_TO:
-      dist = bez_point_distance_and_ray_crosses(&last, &b[i].p1, &b[i].p2,
-						&b[i].p3, line_width, point,
-						NULL);
-      line_dist = MIN(line_dist, dist);
-      last = b[i].p3;
-      break;
+      case BEZ_MOVE_TO:
+        last = b[i].p1;
+        break;
+      case BEZ_LINE_TO:
+        dist = distance_line_point (&last, &b[i].p1, line_width, point);
+        line_dist = MIN (line_dist, dist);
+        last = b[i].p1;
+        break;
+      case BEZ_CURVE_TO:
+        dist = bez_point_distance_and_ray_crosses (&last,
+                                                   &b[i].p1, &b[i].p2,
+                                                   &b[i].p3, line_width,
+                                                   point,
+                                                   NULL);
+        line_dist = MIN(line_dist, dist);
+        last = b[i].p3;
+        break;
+      default:
+        g_return_val_if_reached (G_MAXDOUBLE);
     }
   }
   return line_dist;
 }
 
-real
-distance_bez_shape_point(const BezPoint *b, guint npoints,
-                         real line_width, const Point *point)
+
+double
+distance_bez_shape_point (const BezPoint *b,
+                          guint           npoints,
+                          double          line_width,
+                          const Point    *point)
 {
   Point last;
   const Point *close_to; /* path must be closed to calculate distance */
   guint i;
-  real line_dist = G_MAXFLOAT;
+  double line_dist = G_MAXFLOAT;
   guint crossings = 0;
 
-  g_return_val_if_fail(b[0].type == BEZ_MOVE_TO, -1);
+  g_return_val_if_fail (b[0].type == BEZ_MOVE_TO, -1);
 
   last = b[0].p1;
   close_to = &b[0].p1;
 
   for (i = 1; i < npoints; i++) {
-    real dist;
+    double dist;
 
     switch (b[i].type) {
-    case BEZ_MOVE_TO:
-      /* no complains, there are renderers capable to handle this */
-      last = b[i].p1;
-      close_to = &b[i].p1;
-      break;
-    case BEZ_LINE_TO:
-      dist = distance_line_point(&last, &b[i].p1, line_width, point);
-      crossings += line_crosses_ray(&last, &b[i].p1, point);
-      line_dist = MIN(line_dist, dist);
-      last = b[i].p1;
-      if (close_to && close_to->x == last.x && close_to->y == last.y)
-        close_to = NULL;
-      break;
-    case BEZ_CURVE_TO:
-      dist = bez_point_distance_and_ray_crosses(&last, &b[i].p1, &b[i].p2,
-						&b[i].p3, line_width, point,
-						&crossings);
-      line_dist = MIN(line_dist, dist);
-      last = b[i].p3;
-      if (close_to && close_to->x == last.x && close_to->y == last.y)
-        close_to = NULL;
-      break;
+      case BEZ_MOVE_TO:
+        /* no complains, there are renderers capable to handle this */
+        last = b[i].p1;
+        close_to = &b[i].p1;
+        break;
+      case BEZ_LINE_TO:
+        dist = distance_line_point (&last, &b[i].p1, line_width, point);
+        crossings += line_crosses_ray (&last, &b[i].p1, point);
+        line_dist = MIN (line_dist, dist);
+        last = b[i].p1;
+        if (close_to && close_to->x == last.x && close_to->y == last.y) {
+          close_to = NULL;
+        }
+        break;
+      case BEZ_CURVE_TO:
+        dist = bez_point_distance_and_ray_crosses (&last, &b[i].p1, &b[i].p2,
+                                                   &b[i].p3, line_width,
+                                                   point, &crossings);
+        line_dist = MIN(line_dist, dist);
+        last = b[i].p3;
+        if (close_to && close_to->x == last.x && close_to->y == last.y) {
+          close_to = NULL;
+        }
+        break;
+      default:
+        g_return_val_if_reached (0.0);
     }
   }
   if (close_to) {
     /* final, implicit line-to */
-    real dist = distance_line_point(&last, close_to, line_width, point);
-    crossings += line_crosses_ray(&last, close_to, point);
-    line_dist = MIN(line_dist, dist);
+    real dist = distance_line_point (&last, close_to, line_width, point);
+    crossings += line_crosses_ray (&last, close_to, point);
+    line_dist = MIN (line_dist, dist);
   }
   /* If there is an odd number of ray crossings, we are inside the polygon.
    * Otherwise, return the minimum distance from a line segment */
-  if (crossings % 2 == 1)
+  if (crossings % 2 == 1) {
     return 0.0;
-  else
+  } else {
     return line_dist;
+  }
 }
+
 
 real
 distance_ellipse_point(const Point *centre, real width, real height,
 		       real line_width, const Point *point)
 {
   /* A faster intersection method would be to scaled the ellipse and the
-   * point to where the ellipse is a circle, intersect with the circle, 
+   * point to where the ellipse is a circle, intersect with the circle,
    * then scale back.
    */
   real w2 = width*width, h2 = height*height;
@@ -616,7 +627,7 @@ fillet(Point *p1, Point *p2, Point *p3, Point *p4,
   return TRUE;
 }
 
-int 
+int
 three_point_circle (const Point *p1, const Point *p2, const Point *p3,
                     Point* center, real* radius)
 {
@@ -649,7 +660,7 @@ three_point_circle (const Point *p1, const Point *p2, const Point *p3,
 
 
 /* moved this here since it is being reused by rounded polyline code*/
-real 
+real
 point_cross(Point *p1, Point *p2)
 {
   return p1->x * p2->y - p2->x * p1->y;
@@ -659,7 +670,7 @@ point_cross(Point *p1, Point *p2)
 /* Computes one point between end and objmid which
  * touches the edge of the object */
 Point
-calculate_object_edge(Point *objmid, Point *end, DiaObject *obj) 
+calculate_object_edge(Point *objmid, Point *end, DiaObject *obj)
 {
 #define MAXITER 25
 #ifdef TRACE_DIST
@@ -676,12 +687,12 @@ calculate_object_edge(Point *objmid, Point *end, DiaObject *obj)
   mid3 = *end;
 
   /* If the other end is inside the object */
-  dist = obj->ops->distance_from(obj, &mid3);
+  dist = dia_object_distance_from (obj, &mid3);
   if (dist < 0.001) return mid1;
 
 
   do {
-    dist = obj->ops->distance_from(obj, &mid2);
+    dist = dia_object_distance_from (obj, &mid2);
     if (dist < 0.0000001) {
       mid1 = mid2;
     } else {
@@ -695,13 +706,13 @@ calculate_object_edge(Point *objmid, Point *end, DiaObject *obj)
 #endif
     i++;
   } while (i < MAXITER && (dist < 0.0000001 || dist > 0.001));
-  
+
 #ifdef TRACE_DIST
   if (i == MAXITER) {
     for (i = 0; i < MAXITER; i++) {
-      printf("%d: %f, %f: %f\n", i, trace[i].x, trace[i].y, disttrace[i]);
+      g_printerr ("%d: %f, %f: %f\n", i, trace[i].x, trace[i].y, disttrace[i]);
     }
-    printf("i = %d, dist = %f\n", i, dist);
+    g_printerr ("i = %d, dist = %f\n", i, dist);
   }
 #endif
 
@@ -713,7 +724,7 @@ calculate_object_edge(Point *objmid, Point *end, DiaObject *obj)
  * @param matrix matrix to check
  * \extends _DiaMatrix
  */
-gboolean 
+gboolean
 dia_matrix_is_identity (const DiaMatrix *matrix)
 {
   const real epsilon = 1e-6;
@@ -788,7 +799,7 @@ dia_matrix_get_angle_and_scales (const DiaMatrix *m,
   len1 = sqrt(rxx * rxx + ryx * ryx);
   len2 = sqrt(rxy * rxy + ryy * ryy);
   no_skew = fabs(len1 - len2) < epsilon;
-  
+
   angle = atan2(ryx, rxx);
   if (a)
     *a = angle;
@@ -810,7 +821,7 @@ dia_matrix_get_angle_and_scales (const DiaMatrix *m,
  * @param sy vertical scale
  * \extends _DiaMatrix
  */
-void 
+void
 dia_matrix_set_angle_and_scales (DiaMatrix *m,
                                  real       a,
 				 real       sx,
@@ -834,7 +845,7 @@ dia_matrix_is_invertible (const DiaMatrix *matrix)
   c = matrix->xy; d = matrix->yy;
   det = a*d - b*c;
 
-  return finite(det) && det != 0.0;
+  return isfinite(det) && det != 0.0;
 }
 
 void

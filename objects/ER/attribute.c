@@ -18,19 +18,20 @@
 
 /* DO NOT USE THIS OBJECT AS A BASIS FOR A NEW OBJECT. */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "connectionpoint.h"
 #include "diarenderer.h"
 #include "attributes.h"
 #include "properties.h"
+#include "dia-state-object-change.h"
 
 #include "pixmaps/attribute.xpm"
 
@@ -85,11 +86,11 @@ struct _Attribute {
 static real attribute_distance_from(Attribute *attribute, Point *point);
 static void attribute_select(Attribute *attribute, Point *clicked_point,
 			   DiaRenderer *interactive_renderer);
-static ObjectChange* attribute_move_handle(Attribute *attribute, Handle *handle,
+static DiaObjectChange* attribute_move_handle(Attribute *attribute, Handle *handle,
 					   Point *to, ConnectionPoint *cp,
 					   HandleMoveReason reason,
 					   ModifierKeys modifiers);
-static ObjectChange* attribute_move(Attribute *attribute, Point *to);
+static DiaObjectChange* attribute_move(Attribute *attribute, Point *to);
 static void attribute_draw(Attribute *attribute, DiaRenderer *renderer);
 static void attribute_update_data(Attribute *attribute);
 static DiaObject *attribute_create(Point *startpoint,
@@ -223,24 +224,34 @@ attribute_select(Attribute *attribute, Point *clicked_point,
   element_update_handles(&attribute->element);
 }
 
-static ObjectChange*
-attribute_move_handle(Attribute *attribute, Handle *handle,
-		      Point *to, ConnectionPoint *cp,
-		      HandleMoveReason reason, ModifierKeys modifiers)
-{
-  assert(attribute!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
 
-  assert(handle->id < 8);
-  element_move_handle(&attribute->element, handle->id, to, cp,
-		      reason, modifiers);
-  attribute_update_data(attribute);
+static DiaObjectChange *
+attribute_move_handle (Attribute        *attribute,
+                       Handle           *handle,
+                       Point            *to,
+                       ConnectionPoint  *cp,
+                       HandleMoveReason  reason,
+                       ModifierKeys      modifiers)
+{
+  g_return_val_if_fail (attribute != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
+
+  g_return_val_if_fail (handle->id < 8, NULL);
+
+  element_move_handle (&attribute->element,
+                       handle->id,
+                       to,
+                       cp,
+                       reason,
+                       modifiers);
+  attribute_update_data (attribute);
 
   return NULL;
 }
 
-static ObjectChange*
+
+static DiaObjectChange*
 attribute_move(Attribute *attribute, Point *to)
 {
   attribute->element.corner = *to;
@@ -249,70 +260,82 @@ attribute_move(Attribute *attribute, Point *to)
   return NULL;
 }
 
+
 static void
-attribute_draw(Attribute *attribute, DiaRenderer *renderer)
+attribute_draw (Attribute *attribute, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point center;
   Point start, end;
   Point p;
   Element *elem;
   real width;
 
-  assert(attribute != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (attribute != NULL);
+  g_return_if_fail (renderer != NULL);
 
   elem = &attribute->element;
 
   center.x = elem->corner.x + elem->width/2;
   center.y = elem->corner.y + elem->height/2;
 
-  renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
-  renderer_ops->draw_ellipse (renderer, &center,
-			      elem->width, elem->height,
-			      &attribute->inner_color, NULL);
+  dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+  dia_renderer_draw_ellipse (renderer,
+                             &center,
+                             elem->width,
+                             elem->height,
+                             &attribute->inner_color,
+                             NULL);
 
-  renderer_ops->set_linewidth(renderer, attribute->border_width);
+  dia_renderer_set_linewidth (renderer, attribute->border_width);
   if (attribute->derived) {
-    renderer_ops->set_linestyle(renderer, LINESTYLE_DASHED, 0.3);
+    dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_DASHED, 0.3);
   } else {
-    renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
+    dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
   }
 
-  renderer_ops->draw_ellipse (renderer, &center,
-			      elem->width, elem->height,
-			      NULL, &attribute->border_color);
+  dia_renderer_draw_ellipse (renderer,
+                             &center,
+                             elem->width,
+                             elem->height,
+                             NULL,
+                             &attribute->border_color);
 
   if(attribute->multivalue) {
-    renderer_ops->draw_ellipse (renderer, &center,
-				elem->width - 2*MULTIVALUE_BORDER_WIDTH_X,
-				elem->height - 2*MULTIVALUE_BORDER_WIDTH_Y,
-				NULL, &attribute->border_color);
+    dia_renderer_draw_ellipse (renderer,
+                               &center,
+                               elem->width - 2*MULTIVALUE_BORDER_WIDTH_X,
+                               elem->height - 2*MULTIVALUE_BORDER_WIDTH_Y,
+                               NULL,
+                               &attribute->border_color);
   }
 
   p.x = elem->corner.x + elem->width / 2.0;
   p.y = elem->corner.y + (elem->height - attribute->font_height)/2.0 +
-         dia_font_ascent(attribute->name,
-                         attribute->font, attribute->font_height);
+         dia_font_ascent (attribute->name,
+                          attribute->font,
+                          attribute->font_height);
 
-  renderer_ops->set_font(renderer,  attribute->font, attribute->font_height);
-  renderer_ops->draw_string(renderer, attribute->name,
-			     &p, ALIGN_CENTER,
-			     &color_black);
+  dia_renderer_set_font (renderer, attribute->font, attribute->font_height);
+  dia_renderer_draw_string (renderer,
+                            attribute->name,
+                            &p,
+                            DIA_ALIGN_CENTRE,
+                            &color_black);
 
   if (attribute->key || attribute->weakkey) {
     if (attribute->weakkey) {
-      renderer_ops->set_linestyle(renderer, LINESTYLE_DASHED, 0.3);
+      dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_DASHED, 0.3);
     } else {
-      renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
+      dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
     }
-    width = dia_font_string_width(attribute->name,
-                                  attribute->font, attribute->font_height);
+    width = dia_font_string_width (attribute->name,
+                                   attribute->font,
+                                   attribute->font_height);
     start.x = center.x - width / 2;
     start.y = center.y + 0.4;
     end.x = center.x + width / 2;
     end.y = center.y + 0.4;
-    renderer_ops->draw_line(renderer, &start, &end, &color_black);
+    dia_renderer_draw_line (renderer, &start, &end, &color_black);
   }
 }
 
@@ -396,7 +419,7 @@ attribute_create(Point *startpoint,
   DiaObject *obj;
   int i;
 
-  attribute = g_malloc0(sizeof(Attribute));
+  attribute = g_new0 (Attribute, 1);
   elem = &attribute->element;
   obj = &elem->object;
 
@@ -447,7 +470,7 @@ static void
 attribute_destroy(Attribute *attribute)
 {
   element_destroy(&attribute->element);
-  g_free(attribute->name);
+  g_clear_pointer (&attribute->name, g_free);
 }
 
 static DiaObject *
@@ -460,7 +483,7 @@ attribute_copy(Attribute *attribute)
 
   elem = &attribute->element;
 
-  newattribute = g_malloc0(sizeof(Attribute));
+  newattribute = g_new0 (Attribute, 1);
   newelem = &newattribute->element;
   newobj = &newelem->object;
 
@@ -478,7 +501,7 @@ attribute_copy(Attribute *attribute)
     newattribute->connections[i].flags = attribute->connections[i].flags;
   }
 
-  newattribute->font = dia_font_ref(attribute->font);
+  newattribute->font = g_object_ref (attribute->font);
   newattribute->font_height = attribute->font_height;
   newattribute->name = g_strdup(attribute->name);
   newattribute->name_width = attribute->name_width;
@@ -529,7 +552,7 @@ attribute_load(ObjectNode obj_node, int version,DiaContext *ctx)
   int i;
   AttributeNode attr;
 
-  attribute = g_malloc0(sizeof(Attribute));
+  attribute = g_new0 (Attribute, 1);
   elem = &attribute->element;
   obj = &elem->object;
 
@@ -576,7 +599,7 @@ attribute_load(ObjectNode obj_node, int version,DiaContext *ctx)
 
   if (attribute->font != NULL) {
     /* This shouldn't happen, but doesn't hurt */
-    dia_font_unref(attribute->font);
+    g_clear_object (&attribute->font);
     attribute->font = NULL;
   }
   attr = object_find_attribute (obj_node, "font");

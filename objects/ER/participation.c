@@ -18,13 +18,13 @@
 
 /* DO NOT USE THIS OBJECT AS A BASIS FOR A NEW OBJECT. */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 
-#include "intl.h"
 #include "object.h"
 #include "orth_conn.h"
 #include "diarenderer.h"
@@ -51,10 +51,14 @@ struct _Participation {
 static real participation_distance_from(Participation *dep, Point *point);
 static void participation_select(Participation *dep, Point *clicked_point,
 			      DiaRenderer *interactive_renderer);
-static ObjectChange* participation_move_handle(Participation *dep, Handle *handle,
-					       Point *to, ConnectionPoint *cp,
-					       HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* participation_move(Participation *dep, Point *to);
+static DiaObjectChange *participation_move_handle    (Participation    *dep,
+                                                      Handle           *handle,
+                                                      Point            *to,
+                                                      ConnectionPoint  *cp,
+                                                      HandleMoveReason  reason,
+                                                      ModifierKeys      modifiers);
+static DiaObjectChange *participation_move           (Participation    *dep,
+                                                      Point            *to);
 static void participation_draw(Participation *dep, DiaRenderer *renderer);
 static DiaObject *participation_create(Point *startpoint,
 				 void *user_data,
@@ -160,38 +164,48 @@ participation_select(Participation *participation, Point *clicked_point,
   orthconn_update_data(&participation->orth);
 }
 
-static ObjectChange*
-participation_move_handle(Participation *participation, Handle *handle,
-			  Point *to, ConnectionPoint *cp,
-			  HandleMoveReason reason, ModifierKeys modifiers)
-{
-  ObjectChange *change;
-  assert(participation!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
 
-  change = orthconn_move_handle(&participation->orth, handle, to, cp,
-				reason, modifiers);
-  participation_update_data(participation);
+static DiaObjectChange *
+participation_move_handle (Participation    *participation,
+                           Handle           *handle,
+                           Point            *to,
+                           ConnectionPoint  *cp,
+                           HandleMoveReason  reason,
+                           ModifierKeys      modifiers)
+{
+  DiaObjectChange *change;
+
+  g_return_val_if_fail (participation != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
+
+  change = orthconn_move_handle (&participation->orth,
+                                 handle,
+                                 to,
+                                 cp,
+                                 reason,
+                                 modifiers);
+  participation_update_data (participation);
 
   return change;
 }
 
-static ObjectChange*
+
+static DiaObjectChange *
 participation_move(Participation *participation, Point *to)
 {
-  ObjectChange *change;
+  DiaObjectChange *change;
 
-  change = orthconn_move(&participation->orth, to);
-  participation_update_data(participation);
+  change = orthconn_move (&participation->orth, to);
+  participation_update_data (participation);
 
   return change;
 }
 
+
 static void
-participation_draw(Participation *participation, DiaRenderer *renderer)
+participation_draw (Participation *participation, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   OrthConn *orth = &participation->orth;
   Point *points;
   Point *left_points;
@@ -205,54 +219,54 @@ participation_draw(Participation *participation, DiaRenderer *renderer)
   last_left = 0.0;
   last_right = 0.0;
 
-  renderer_ops->set_linewidth(renderer, PARTICIPATION_WIDTH);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
-  renderer_ops->set_linejoin(renderer, LINEJOIN_MITER);
-  renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
+  dia_renderer_set_linewidth (renderer, PARTICIPATION_WIDTH);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
+  dia_renderer_set_linejoin (renderer, DIA_LINE_JOIN_MITER);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
 
   if (participation->total) {
-    left_points = g_new0(Point, n);
-    right_points = g_new0(Point, n);
+    left_points = g_new0 (Point, n);
+    right_points = g_new0 (Point, n);
     for(i = 0; i < n - 1; i++) {
       if(orth->orientation[i] == HORIZONTAL) { /* HORIZONTAL */
-	if (points[i].x < points[i+1].x) { /* RIGHT */
-	  left_points[i].x = points[i].x + last_left;
-	  left_points[i].y = points[i].y - TOTAL_SEPARATION / 2.0;
-	  last_left = - TOTAL_SEPARATION/2.0;
-	  right_points[i].x = points[i].x + last_right;
-	  right_points[i].y = points[i].y + TOTAL_SEPARATION / 2.0;
-	  last_right = TOTAL_SEPARATION/2.0;
-	} else { /* LEFT */
-	  left_points[i].x = points[i].x + last_left;
-	  left_points[i].y = points[i].y + TOTAL_SEPARATION / 2.0;
-	  last_left = TOTAL_SEPARATION/2.0;
-	  right_points[i].x = points[i].x + last_right;
-	  right_points[i].y = points[i].y - TOTAL_SEPARATION / 2.0;
-	  last_right = - TOTAL_SEPARATION/2.0;
-	}
+        if (points[i].x < points[i+1].x) { /* RIGHT */
+          left_points[i].x = points[i].x + last_left;
+          left_points[i].y = points[i].y - TOTAL_SEPARATION / 2.0;
+          last_left = - TOTAL_SEPARATION/2.0;
+          right_points[i].x = points[i].x + last_right;
+          right_points[i].y = points[i].y + TOTAL_SEPARATION / 2.0;
+          last_right = TOTAL_SEPARATION/2.0;
+        } else { /* LEFT */
+          left_points[i].x = points[i].x + last_left;
+          left_points[i].y = points[i].y + TOTAL_SEPARATION / 2.0;
+          last_left = TOTAL_SEPARATION/2.0;
+          right_points[i].x = points[i].x + last_right;
+          right_points[i].y = points[i].y - TOTAL_SEPARATION / 2.0;
+          last_right = - TOTAL_SEPARATION/2.0;
+        }
       } else { /* VERTICAL */
-	if (points[i].y < points[i+1].y) { /* DOWN */
-	  left_points[i].x = points[i].x + TOTAL_SEPARATION / 2.0;
-	  left_points[i].y = points[i].y + last_left;
-	  last_left = TOTAL_SEPARATION/2.0;
-	  right_points[i].x = points[i].x - TOTAL_SEPARATION / 2.0;
-	  right_points[i].y = points[i].y + last_right;
-	  last_right = - TOTAL_SEPARATION/2.0;
-	} else { /* UP */
-	  left_points[i].x = points[i].x - TOTAL_SEPARATION / 2.0;
-	  left_points[i].y = points[i].y + last_left;
-	  last_left = - TOTAL_SEPARATION/2.0;
-	  right_points[i].x = points[i].x + TOTAL_SEPARATION / 2.0;
-	  right_points[i].y = points[i].y + last_right;
-	  last_right = TOTAL_SEPARATION/2.0;
-	}
+        if (points[i].y < points[i+1].y) { /* DOWN */
+          left_points[i].x = points[i].x + TOTAL_SEPARATION / 2.0;
+          left_points[i].y = points[i].y + last_left;
+          last_left = TOTAL_SEPARATION/2.0;
+          right_points[i].x = points[i].x - TOTAL_SEPARATION / 2.0;
+          right_points[i].y = points[i].y + last_right;
+          last_right = - TOTAL_SEPARATION/2.0;
+        } else { /* UP */
+          left_points[i].x = points[i].x - TOTAL_SEPARATION / 2.0;
+          left_points[i].y = points[i].y + last_left;
+          last_left = - TOTAL_SEPARATION/2.0;
+          right_points[i].x = points[i].x + TOTAL_SEPARATION / 2.0;
+          right_points[i].y = points[i].y + last_right;
+          last_right = TOTAL_SEPARATION/2.0;
+        }
       }
     }
     if(orth->orientation[i-1] == HORIZONTAL) { /* HORIZONTAL */
-	left_points[i].x = points[i].x;
-	left_points[i].y = points[i].y + last_left;
-	right_points[i].x = points[i].x;
-	right_points[i].y = points[i].y + last_right;
+      left_points[i].x = points[i].x;
+      left_points[i].y = points[i].y + last_left;
+      right_points[i].x = points[i].x;
+      right_points[i].y = points[i].y + last_right;
     } else { /* VERTICAL */
       left_points[i].x = points[i].x + last_left;
       left_points[i].y = points[i].y;
@@ -260,12 +274,12 @@ participation_draw(Participation *participation, DiaRenderer *renderer)
       right_points[i].y = points[i].y;
     }
 
-    renderer_ops->draw_polyline(renderer, left_points, n, &color_black);
-    renderer_ops->draw_polyline(renderer, right_points, n, &color_black);
-    g_free(left_points);
-    g_free(right_points);
-  }  else {
-    renderer_ops->draw_polyline(renderer, points, n, &color_black);
+    dia_renderer_draw_polyline (renderer, left_points, n, &color_black);
+    dia_renderer_draw_polyline (renderer, right_points, n, &color_black);
+    g_clear_pointer (&left_points, g_free);
+    g_clear_pointer (&right_points, g_free);
+  } else {
+    dia_renderer_draw_polyline (renderer, points, n, &color_black);
   }
 }
 
@@ -302,7 +316,7 @@ participation_create(Point *startpoint,
   OrthConn *orth;
   DiaObject *obj;
 
-  participation = g_malloc0(sizeof(Participation));
+  participation = g_new0 (Participation, 1);
   orth = &participation->orth;
   obj = &orth->object;
 
@@ -330,7 +344,7 @@ participation_copy(Participation *participation)
 
   orth = &participation->orth;
 
-  newparticipation = g_malloc0(sizeof(Participation));
+  newparticipation = g_new0 (Participation, 1);
   neworth = &newparticipation->orth;
 
   orthconn_copy(orth, neworth);
@@ -380,23 +394,34 @@ participation_load(ObjectNode obj_node, int version,DiaContext *ctx)
   return &participation->orth.object;
 }
 
-static ObjectChange *
-participation_add_segment_callback(DiaObject *obj, Point *clicked, gpointer data)
+
+static DiaObjectChange *
+participation_add_segment_callback (DiaObject *obj,
+                                    Point     *clicked,
+                                    gpointer   data)
 {
-  ObjectChange *change;
-  change = orthconn_add_segment((OrthConn *)obj, clicked);
-  participation_update_data((Participation *)obj);
+  DiaObjectChange *change;
+
+  change = orthconn_add_segment ((OrthConn *) obj, clicked);
+  participation_update_data ((Participation *) obj);
+
   return change;
 }
 
-static ObjectChange *
-participation_delete_segment_callback(DiaObject *obj, Point *clicked, gpointer data)
+
+static DiaObjectChange *
+participation_delete_segment_callback (DiaObject *obj,
+                                       Point     *clicked,
+                                       gpointer   data)
 {
-  ObjectChange *change;
-  change = orthconn_delete_segment((OrthConn *)obj, clicked);
-  participation_update_data((Participation *)obj);
+  DiaObjectChange *change;
+
+  change = orthconn_delete_segment ((OrthConn *) obj, clicked);
+  participation_update_data ((Participation *) obj);
+
   return change;
 }
+
 
 static DiaMenuItem object_menu_items[] = {
   { N_("Add segment"), participation_add_segment_callback, NULL, 1 },

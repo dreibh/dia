@@ -18,6 +18,9 @@
 
 import sys, string, dia
 
+import gettext
+_ = gettext.gettext
+
 ##
 # \brief The second SvgRenderer implementation for Dia
 #
@@ -71,20 +74,20 @@ class SvgRenderer :
 	def draw_object (self, object, matrix) :
 		self.f.write("<!-- " + object.type.name + " -->\n")
 		odict = object.properties["meta"].value
-		if odict.has_key("url") :
+		if "url" in odict :
 			self.f.write('<a xlink:href="' + self._escape(odict["url"]) + '">\n')
-		if odict.has_key("id") or matrix :
+		if "id" in odict or matrix :
 			attrs = ''
 			if matrix :
 				attrs += 'transform="matrix' + str(matrix) + '" '
-			if odict.has_key("id") :
+			if "id" in odict :
 				attrs += 'id="' + self._escape(odict['id']) + '"'
 			self.f.write('<g ' + attrs + '>\n')
 		# don't forget to render the object
 		object.draw (self)
-		if odict.has_key("id") or matrix :
+		if "id" in odict or matrix :
 			self.f.write('</g>\n')
-		if odict.has_key("url") :
+		if "url" in odict :
 			self.f.write('</a>\n')
 	def set_linewidth (self, width) :
 		if width < 0.001 : # zero line width is invisible ?
@@ -146,7 +149,7 @@ class SvgRenderer :
 				% (self._rgb(color), self.line_width, self._stroke_style()))
 		else :
 			self.f.write('<path stroke="none" fill="%s"' % (self._rgb(color)))
-		# moveto sx,sy arc rx,ry x-axis-rotation large-arc-flag,sweep-flag ex,ey 
+		# moveto sx,sy arc rx,ry x-axis-rotation large-arc-flag,sweep-flag ex,ey
 		self.f.write(' d ="M %.3f,%.3f A %.3f,%.3f 0 %d,%d %.3f,%.3f ' % (sx, sy, rx, ry, largearc, sweep, ex, ey))
 		self.f.write('"/>\n')
 	def draw_arc (self, center, width, height, angle1, angle2, color) :
@@ -188,7 +191,7 @@ class SvgRenderer :
 		self.f.write('z"/>\n')
 	def draw_string (self, text, pos, alignment, color) :
 		if len(text) < 1 :
-			return # shouldn'this be done at the higher level 
+			return # shouldn'this be done at the higher level
 		talign = ('start', 'middle', 'end') [alignment]
 		fstyle = ('normal', 'italic', 'oblique') [self.font.style & 0x03]
 		fweight = (400, 200, 300, 500, 600, 700, 800, 900) [(self.font.style  >> 4)  & 0x7]
@@ -204,7 +207,7 @@ class SvgRenderer :
 	def _escape (self, text) :
 		# avoid writing XML special characters (ampersand must be first to not break the rest)
 		for rep in [('&', '&amp;'), ('<', '&lt;'), ('>', '&gt;'), ('"', '&quot;'), ("'", '&apos;')] :
-			text = string.replace (text, rep[0], rep[1])
+			text = text.replace (rep[0], rep[1])
 		return text
 	def _rgb(self, color) :
 		# given a dia color convert to svg color string
@@ -221,7 +224,7 @@ class SvgRenderer :
 		join = self.line_join
 		style = self.line_style
 		st = ""
-		if style == 0 : # LINESTYLE_SOLID
+		if style == 0 : # DIA_LINE_STYLE_SOLID
 			pass
 		elif style == 1 : # DASHED
 			st = 'stroke-dasharray="%.2f,%.2f"' % (dashlen, dashlen)
@@ -261,5 +264,5 @@ class SvgzRenderer(SvgRenderer) :
 		self.f = gzip.open (name, "wb")
 
 # dia-python keeps a reference to the renderer class and uses it on demand
-dia.register_export ("SVG plain", "svg", SvgRenderer())
-dia.register_export ("SVG compressed", "svgz", SvgzRenderer())
+dia.register_export (_("SVG plain"), "svg", SvgRenderer())
+dia.register_export (_("SVG compressed"), "svgz", SvgzRenderer())

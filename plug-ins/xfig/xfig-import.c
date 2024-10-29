@@ -22,7 +22,9 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <stdio.h>
 /* Information used here is taken from the FIG Format 3.2 specification
@@ -40,13 +42,13 @@
 #include <glib.h>
 #include <glib/gstdio.h>
 
-#include "intl.h"
 #include "geometry.h"
 #include "filter.h"
 #include "object.h"
 #include "properties.h"
 #include "propinternals.h"
 #include "group.h"
+#include "dia-layer.h"
 
 #include "create.h"
 #include "xfig.h"
@@ -148,85 +150,89 @@ static PropDescription xfig_simple_prop_descs_line[] = {
     { "line_colour", PROP_TYPE_COLOUR },
     PROP_DESC_END};
 
-static LineStyle
-fig_line_style_to_dia(int line_style, DiaContext *ctx)
+
+static DiaLineStyle
+fig_line_style_to_dia (int line_style, DiaContext *ctx)
 {
-    switch (line_style) {
+  switch (line_style) {
     case 0:
-        return LINESTYLE_SOLID;
+      return DIA_LINE_STYLE_SOLID;
     case 1:
-        return LINESTYLE_DASHED;
+      return DIA_LINE_STYLE_DASHED;
     case 2:
-	return LINESTYLE_DOTTED;
+      return DIA_LINE_STYLE_DOTTED;
     case 3:
-        return LINESTYLE_DASH_DOT;
+      return DIA_LINE_STYLE_DASH_DOT;
     case 4:
-        return LINESTYLE_DASH_DOT_DOT;
+      return DIA_LINE_STYLE_DASH_DOT_DOT;
     case 5:
-	dia_context_add_message(ctx, _("Triple-dotted lines are not supported by Dia; "
-			               "using double-dotted"));
-        return LINESTYLE_DASH_DOT_DOT;
+      dia_context_add_message (ctx, _("Triple-dotted lines are not supported by Dia; "
+                                      "using double-dotted"));
+      return DIA_LINE_STYLE_DASH_DOT_DOT;
     default:
-        dia_context_add_message(ctx, _("Line style %d should not appear"), line_style);
-        return LINESTYLE_SOLID;
+      dia_context_add_message (ctx, _("Line style %d should not appear"), line_style);
+      return DIA_LINE_STYLE_SOLID;
     }
 }
+
 
 static void
-fig_simple_properties(DiaObject *obj,
-		      int line_style,
-		      float dash_length,
-		      int thickness,
-		      int pen_color,
-		      int fill_color,
-		      int area_fill,
-		      DiaContext *ctx)
+fig_simple_properties (DiaObject  *obj,
+                       int         line_style,
+                       float       dash_length,
+                       int         thickness,
+                       int         pen_color,
+                       int         fill_color,
+                       int         area_fill,
+                       DiaContext *ctx)
 {
-    GPtrArray *props = prop_list_from_descs(xfig_simple_prop_descs_line,
+  GPtrArray *props = prop_list_from_descs (xfig_simple_prop_descs_line,
                                             pdtpp_true);
-    RealProperty *rprop;
-    ColorProperty *cprop;
+  RealProperty *rprop;
+  ColorProperty *cprop;
 
-    g_assert(props->len == 2);
+  g_assert(props->len == 2);
 
-    rprop = g_ptr_array_index(props,0);
-    rprop->real_data = thickness/FIG_ALT_UNIT;
+  rprop = g_ptr_array_index (props, 0);
+  rprop->real_data = thickness / FIG_ALT_UNIT;
 
-    cprop = g_ptr_array_index(props,1);
-    cprop->color_data = fig_color(pen_color, ctx);
+  cprop = g_ptr_array_index (props,1);
+  cprop->color_data = fig_color (pen_color, ctx);
 
 
-    if (line_style != -1) {
-        LinestyleProperty *lsprop =
-            (LinestyleProperty *)make_new_prop("line_style",
-                                               PROP_TYPE_LINESTYLE,
-                                               PROP_FLAG_DONT_SAVE);
-        lsprop->dash = dash_length/FIG_ALT_UNIT;
-        lsprop->style = fig_line_style_to_dia(line_style, ctx);
+  if (line_style != -1) {
+    LinestyleProperty *lsprop =
+        (LinestyleProperty *) make_new_prop ("line_style",
+                                             PROP_TYPE_LINESTYLE,
+                                             PROP_FLAG_DONT_SAVE);
+    lsprop->dash = dash_length / FIG_ALT_UNIT;
+    lsprop->style = fig_line_style_to_dia (line_style, ctx);
 
-        g_ptr_array_add(props,lsprop);
-    }
+    g_ptr_array_add (props, lsprop);
+  }
 
-    if (area_fill == -1) {
-        BoolProperty *bprop =
-            (BoolProperty *)make_new_prop("show_background",
-                                          PROP_TYPE_BOOL,PROP_FLAG_DONT_SAVE);
-        bprop->bool_data = FALSE;
+  if (area_fill == -1) {
+    BoolProperty *bprop =
+        (BoolProperty *) make_new_prop ("show_background",
+                                        PROP_TYPE_BOOL,
+                                        PROP_FLAG_DONT_SAVE);
+    bprop->bool_data = FALSE;
 
-        g_ptr_array_add(props,bprop);
-    } else {
-        ColorProperty *cprop =
-            (ColorProperty *)make_new_prop("fill_colour",
-                                           PROP_TYPE_COLOUR,
-                                           PROP_FLAG_DONT_SAVE);
-        cprop->color_data = fig_area_fill_color(area_fill, fill_color, ctx);
+    g_ptr_array_add (props, bprop);
+  } else {
+    ColorProperty *prop =
+        (ColorProperty *) make_new_prop ("fill_colour",
+                                         PROP_TYPE_COLOUR,
+                                         PROP_FLAG_DONT_SAVE);
+    prop->color_data = fig_area_fill_color (area_fill, fill_color, ctx);
 
-        g_ptr_array_add(props,cprop);
-    }
+    g_ptr_array_add (props, prop);
+  }
 
-    obj->ops->set_props(obj, props);
-    prop_list_free(props);
+  dia_object_set_properties (obj, props);
+  prop_list_free (props);
 }
+
 
 static int
 fig_read_n_points(FILE *file, int n, Point **points, DiaContext *ctx)
@@ -291,7 +297,7 @@ fig_read_arrow(FILE *file, DiaContext *ctx)
 	break;
     default:
 	dia_context_add_message(ctx, _("Unknown arrow type %d\n"), arrow_type);
-	g_free(arrow);
+	g_clear_pointer (&arrow, g_free);
 	return NULL;
     }
     arrow->width = width/FIG_UNIT;
@@ -324,42 +330,55 @@ fig_fix_text(gchar *text) {
 	text[j-2] = 0;
     }
     if (needs_conversion) {
-	/* Crudely assuming that fig uses Latin-1 */
-	converted = g_convert(text, strlen(text), "UTF-8", "ISO-8859-1",
-			      NULL, NULL, &err);
-	if (err != NULL) {
-	    printf("Error converting %s: %s\n", text, err->message);
-	    return text;
-	}
-	if (!g_utf8_validate(converted, -1, NULL)) {
-	    printf("Fails to validate %s\n", converted);
-	    return text;
-	}
-	if (text != converted) g_free(text);
-	return converted;
-    } else return text;
+      /* Crudely assuming that fig uses Latin-1 */
+      converted = g_convert (text,
+                             strlen (text),
+                             "UTF-8",
+                             "ISO-8859-1",
+                             NULL,
+                             NULL,
+                             &err);
+      if (err != NULL) {
+        g_printerr ("Error converting %s: %s\n", text, err->message);
+        return text;
+      }
+      if (!g_utf8_validate (converted, -1, NULL)) {
+        g_printerr ("Fails to validate %s\n", converted);
+        return text;
+      }
+      if (text != converted) g_clear_pointer (&text, g_free);
+      return converted;
+    } else {
+      return text;
+    }
 }
+
 
 static char *
-fig_read_text_line(FILE *file) {
-    char *text_buf;
-    guint text_alloc, text_len;
+fig_read_text_line (FILE *file)
+{
+  char *text_buf;
+  guint text_alloc, text_len;
 
-    getc(file);
-    text_alloc = 80;
-    text_buf = (char *)g_malloc(text_alloc*sizeof(char));
-    text_len = 0;
-    while (fgets(text_buf+text_len, text_alloc-text_len, file) != NULL) {
-	if (strlen(text_buf) < text_alloc-1) break;
-	text_len = text_alloc;
-	text_alloc *= 2;
-	text_buf = (char *)g_realloc(text_buf, text_alloc*sizeof(char));
+  getc (file);
+  text_alloc = 80;
+  text_buf = g_new0 (char, text_alloc);
+  text_len = 0;
+
+  while (fgets (text_buf + text_len, text_alloc - text_len, file) != NULL) {
+    if (strlen (text_buf) < text_alloc-1) {
+      break;
     }
+    text_len = text_alloc;
+    text_alloc *= 2;
+    text_buf = g_renew (char, text_buf, text_alloc);
+  }
 
-    text_buf = fig_fix_text(text_buf);
+  text_buf = fig_fix_text (text_buf);
 
-    return text_buf;
+  return text_buf;
 }
+
 
 static GList *depths[FIG_MAX_DEPTHS];
 
@@ -475,7 +494,7 @@ fig_read_polyline(FILE *file, DiaContext *ctx)
     int forward_arrow, backward_arrow;
     Arrow *forward_arrow_info = NULL, *backward_arrow_info = NULL;
     int npoints;
-    Point *points;
+    Point *points = NULL;
     GPtrArray *props = g_ptr_array_new();
     DiaObject *newobj = NULL;
     int flipped = 0;
@@ -591,9 +610,10 @@ fig_read_polyline(FILE *file, DiaContext *ctx)
  exit:
     setlocale(LC_NUMERIC, old_locale);
     prop_list_free(props);
-    g_free(forward_arrow_info);
-    g_free(backward_arrow_info);
-    g_free(image_file);
+    g_clear_pointer (&points, g_free);
+    g_clear_pointer (&forward_arrow_info, g_free);
+    g_clear_pointer (&backward_arrow_info, g_free);
+    g_clear_pointer (&image_file, g_free);
     return newobj;
 }
 
@@ -797,6 +817,7 @@ fig_read_spline(FILE *file, DiaContext *ctx)
 		newobj = create_standard_beziergon(npoints, bezpoints);
 	    }
 #endif
+            g_clear_pointer(&bezpoints, g_free);
 	}
 	if (newobj == NULL) goto exit;
 	break;
@@ -816,9 +837,9 @@ fig_read_spline(FILE *file, DiaContext *ctx)
  exit:
     setlocale(LC_NUMERIC, old_locale);
     prop_list_free(props);
-    g_free(forward_arrow_info);
-    g_free(backward_arrow_info);
-    g_free(points);
+    g_clear_pointer (&forward_arrow_info, g_free);
+    g_clear_pointer (&backward_arrow_info, g_free);
+    g_clear_pointer (&points, g_free);
     return newobj;
 }
 
@@ -915,8 +936,8 @@ fig_read_arc(FILE *file, DiaContext *ctx)
 
  exit:
     setlocale(LC_NUMERIC, old_locale);
-    g_free(forward_arrow_info);
-    g_free(backward_arrow_info);
+    g_clear_pointer (&forward_arrow_info, g_free);
+    g_clear_pointer (&backward_arrow_info, g_free);
     return newobj;
 }
 
@@ -977,7 +998,7 @@ fig_read_text(FILE *file, DiaContext *ctx)
 
     tprop = g_ptr_array_index(props,0);
     tprop->text_data = g_strdup(text_buf);
-    /*g_free(text_buf); */
+    /*g_clear_pointer (&text_buf, g_free); */
     tprop->attr.alignment = sub_type;
     tprop->attr.position.x = x/FIG_UNIT;
     tprop->attr.position.y = y/FIG_UNIT;
@@ -1007,15 +1028,16 @@ fig_read_text(FILE *file, DiaContext *ctx)
     }
     tprop->attr.height = font_size*2.54/72.0;
     tprop->attr.color = fig_color(color, ctx);
-    newobj->ops->set_props(newobj, props);
+    dia_object_set_properties (newobj, props);
 
     /* Depth field */
     add_at_depth(newobj, depth, ctx);
 
  exit:
-    setlocale(LC_NUMERIC, old_locale);
-    if (text_buf != NULL) g_free(text_buf);
-    if (props != NULL) prop_list_free(props);
+    setlocale (LC_NUMERIC, old_locale);
+    g_clear_pointer (&text_buf, g_free);
+    g_clear_pointer (&props, prop_list_free);
+
     return newobj;
 }
 
@@ -1145,9 +1167,16 @@ fig_read_line_choice(FILE *file, char *choice1, char *choice2, DiaContext *ctx)
     g_strstrip(buf); /* And any other whitespace */
     if (!g_ascii_strcasecmp(buf, choice1)) return 0;
     if (!g_ascii_strcasecmp(buf, choice2)) return 1;
-    dia_context_add_message(ctx, _("`%s' is not one of `%s' or `%s'\n"), buf, choice1, choice2);
-    return 0;
+
+  dia_context_add_message (ctx,
+                           _("“%s” is not one of “%s” or “%s”\n"),
+                           buf,
+                           choice1,
+                           choice2);
+
+  return 0;
 }
+
 
 static int
 fig_read_paper_size(FILE *file, DiagramData *dia, DiaContext *ctx) {
@@ -1166,9 +1195,13 @@ fig_read_paper_size(FILE *file, DiagramData *dia, DiaContext *ctx) {
 	return TRUE;
     }
 
-    dia_context_add_message(ctx, _("Unknown paper size `%s', using default\n"), buf);
-    return TRUE;
+  dia_context_add_message (ctx,
+                           _("Unknown paper size “%s”, using default\n"),
+                           buf);
+
+  return TRUE;
 }
+
 
 int figversion;
 
@@ -1317,33 +1350,39 @@ import_fig(const gchar *filename, DiagramData *dia, DiaContext *ctx, void* user_
 	return FALSE;
     }
 
-    if (!fig_read_meta_data(figfile, dia, ctx)) {
-	fclose(figfile);
-	return FALSE;
+  if (!fig_read_meta_data (figfile, dia, ctx)) {
+    fclose (figfile);
+    return FALSE;
+  }
+
+  compound_stack = NULL;
+
+  do {
+    if (!skip_comments (figfile)) {
+      if (!feof (figfile)) {
+        dia_context_add_message_with_errno (ctx,
+                                            errno,
+                                            _("Error reading Fig file."));
+      } else {
+        break;
+      }
     }
 
-    compound_stack = NULL;
-
-    do {
-	if (!skip_comments(figfile)) {
-	    if (!feof(figfile)) {
-		dia_context_add_message_with_errno(ctx, errno, _("Error reading Fig file."));
-	    } else {
-		break;
-	    }
-	}
-	if (! fig_read_object(figfile, ctx)) {
-	    fclose(figfile);
-	    break;
-	}
-    } while (TRUE);
-
-    /* Now we can reorder for the depth fields */
-    for (i = 0; i < FIG_MAX_DEPTHS; i++) {
-	if (depths[i] != NULL)
-	    layer_add_objects_first(dia->active_layer, depths[i]);
+    if (!fig_read_object (figfile, ctx)) {
+      fclose (figfile);
+      break;
     }
-    return TRUE;
+  } while (TRUE);
+
+  /* Now we can reorder for the depth fields */
+  for (i = 0; i < FIG_MAX_DEPTHS; i++) {
+    if (depths[i] != NULL) {
+      dia_layer_add_objects_first (dia_diagram_data_get_active_layer (dia),
+                                   depths[i]);
+    }
+  }
+
+  return TRUE;
 }
 
 /* interface from filter.h */

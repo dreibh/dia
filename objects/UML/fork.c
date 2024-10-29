@@ -19,13 +19,13 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "diarenderer.h"
@@ -56,10 +56,10 @@ static const double FORK_MARGIN = 0.125;
 
 static real fork_distance_from(Fork *branch, Point *point);
 static void fork_select(Fork *branch, Point *clicked_point, DiaRenderer *interactive_renderer);
-static ObjectChange* fork_move_handle(Fork *branch, Handle *handle,
+static DiaObjectChange* fork_move_handle(Fork *branch, Handle *handle,
 				      Point *to, ConnectionPoint *cp,
 				      HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* fork_move(Fork *branch, Point *to);
+static DiaObjectChange* fork_move(Fork *branch, Point *to);
 static void fork_draw(Fork *branch, DiaRenderer *renderer);
 static DiaObject *fork_create(Point *startpoint,
 			     void *user_data,
@@ -159,19 +159,23 @@ fork_select(Fork *branch, Point *clicked_point, DiaRenderer *interactive_rendere
   element_update_handles(&branch->element);
 }
 
-static ObjectChange*
-fork_move_handle(Fork *branch, Handle *handle,
-		 Point *to, ConnectionPoint *cp,
-		 HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+fork_move_handle (Fork             *branch,
+                  Handle           *handle,
+                  Point            *to,
+                  ConnectionPoint  *cp,
+                  HandleMoveReason  reason,
+                  ModifierKeys      modifiers)
 {
-  coord dx;
+  double dx;
   Point c;
 
-  assert(branch!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+  g_return_val_if_fail (branch != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
-  assert(handle->id < 8);
+  g_return_val_if_fail (handle->id < 8, NULL);
 
   /* Only orizontal E/W movement are allowed */
   if (handle->id==3 || handle->id==4) {
@@ -188,7 +192,7 @@ fork_move_handle(Fork *branch, Handle *handle,
   return NULL;
 }
 
-static ObjectChange*
+static DiaObjectChange*
 fork_move(Fork *branch, Point *to)
 {
   branch->element.corner = *to;
@@ -197,33 +201,35 @@ fork_move(Fork *branch, Point *to)
   return NULL;
 }
 
+
 static void
-fork_draw(Fork *branch, DiaRenderer *renderer)
+fork_draw (Fork *branch, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Element *elem;
-  real w, h;
+  double w, h;
   Point p1, p2;
 
-  assert(branch != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (branch != NULL);
+  g_return_if_fail (renderer != NULL);
 
   elem = &branch->element;
   w = elem->width;
   h = elem->height;
 
-  renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
-  renderer_ops->set_linewidth(renderer, FORK_BORDERWIDTH);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
+  dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+  dia_renderer_set_linewidth (renderer, FORK_BORDERWIDTH);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
 
   p1.x = elem->corner.x;
   p1.y = elem->corner.y;
   p2.x = elem->corner.x + w;
   p2.y = elem->corner.y + h;
 
-  renderer_ops->draw_rect(renderer,
-			   &p1, &p2,
-			   &branch->fill_color, NULL);
+  dia_renderer_draw_rect (renderer,
+                          &p1,
+                          &p2,
+                          &branch->fill_color,
+                          NULL);
 }
 
 static void
@@ -260,7 +266,7 @@ fork_create(Point *startpoint, void *user_data, Handle **handle1, Handle **handl
   DiaObject *obj;
   int i;
 
-  branch = g_malloc0(sizeof(Fork));
+  branch = g_new0 (Fork, 1);
   elem = &branch->element;
   obj = &elem->object;
 

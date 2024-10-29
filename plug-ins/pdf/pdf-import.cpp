@@ -20,15 +20,16 @@
  */
 #include "config.h"
 
+#include <glib/gi18n-lib.h>
+
 // Dia includes before poppler to avoid getting the wrong 'object.h'
-#define Rectangle DiaRectangle
 #include "create.h"
 #include "properties.h"
 #include "attributes.h"
 #include "object.h"
 #include "diagramdata.h"
 #include "pattern.h"
-#undef Rectangle
+#include "dia-layer.h"
 
 // namespacing poppler to avoid conflict on Object
 //#undef OBJECT_H /* should be fixed in POPPLER I think */
@@ -39,6 +40,8 @@
 #include <poppler/GlobalParams.h>
 #include <poppler/PDFDocFactory.h>
 
+#include <poppler/cpp/poppler-version.h>
+
 #include <vector>
 
 /*!
@@ -48,7 +51,7 @@
  *
  * The PDF import plug-in is built on http://poppler.freedesktop.org/ library.
  * It is currently considered experimental because it has no means of
- * limiting the input to something Dia can really cope with. 
+ * limiting the input to something Dia can really cope with.
  */
 
 /*!
@@ -64,23 +67,23 @@ class DiaOutputDev : public OutputDev
 {
 public :
   //! Does this device use upside-down coordinates?
-  GBool upsideDown() { return gTrue; }
+  bool upsideDown() { return TRUE; }
   //! Does this device use drawChar() or drawString()?
-  GBool useDrawChar() { return gFalse; }
+  bool useDrawChar() { return FALSE; }
   //! Type 3 font support?
-  GBool interpretType3Chars() { return gFalse; }
+  bool interpretType3Chars() { return FALSE; }
   //! Overwrite for single page support??
-  GBool checkPageSlice (Page *page, double hDPI, double vDPI,
-			int rotate, GBool useMediaBox, GBool crop,
+  bool checkPageSlice (Page *page, double hDPI, double vDPI,
+			int rotate, bool useMediaBox, bool crop,
 			int sliceX, int sliceY, int sliceW, int sliceH,
-			GBool printing,
-			GBool (* abortCheckCbk)(void *data),
+			bool printing,
+			bool (* abortCheckCbk)(void *data),
 			void * abortCheckCbkData,
-			GBool (*annotDisplayDecideCbk)(Annot *annot, void *user_data),
+			bool (*annotDisplayDecideCbk)(Annot *annot, void *user_data),
 			void *annotDisplayDecideCbkData)
   {
-    PDFRectangle *mediaBox = page->getMediaBox(); 
-    PDFRectangle *clipBox = page->getCropBox ();
+    const PDFRectangle *mediaBox = page->getMediaBox();
+    const PDFRectangle *clipBox = page->getCropBox ();
 
     if (page->isOk()) {
       real w1 = (clipBox->x2 - clipBox->x1);
@@ -101,9 +104,9 @@ public :
       // before returning false.
       // At least so documentation says, but I've found no OutputDev
       // actually following this;)
-      return gTrue;
+      return TRUE;
     }
-    return gFalse;
+    return FALSE;
   }
   //! Apparently no effect at all - so we translate everything to Dia space ouself
   void setDefaultCTM(double *ctm)
@@ -144,50 +147,65 @@ public :
     updateLineWidth(state);
   }
 
-  //! 
+  //!
   void updateLineWidth(GfxState *state)
   {
     this->line_width = state->getLineWidth() * scale;
   }
-  void updateLineDash(GfxState * state)
-  { 
-    double *dashPattern;
+
+  void
+  updateLineDash (GfxState *state)
+  {
     int dashLength;
     double dashStart;
 
-    state->getLineDash(&dashPattern, &dashLength, &dashStart);
+#if POPPLER_VERSION_MAJOR > 22 || (POPPLER_VERSION_MAJOR == 22 && POPPLER_VERSION_MINOR >= 9)
+    std::vector<double> dashPattern = state->getLineDash(&dashStart);
+    dashLength = dashPattern.size();
+#else
+    double *dashPattern;
+    state->getLineDash (&dashPattern, &dashLength, &dashStart);
+#endif
     this->dash_length = dashLength ? dashPattern[0] * scale : 1.0;
+
     if (dashLength == 0)
-      this->line_style = LINESTYLE_SOLID;
+      this->line_style = DIA_LINE_STYLE_SOLID;
     else if (dashLength > 5)
-      this->line_style = LINESTYLE_DASH_DOT_DOT;
+      this->line_style = DIA_LINE_STYLE_DASH_DOT_DOT;
     else if (dashLength > 3)
-      this->line_style = LINESTYLE_DASH_DOT;
+      this->line_style = DIA_LINE_STYLE_DASH_DOT;
     else if (dashLength > 1) {
       if (dashPattern[0] != dashPattern[1])
-        this->line_style = LINESTYLE_DOTTED;
+        this->line_style = DIA_LINE_STYLE_DOTTED;
       else
-        this->line_style = LINESTYLE_DASHED;
+        this->line_style = DIA_LINE_STYLE_DASHED;
     }
   }
-  void updateLineJoin(GfxState * state)
+
+  void
+  updateLineJoin (GfxState * state)
   {
-    if (state->getLineJoin() == 0)
-      this->line_join = LINEJOIN_MITER;
-    else if (state->getLineJoin() == 1)
-      this->line_join = LINEJOIN_ROUND;
-    else
-      this->line_join = LINEJOIN_BEVEL;
+    if (state->getLineJoin() == 0) {
+      this->line_join = DIA_LINE_JOIN_MITER;
+    } else if (state->getLineJoin() == 1) {
+      this->line_join = DIA_LINE_JOIN_ROUND;
+    } else {
+      this->line_join = DIA_LINE_JOIN_BEVEL;
+    }
   }
-  void updateLineCap(GfxState *state)
+
+  void
+  updateLineCap (GfxState *state)
   {
-    if (state->getLineCap() == 0)
-      this->line_caps = LINECAPS_BUTT;
-    else if (state->getLineCap() == 1)
-      this->line_caps = LINECAPS_ROUND;
-    else
-      this->line_caps = LINECAPS_PROJECTING;
+    if (state->getLineCap() == 0) {
+      this->line_caps = DIA_LINE_CAPS_BUTT;
+    } else if (state->getLineCap() == 1) {
+      this->line_caps = DIA_LINE_CAPS_ROUND;
+    } else {
+      this->line_caps = DIA_LINE_CAPS_PROJECTING;
+    }
   }
+
   void updateStrokeColor(GfxState *state)
   {
     GfxRGB color;
@@ -198,9 +216,9 @@ public :
     this->stroke_color.blue = colToDbl(color.b);
   }
   void updateStrokeOpacity(GfxState *state)
-  { 
+  {
     this->stroke_color.alpha = state->getStrokeOpacity();
-  }  
+  }
   void updateFillColor(GfxState *state)
   {
     GfxRGB color;
@@ -216,14 +234,14 @@ public :
     this->fill_color.blue = colToDbl(color.b);
   }
   void updateFillOpacity(GfxState *state)
-  { 
+  {
     this->fill_color.alpha = state->getFillOpacity();
   }
   //! gradients are just emulated - but not if returning false here
-  GBool useShadedFills(int type) { return type < 4; }
-  GBool useFillColorStop() { return gTrue; }
+  bool useShadedFills(int type) { return type < 4; }
+  bool useFillColorStop() { return TRUE; }
   //! follow the CairoOutputDev pattern once more
-  GBool axialShadedSupportExtend(GfxState *state, GfxAxialShading *shading)
+  bool axialShadedSupportExtend(GfxState *state, GfxAxialShading *shading)
   {
     return (shading->getExtend0() == shading->getExtend1());
   }
@@ -241,7 +259,7 @@ public :
     g_return_if_fail (this->pattern != NULL);
     dia_pattern_add_color (this->pattern, offset, &fill);
   }
-  GBool axialShadedFill(GfxState *state, GfxAxialShading *shading, double tMin, double tMax)
+  bool axialShadedFill(GfxState *state, GfxAxialShading *shading, double tMin, double tMax)
   {
     double x0, y0, x1, y1;
     double dx, dy;
@@ -260,14 +278,14 @@ public :
 				     x0 + tMin * dx, y0 + tMin * dy);
     dia_pattern_set_point (this->pattern, x0 + tMax * dx, y0 + tMax * dy);
     // continue with updateFillColorStop calls
-    // although wasteful, because Poppler samples these to 256 entries 
-    return gFalse;
+    // although wasteful, because Poppler samples these to 256 entries
+    return FALSE;
   }
-  GBool radialShadedSupportExtend(GfxState *state, GfxRadialShading *shading)
+  bool radialShadedSupportExtend(GfxState *state, GfxRadialShading *shading)
   {
     return (shading->getExtend0() == shading->getExtend1());
   }
-  GBool radialShadedFill(GfxState *state, GfxRadialShading *shading, double sMin, double sMax)
+  bool radialShadedFill(GfxState *state, GfxRadialShading *shading, double sMin, double sMax)
   {
     double x0, y0, r0, x1, y1, r1;
     double dx, dy, dr;
@@ -290,8 +308,8 @@ public :
     dia_pattern_set_radius (this->pattern, r0 + sMax * dr);
     dia_pattern_set_point (this->pattern, x0 + sMin * dx, y0 + sMin * dy);
     // continue with updateFillColorStop calls
-    // although wasteful, because Poppler samples these to 256 entries 
-    return gFalse;
+    // although wasteful, because Poppler samples these to 256 entries
+    return FALSE;
   }
   void updateBlendMode(GfxState *state)
   {
@@ -302,14 +320,22 @@ public :
   void updateFont(GfxState * state)
   {
     DiaFont *font;
-      
+
     // without a font it wont make sense
+#if POPPLER_VERSION_MAJOR > 22 || (POPPLER_VERSION_MAJOR == 22 && POPPLER_VERSION_MINOR >= 6)
+    if (!state->getFont().get())
+#else
     if (!state->getFont())
+#endif
       return;
     //FIXME: Dia is really unhappy about zero size fonts
     if (!(state->getFontSize() > 0.0))
       return;
+#if POPPLER_VERSION_MAJOR > 22 || (POPPLER_VERSION_MAJOR == 22 && POPPLER_VERSION_MINOR >= 6)
+    GfxFont *f = state->getFont().get();
+#else
     GfxFont *f = state->getFont();
+#endif
 
     // instead of building the same font over and over again
     if (g_hash_table_lookup (this->font_map, f)) {
@@ -321,7 +347,7 @@ public :
 		       | (f->isItalic() ? DIA_FONT_ITALIC : DIA_FONT_NORMAL)
 		          // mapping all the font weights is just too much code for now ;)
 		       | (f->isBold () ? DIA_FONT_BOLD : DIA_FONT_WEIGHT_NORMAL);
-    gchar *family = g_strdup (f->getFamily() ? f->getFamily()->getCString() : "sans");
+    gchar *family = g_strdup (f->getFamily() ? f->getFamily()->c_str() : "sans");
 
     // we are (not anymore) building the same font over and over again
     g_print ("Font 0x%x: '%s' size=%g (* %g)\n",
@@ -339,7 +365,7 @@ public :
     if ((pf = strstr (family, " Oblique")) != NULL)
       *pf = 0;
 
-    double *fm = f->getFontMatrix();
+    const double *fm = f->getFontMatrix();
     double fsize = state->getTransformedFontSize();
     if (fm[0] != 0)
       fsize *= fabs(fm[3] / fm[0]);
@@ -354,9 +380,9 @@ public :
     // state->getFont()->getWMode()
 #if 0
     if (shift == 0) //FIXME:
-      this->alignment = ALIGN_LEFT;
+      this->alignment = DIA_ALIGN_LEFT;
     else
-      this->alignment = ALIGN_CENTER;
+      this->alignment = DIA_ALIGN_CENTRE;
 #endif
   }
   void saveState(GfxState *state)
@@ -390,8 +416,8 @@ public :
 
   void drawImage(GfxState *state, Object *ref, Stream *str,
 		 int width, int height, GfxImageColorMap *colorMap,
-		 GBool interpolate, int *maskColors, GBool inlineImg);
-  
+		 bool interpolate, int *maskColors, bool inlineImg);
+
   //! everything on a single page it put into a Dia Group
   void startPage(int pageNum, GfxState *state)
   {
@@ -415,8 +441,9 @@ public :
 		      this->page_height * ((this->pageNum - 1) / m)};
     advance.x += group->position.x;
     advance.y += group->position.y;
-    group->ops->move (group, &advance);
-    layer_add_object (this->dia->active_layer, group);
+    dia_object_move (group, &advance);
+    dia_layer_add_object (dia_diagram_data_get_active_layer (this->dia),
+                          group);
     dia_object_set_meta (group, "name", name);
     g_free (name);
   }
@@ -428,24 +455,24 @@ public :
 private :
   void _fill (GfxState *state, bool winding);
 
-  bool doPath (GArray *points, GfxState *state, GfxPath *path, bool &haveClose);
+  bool doPath (GArray *points, const GfxState *state, const GfxPath *path, bool &haveClose);
   void applyStyle (DiaObject *obj, bool fill);
   void addObject (DiaObject *obj);
 
   DiagramData *dia;
 
   Color stroke_color;
-  real line_width;
-  LineStyle line_style;
-  real dash_length;
-  LineJoin line_join;
-  LineCaps line_caps;
+  double line_width;
+  DiaLineStyle line_style;
+  double dash_length;
+  DiaLineJoin line_join;
+  DiaLineCaps line_caps;
   Color fill_color;
 
-  Alignment alignment;
+  DiaAlignment alignment;
 
   // multiply with to get from PDF to Dia
-  real scale;
+  double scale;
   //! list of DiaObject not yet added
   GList *objects;
   //! just the number got from poppler
@@ -476,12 +503,12 @@ DiaOutputDev::DiaOutputDev (DiagramData *_dia, int _n) :
   stroke_color(attributes_get_foreground ()),
   line_width(attributes_get_default_linewidth()),
   // favoring member intitialization list over attributes_get_default_line_style()
-  line_style(LINESTYLE_SOLID),
+  line_style(DIA_LINE_STYLE_SOLID),
   dash_length(1.0),
-  line_join(LINEJOIN_MITER),
-  line_caps(LINECAPS_PROJECTING),
+  line_join(DIA_LINE_JOIN_MITER),
+  line_caps(DIA_LINE_CAPS_PROJECTING),
   fill_color(attributes_get_background ()),
-  alignment(ALIGN_LEFT),
+  alignment(DIA_ALIGN_LEFT),
   scale(2.54/72.0),
   objects(NULL),
   pageNum(0),
@@ -492,7 +519,7 @@ DiaOutputDev::DiaOutputDev (DiagramData *_dia, int _n) :
   pattern(NULL)
 {
   font_map = g_hash_table_new_full(g_direct_hash, g_direct_equal,
-				   NULL, (GDestroyNotify)dia_font_unref);
+				   NULL, (GDestroyNotify) g_object_unref);
   matrix.xx = matrix.yy = 1.0;
   matrix.yx = matrix.xy = 0.0;
   matrix.x0 = matrix.y0 = 0.0;
@@ -525,15 +552,15 @@ _path_lineto (GArray *path, const Point *pt)
   g_array_append_val (path, bp);
 }
 
-bool 
-DiaOutputDev::doPath (GArray *points, GfxState *state, GfxPath *path, bool &haveClose)
+bool
+DiaOutputDev::doPath (GArray *points, const GfxState *state, const GfxPath *path, bool &haveClose)
 {
   int i, j;
   Point start;
   haveClose = false;
 
   for (i = 0; i < path->getNumSubpaths(); ++i) {
-    GfxSubpath *subPath = path->getSubpath(i);
+    const GfxSubpath *subPath = path->getSubpath(i);
 
     if (subPath->getNumPoints() < 2)
       continue;
@@ -617,7 +644,7 @@ DiaOutputDev::stroke (GfxState *state)
 {
   GArray *points = g_array_new (FALSE, FALSE, sizeof(BezPoint));
   DiaObject *obj = NULL;
-  GfxPath *path = state->getPath();
+  const GfxPath *path = state->getPath();
   bool haveClose = false;
 
   if (doPath (points, state, path, haveClose) && points->len > 1) {
@@ -642,7 +669,7 @@ DiaOutputDev::_fill (GfxState *state, bool winding)
 {
   GArray *points = g_array_new (FALSE, FALSE, sizeof(BezPoint));
   DiaObject *obj = NULL;
-  GfxPath *path = state->getPath();
+  const GfxPath *path = state->getPath();
   bool haveClose = true;
 
   if (doPath (points, state, path, haveClose) && points->len > 2) {
@@ -652,16 +679,14 @@ DiaOutputDev::_fill (GfxState *state, bool winding)
       obj = create_standard_path (points->len, &g_array_index (points, BezPoint, 0));
     applyStyle (obj, true);
     if (this->pattern) {
-      ObjectChange *change = dia_object_set_pattern (obj, this->pattern);
-      if (change) {
-	change->free (change);
-	g_free (change);
-      }
+      DiaObjectChange *change = dia_object_set_pattern (obj, this->pattern);
+
+      g_clear_pointer (&change, dia_object_change_unref);
     }
   }
   g_array_free (points, TRUE);
   if (obj) {
-    // Useful for debugging but high performance penalty 
+    // Useful for debugging but high performance penalty
     // dia_object_set_meta (obj, "fill-rule", winding ? "winding" : "even-odd");
     addObject (obj);
   }
@@ -696,7 +721,7 @@ DiaOutputDev::eoFill (GfxState *state)
  *
  * \todo Check alignment options - it's just guessed yet.
  */
-void 
+void
 DiaOutputDev::drawString(GfxState *state, GooString *s)
 {
   Color text_color = this->fill_color;
@@ -709,20 +734,32 @@ DiaOutputDev::drawString(GfxState *state, GooString *s)
   if (len == 0)
     return;
   // get the font
+#if POPPLER_VERSION_MAJOR > 22 || (POPPLER_VERSION_MAJOR == 22 && POPPLER_VERSION_MINOR >= 6)
+  if (!state->getFont().get())
+#else
   if (!state->getFont())
+#endif
     return;
   if (!(state->getFontSize() > 0.0))
     return;
+#if POPPLER_VERSION_MAJOR > 22 || (POPPLER_VERSION_MAJOR == 22 && POPPLER_VERSION_MINOR >= 6)
+  font = (DiaFont *)g_hash_table_lookup (this->font_map, state->getFont().get());
+#else
   font = (DiaFont *)g_hash_table_lookup (this->font_map, state->getFont());
+#endif
 
   // we have to decode the string data first
   {
+#if POPPLER_VERSION_MAJOR > 22 || (POPPLER_VERSION_MAJOR == 22 && POPPLER_VERSION_MINOR >= 6)
+    GfxFont *f = state->getFont().get();
+#else
     GfxFont *f = state->getFont();
-    char *p = s->getCString();
+#endif
+    const char *p = s->c_str();
     CharCode code;
     int   j = 0, m, n;
     utf8 = g_new (gchar, len * 6 + 1);
-    Unicode *u; 
+    const Unicode *u;
     int uLen;
     double dx, dy, ox, oy;
 
@@ -752,7 +789,7 @@ DiaOutputDev::drawString(GfxState *state, GooString *s)
     obj = create_standard_text (ty * scale, tx * scale);
   //not applyStyle (obj, TEXT);
   GPtrArray *plist = g_ptr_array_new ();
-  // the "text" property is special, it must be initialized with text 
+  // the "text" property is special, it must be initialized with text
   // attributes, too. So here it comes first to avoid overwriting
   // the other values with defaults.
   prop_list_add_text (plist, "text", utf8);
@@ -774,13 +811,13 @@ DiaOutputDev::drawString(GfxState *state, GooString *s)
 void
 DiaOutputDev::drawImage(GfxState *state, Object *ref, Stream *str,
 			int width, int height, GfxImageColorMap *colorMap,
-			GBool interpolate, int *maskColors, GBool inlineImg)
+			bool interpolate, int *maskColors, bool inlineImg)
 {
   DiaObject *obj;
   GdkPixbuf *pixbuf;
   Point pos;
-  ObjectChange *change;
-  double *ctm = state->getCTM();
+  DiaObjectChange *change;
+  const double *ctm = state->getCTM();
 
   pos.x = ctm[4] * scale;
   // there is some undocumented magic done with the ctm for drawImage
@@ -800,15 +837,15 @@ DiaOutputDev::drawImage(GfxState *state, Object *ref, Stream *str,
     {
        // 3 channels, 8 bit
       ImageStream imgStr(str, width, colorMap->getNumPixelComps(), colorMap->getBits());
-      Guchar *line;
+      unsigned char *line;
       int rowstride = gdk_pixbuf_get_rowstride (pixbuf);
-      guchar *pixels = gdk_pixbuf_get_pixels (pixbuf);
+      unsigned char *pixels = gdk_pixbuf_get_pixels (pixbuf);
       int y;
 
       imgStr.reset(); // otherwise getLine() is crashing right away
       line = imgStr.getLine ();
       for (y = 0; y < height && line; ++y) {
-	guchar *dest = pixels + y * rowstride;
+	unsigned char *dest = pixels + y * rowstride;
 
 	colorMap->getRGBLine (line, dest, width);
 
@@ -839,12 +876,14 @@ DiaOutputDev::drawImage(GfxState *state, Object *ref, Stream *str,
     g_hash_table_insert (this->image_cache, str, g_object_ref (pixbuf));
   }
 #endif
-  obj = create_standard_image (pos.x, pos.y, 
-			       ctm[0]  * scale,
-			       ctm[3]  * scale, NULL);
+  obj = create_standard_image (pos.x,
+                               pos.y,
+                               ctm[0] * scale,
+                               ctm[3] * scale,
+                               NULL);
+
   if ((change = dia_object_set_pixbuf (obj, pixbuf)) != NULL) {
-    change->free (change);
-    g_free (change);
+    g_clear_pointer (&change, dia_object_change_unref);
   }
 
   g_object_unref (pixbuf);
@@ -852,21 +891,26 @@ DiaOutputDev::drawImage(GfxState *state, Object *ref, Stream *str,
   addObject (obj);
 }
 
+
 extern "C"
 gboolean
 import_pdf(const gchar *filename, DiagramData *dia, DiaContext *ctx, void* user_data)
 {
-  PDFDoc *doc;
   GooString *fileName = new GooString(filename);
   // no passwords yet
+#if POPPLER_VERSION_MAJOR > 22 || (POPPLER_VERSION_MAJOR == 22 && POPPLER_VERSION_MINOR >= 6)
+  std::optional<GooString> ownerPW;
+  std::optional<GooString> userPW;
+#else
   GooString *ownerPW = NULL;
   GooString *userPW = NULL;
+#endif
   gboolean ret = FALSE;
 
   // without this we will get strange crashes (at least with /O2 build)
-  globalParams = new GlobalParams();
+  globalParams = std::make_unique<GlobalParams>();
 
-  doc = PDFDocFactory().createPDFDoc(*fileName, ownerPW, userPW);
+  auto doc = PDFDocFactory().createPDFDoc(*fileName, ownerPW, userPW);
   if (!doc->isOk()) {
     dia_context_add_message (ctx, _("PDF document not OK.\n%s"),
 			     dia_context_get_filename (ctx));
@@ -880,16 +924,14 @@ import_pdf(const gchar *filename, DiagramData *dia, DiaContext *ctx, void* user_
       doc->displayPage(diaOut, pg,
 		       72.0, 72.0, /* DPI, scaling elsewhere */
 		       0, /* rotate */
-		       gTrue, /* useMediaBox */
-		       gTrue, /* Crop */
-		       gFalse /* printing */
+		       TRUE, /* useMediaBox */
+		       TRUE, /* Crop */
+		       FALSE /* printing */
 		       );
     }
     delete diaOut;
     ret = TRUE;
   }
-  delete doc;
-  delete globalParams;
   delete fileName;
 
   return ret;

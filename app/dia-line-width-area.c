@@ -16,12 +16,13 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include "dia-line-width-area.h"
 #include "attributes.h"
 #include "persistence.h"
-#include "intl.h"
 
 #if !defined(rint)
 # include <math.h>
@@ -64,9 +65,10 @@ linewidth_number_from_width (real width)
   }
 }
 
+
 static void
 dia_line_width_area_dialog_respond (GtkWidget        *widget,
-                                    gint              response_id,
+                                    int               response_id,
                                     DiaLineWidthArea *self)
 {
   if (response_id == GTK_RESPONSE_OK) {
@@ -103,7 +105,7 @@ dia_line_width_area_create_dialog (DiaLineWidthArea *self,
 
   self->dialog = gtk_dialog_new_with_buttons (_("Line width"), toplevel, 0,
                                               _("Cancel"), GTK_RESPONSE_CANCEL,
-                                              _("Okay"), GTK_RESPONSE_OK,
+                                              _("OK"), GTK_RESPONSE_OK,
                                               NULL);
 
   gtk_dialog_set_default_response (GTK_DIALOG(self->dialog), GTK_RESPONSE_OK);
@@ -111,7 +113,7 @@ dia_line_width_area_create_dialog (DiaLineWidthArea *self,
   gtk_window_set_resizable (GTK_WINDOW (self->dialog), TRUE);
   gtk_container_set_border_width (GTK_CONTAINER (self->dialog), 2);
 
-  hbox = gtk_hbox_new (FALSE, 5);
+  hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
   label = gtk_label_new(_("Line width:"));
   gtk_box_pack_start (GTK_BOX (hbox), label, FALSE, TRUE, 0);
   gtk_widget_show (label);
@@ -139,18 +141,17 @@ dia_line_width_area_create_dialog (DiaLineWidthArea *self,
   persistence_register_window (GTK_WINDOW (self->dialog));
 }
 
+
 static gboolean
-dia_line_width_area_draw (GtkWidget      *self, /*cairo_t *ctx*/
-                          GdkEventExpose *event)
+dia_line_width_area_draw (GtkWidget *self, cairo_t *ctx)
 {
-  GdkColor fg;
+  GdkRGBA fg;
   int i;
   int x_offs;
-  GtkStyle *style;
+  GtkStyleContext *style;
   double dashes[] = { 3 };
   DiaLineWidthArea *priv = DIA_LINE_WIDTH_AREA (self);
   GtkAllocation alloc;
-  cairo_t *ctx = gdk_cairo_create (gtk_widget_get_window (self));
 
   gtk_widget_get_allocation (self, &alloc);
 
@@ -159,14 +160,12 @@ dia_line_width_area_draw (GtkWidget      *self, /*cairo_t *ctx*/
   cairo_set_line_join (ctx, CAIRO_LINE_JOIN_MITER);
   cairo_set_dash (ctx, dashes, 1, 0);
 
-  style = gtk_widget_get_style (self);
-  fg = style->fg[gtk_widget_get_state (self)];
-
-  /*gtk_style_context_get_color (gtk_widget_get_style_context (self),
+  style = gtk_widget_get_style_context (self);
+  gtk_style_context_get_color (style,
                                gtk_widget_get_state_flags (self),
-                               &fg);*/
+                               &fg);
 
-  gdk_cairo_set_source_color (ctx, &fg);
+  gdk_cairo_set_source_rgba (ctx, &fg);
 
   for (i = 0; i <= NUMLINES; i++) {
     x_offs = X_OFFSET(i);
@@ -184,57 +183,50 @@ dia_line_width_area_draw (GtkWidget      *self, /*cairo_t *ctx*/
   return FALSE;
 }
 
-static gint
-dia_line_width_area_event (GtkWidget *self,
-                           GdkEvent  *event)
+
+static gboolean
+dia_line_width_area_button_press_event (GtkWidget      *self,
+                                        GdkEventButton *event)
 {
-  GdkEventButton *bevent;
   int target;
   DiaLineWidthArea *priv = DIA_LINE_WIDTH_AREA (self);
 
-  switch (event->type)
-    {
-    case GDK_BUTTON_PRESS:
-      bevent = (GdkEventButton *) event;
-      if (bevent->button == 1) {
-        target = linewidth_area_target (bevent->x, bevent->y);
-        if (target != 0) {
-          priv->active = target;
-          /* Trigger redraw */
-          gtk_widget_queue_draw (self);
-          attributes_set_default_linewidth(BASE_WIDTH*(target-1));
-        }
-      }
-      break;
-
-    case GDK_2BUTTON_PRESS:
-      if (priv->dialog == NULL)
+  if (event->type == GDK_2BUTTON_PRESS) {
+    if (priv->dialog == NULL) {
         dia_line_width_area_create_dialog (priv, GTK_WINDOW (gtk_widget_get_toplevel (self)));
-      else
-        gtk_widget_grab_focus (priv->button);
-      gtk_spin_button_set_value (GTK_SPIN_BUTTON (priv->button), attributes_get_default_linewidth ());
-
-      gtk_widget_show (priv->dialog);
-      break;
-
-    default:
-      break;
+    } else {
+      gtk_widget_grab_focus (priv->button);
     }
+    gtk_spin_button_set_value (GTK_SPIN_BUTTON (priv->button), attributes_get_default_linewidth ());
+
+    gtk_widget_show (priv->dialog);
+  } else if (event->type == GDK_BUTTON_PRESS) {
+    if (event->button == 1) {
+      target = linewidth_area_target (event->x, event->y);
+      if (target != 0) {
+        priv->active = target;
+        /* Trigger redraw */
+        gtk_widget_queue_draw (self);
+        attributes_set_default_linewidth (BASE_WIDTH * (target-1));
+      }
+    }
+  }
 
   return FALSE;
 }
 
+
 static void
 dia_line_width_area_class_init (DiaLineWidthAreaClass *class)
 {
-  GtkWidgetClass *widget_class;
+  GtkWidgetClass *widget_class = GTK_WIDGET_CLASS (class);
 
-  widget_class = GTK_WIDGET_CLASS (class);
-  widget_class->expose_event = dia_line_width_area_draw;
-  widget_class->event = dia_line_width_area_event;
+  widget_class->draw = dia_line_width_area_draw;
+  widget_class->button_press_event = dia_line_width_area_button_press_event;
 
   attributes_set_default_linewidth (persistence_register_real ("linewidth", 0.1));
 }
+
 
 static void
 dia_line_width_area_init (DiaLineWidthArea *self)
@@ -246,7 +238,7 @@ dia_line_width_area_init (DiaLineWidthArea *self)
 
 
 GtkWidget *
-dia_line_width_area_new ()
+dia_line_width_area_new (void)
 {
   GtkWidget *event_box;
 

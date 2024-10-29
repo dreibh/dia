@@ -21,12 +21,12 @@
 
 /* DO NOT USE THIS OBJECT AS A BASIS FOR A NEW OBJECT. */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "connectionpoint.h"
@@ -56,18 +56,18 @@ struct _Pgram {
   Element element;
 
   ConnectionPoint connections[NUM_CONNECTIONS];
-  real border_width;
+  double border_width;
   Color border_color;
   Color inner_color;
   gboolean show_background;
-  LineStyle line_style;
-  real dashlength;
-  real shear_angle, shear_grad;
+  DiaLineStyle line_style;
+  double dashlength;
+  double shear_angle, shear_grad;
 
   Text *text;
-  real padding;
+  double padding;
 
-  TextFitting text_fitting;
+  DiaTextFitting text_fitting;
 };
 
 typedef struct _PgramProperties {
@@ -81,11 +81,14 @@ static PgramProperties default_properties;
 static real pgram_distance_from(Pgram *pgram, Point *point);
 static void pgram_select(Pgram *pgram, Point *clicked_point,
 		       DiaRenderer *interactive_renderer);
-static ObjectChange* pgram_move_handle(Pgram *pgram, Handle *handle,
-				       Point *to, ConnectionPoint *cp,
-				       HandleMoveReason reason,
-			    ModifierKeys modifiers);
-static ObjectChange* pgram_move(Pgram *pgram, Point *to);
+static DiaObjectChange *pgram_move_handle      (Pgram            *pgram,
+                                                Handle           *handle,
+                                                Point            *to,
+                                                ConnectionPoint  *cp,
+                                                HandleMoveReason  reason,
+                                                ModifierKeys      modifiers);
+static DiaObjectChange *pgram_move             (Pgram            *pgram,
+                                                Point            *to);
 static void pgram_draw(Pgram *pgram, DiaRenderer *renderer);
 static void pgram_update_data(Pgram *pgram, AnchorShape h, AnchorShape v);
 static DiaObject *pgram_create(Point *startpoint,
@@ -187,23 +190,27 @@ static PropOffset pgram_offsets[] = {
   { NULL, 0, 0 },
 };
 
-static void
-pgram_get_props(Pgram *pgram, GPtrArray *props)
-{
-  object_get_props_from_offsets(&pgram->element.object,
-                                pgram_offsets,props);
-}
 
 static void
-pgram_set_props(Pgram *pgram, GPtrArray *props)
+pgram_get_props (Pgram *pgram, GPtrArray *props)
 {
-  object_set_props_from_offsets(&pgram->element.object,
-                                pgram_offsets,props);
-  pgram_update_data(pgram, ANCHOR_MIDDLE, ANCHOR_MIDDLE);
+  object_get_props_from_offsets (DIA_OBJECT (pgram),
+                                 pgram_offsets,props);
 }
 
+
 static void
-init_default_values() {
+pgram_set_props (Pgram *pgram, GPtrArray *props)
+{
+  object_set_props_from_offsets (DIA_OBJECT (pgram),
+                                 pgram_offsets, props);
+  pgram_update_data (pgram, ANCHOR_MIDDLE, ANCHOR_MIDDLE);
+}
+
+
+static void
+init_default_values (void)
+{
   static int defaults_initialized = 0;
 
   if (!defaults_initialized) {
@@ -215,10 +222,10 @@ init_default_values() {
 }
 
 static real
-pgram_distance_from(Pgram *pgram, Point *point)
+pgram_distance_from (Pgram *pgram, Point *point)
 {
   Element *elem = &pgram->element;
-  Rectangle rect;
+  DiaRectangle rect;
 
   rect.left = elem->corner.x - pgram->border_width/2;
   rect.right = elem->corner.x + elem->width + pgram->border_width/2;
@@ -252,7 +259,7 @@ pgram_distance_from(Pgram *pgram, Point *point)
     }
   }
 
-  return distance_rectangle_point(&rect, point);
+  return distance_rectangle_point (&rect, point);
 }
 
 static void
@@ -265,74 +272,103 @@ pgram_select(Pgram *pgram, Point *clicked_point,
   element_update_handles(&pgram->element);
 }
 
-static ObjectChange*
-pgram_move_handle(Pgram *pgram, Handle *handle,
-		  Point *to, ConnectionPoint *cp,
-		  HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+pgram_move_handle (Pgram            *pgram,
+                   Handle           *handle,
+                   Point            *to,
+                   ConnectionPoint  *cp,
+                   HandleMoveReason  reason,
+                   ModifierKeys      modifiers)
 {
   AnchorShape horiz = ANCHOR_MIDDLE, vert = ANCHOR_MIDDLE;
   Point corner;
   real width, height;
 
-  assert(pgram!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+  g_return_val_if_fail (pgram != NULL, NULL);
+  g_return_val_if_fail (handle!=NULL, NULL);
+  g_return_val_if_fail (to!=NULL, NULL);
 
   /* remember ... */
   corner = pgram->element.corner;
   width = pgram->element.width;
   height = pgram->element.height;
 
-  element_move_handle(&pgram->element, handle->id, to, cp, reason, modifiers);
+  element_move_handle (&pgram->element, handle->id, to, cp, reason, modifiers);
 
   switch (handle->id) {
-  case HANDLE_RESIZE_NW:
-    horiz = ANCHOR_END; vert = ANCHOR_END; break;
-  case HANDLE_RESIZE_N:
-    vert = ANCHOR_END; break;
-  case HANDLE_RESIZE_NE:
-    horiz = ANCHOR_START; vert = ANCHOR_END; break;
-  case HANDLE_RESIZE_E:
-    horiz = ANCHOR_START; break;
-  case HANDLE_RESIZE_SE:
-    horiz = ANCHOR_START; vert = ANCHOR_START; break;
-  case HANDLE_RESIZE_S:
-    vert = ANCHOR_START; break;
-  case HANDLE_RESIZE_SW:
-    horiz = ANCHOR_END; vert = ANCHOR_START; break;
-  case HANDLE_RESIZE_W:
-    horiz = ANCHOR_END; break;
-  default:
-    break;
+    case HANDLE_RESIZE_NW:
+      horiz = ANCHOR_END;
+      vert = ANCHOR_END;
+      break;
+    case HANDLE_RESIZE_N:
+      vert = ANCHOR_END;
+      break;
+    case HANDLE_RESIZE_NE:
+      horiz = ANCHOR_START;
+      vert = ANCHOR_END;
+      break;
+    case HANDLE_RESIZE_E:
+      horiz = ANCHOR_START;
+      break;
+    case HANDLE_RESIZE_SE:
+      horiz = ANCHOR_START;
+      vert = ANCHOR_START;
+      break;
+    case HANDLE_RESIZE_S:
+      vert = ANCHOR_START;
+      break;
+    case HANDLE_RESIZE_SW:
+      horiz = ANCHOR_END;
+      vert = ANCHOR_START;
+      break;
+    case HANDLE_RESIZE_W:
+      horiz = ANCHOR_END;
+      break;
+    case HANDLE_MOVE_STARTPOINT:
+    case HANDLE_MOVE_ENDPOINT:
+    case HANDLE_CUSTOM1:
+    case HANDLE_CUSTOM2:
+    case HANDLE_CUSTOM3:
+    case HANDLE_CUSTOM4:
+    case HANDLE_CUSTOM5:
+    case HANDLE_CUSTOM6:
+    case HANDLE_CUSTOM7:
+    case HANDLE_CUSTOM8:
+    case HANDLE_CUSTOM9:
+    default:
+      break;
   }
-  pgram_update_data(pgram, horiz, vert);
+  pgram_update_data (pgram, horiz, vert);
 
-  if (width != pgram->element.width && height != pgram->element.height)
+  if (width != pgram->element.width && height != pgram->element.height) {
     return element_change_new (&corner, width, height, &pgram->element);
+  }
 
   return NULL;
 }
 
-static ObjectChange*
-pgram_move(Pgram *pgram, Point *to)
+
+static DiaObjectChange *
+pgram_move (Pgram *pgram, Point *to)
 {
   pgram->element.corner = *to;
 
-  pgram_update_data(pgram, ANCHOR_MIDDLE, ANCHOR_MIDDLE);
+  pgram_update_data (pgram, ANCHOR_MIDDLE, ANCHOR_MIDDLE);
 
   return NULL;
 }
 
+
 static void
-pgram_draw(Pgram *pgram, DiaRenderer *renderer)
+pgram_draw (Pgram *pgram, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point pts[4];
   Element *elem;
   real offs;
 
-  assert(pgram != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (pgram != NULL);
+  g_return_if_fail (renderer != NULL);
 
   elem = &pgram->element;
 
@@ -351,19 +387,21 @@ pgram_draw(Pgram *pgram, DiaRenderer *renderer)
     pts[3].x -= offs;
   }
 
-  if (pgram->show_background)
-    renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
+  if (pgram->show_background) {
+    dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+  }
 
-  renderer_ops->set_linewidth(renderer, pgram->border_width);
-  renderer_ops->set_linestyle(renderer, pgram->line_style, pgram->dashlength);
-  renderer_ops->set_linejoin(renderer, LINEJOIN_MITER);
+  dia_renderer_set_linewidth (renderer, pgram->border_width);
+  dia_renderer_set_linestyle (renderer, pgram->line_style, pgram->dashlength);
+  dia_renderer_set_linejoin (renderer, DIA_LINE_JOIN_MITER);
 
-  renderer_ops->draw_polygon (renderer,
-			      pts, 4,
-			      (pgram->show_background) ? &pgram->inner_color : NULL,
-			      &pgram->border_color);
+  dia_renderer_draw_polygon (renderer,
+                             pts,
+                             4,
+                             (pgram->show_background) ? &pgram->inner_color : NULL,
+                             &pgram->border_color);
 
-  text_draw(pgram->text, renderer);
+  text_draw (pgram->text, renderer);
 }
 
 
@@ -392,16 +430,16 @@ pgram_update_data(Pgram *pgram, AnchorShape horiz, AnchorShape vert)
   text_calc_boundingbox(pgram->text, NULL);
   height = pgram->text->height * pgram->text->numlines + pgram->padding*2 +
     pgram->border_width;
-  if (   pgram->text_fitting == TEXTFIT_ALWAYS
-      || (pgram->text_fitting == TEXTFIT_WHEN_NEEDED
+  if (   pgram->text_fitting == DIA_TEXT_FIT_ALWAYS
+      || (pgram->text_fitting == DIA_TEXT_FIT_WHEN_NEEDED
           && height > elem->height))
     elem->height = height;
 
   avail_width = elem->width - (pgram->padding*2 + pgram->border_width +
     fabs(pgram->shear_grad) * (elem->height + pgram->text->height
 			       * pgram->text->numlines));
-  if (   pgram->text_fitting == TEXTFIT_ALWAYS
-      || (pgram->text_fitting == TEXTFIT_WHEN_NEEDED
+  if (   pgram->text_fitting == DIA_TEXT_FIT_ALWAYS
+      || (pgram->text_fitting == DIA_TEXT_FIT_WHEN_NEEDED
           && avail_width < pgram->text->max_width)) {
     elem->width = (elem->width-avail_width) + pgram->text->max_width;
     avail_width = pgram->text->max_width;
@@ -416,20 +454,27 @@ pgram_update_data(Pgram *pgram, AnchorShape horiz, AnchorShape vert)
 
   /* move shape if necessary ... */
   switch (horiz) {
-  case ANCHOR_MIDDLE:
-    elem->corner.x = center.x - elem->width/2; break;
-  case ANCHOR_END:
-    elem->corner.x = bottom_right.x - elem->width; break;
-  default:
-    break;
+    case ANCHOR_MIDDLE:
+      elem->corner.x = center.x - elem->width/2;
+      break;
+    case ANCHOR_END:
+      elem->corner.x = bottom_right.x - elem->width;
+      break;
+    case ANCHOR_START:
+    default:
+      break;
   }
+
   switch (vert) {
-  case ANCHOR_MIDDLE:
-    elem->corner.y = center.y - elem->height/2; break;
-  case ANCHOR_END:
-    elem->corner.y = bottom_right.y - elem->height; break;
-  default:
-    break;
+    case ANCHOR_MIDDLE:
+      elem->corner.y = center.y - elem->height/2;
+      break;
+    case ANCHOR_END:
+      elem->corner.y = bottom_right.y - elem->height;
+      break;
+    case ANCHOR_START:
+    default:
+      break;
   }
 
   p = elem->corner;
@@ -437,16 +482,19 @@ pgram_update_data(Pgram *pgram, AnchorShape horiz, AnchorShape vert)
   p.y += elem->height / 2.0 - pgram->text->height * pgram->text->numlines / 2 +
       pgram->text->ascent;
   switch (pgram->text->alignment) {
-  case ALIGN_LEFT:
-    p.x -= avail_width/2;
-    break;
-  case ALIGN_RIGHT:
-    p.x += avail_width/2;
-    break;
-  case ALIGN_CENTER:
-    break;
+    case DIA_ALIGN_LEFT:
+      p.x -= avail_width / 2;
+      break;
+    case DIA_ALIGN_RIGHT:
+      p.x += avail_width / 2;
+      break;
+    case DIA_ALIGN_CENTRE:
+      break;
+    default:
+      g_return_if_reached ();
   }
-  text_set_position(pgram->text, &p);
+
+  text_set_position (pgram->text, &p);
 
   /* 1/4 of how much more to the left the bottom line is */
   offs = -(elem->height / 4.0 * pgram->shear_grad);
@@ -550,7 +598,7 @@ pgram_create(Point *startpoint,
 
   init_default_values();
 
-  pgram = g_malloc0(sizeof(Pgram));
+  pgram = g_new0 (Pgram, 1);
   elem = &pgram->element;
   obj = &elem->object;
 
@@ -576,12 +624,16 @@ pgram_create(Point *startpoint,
   p = *startpoint;
   p.x += elem->width / 2.0;
   p.y += elem->height / 2.0 + font_height / 2;
-  pgram->text = new_text("", font, font_height, &p, &pgram->border_color,
-			 ALIGN_CENTER);
-  dia_font_unref(font);
+  pgram->text = new_text ("",
+                          font,
+                          font_height,
+                          &p,
+                          &pgram->border_color,
+                          DIA_ALIGN_CENTRE);
+  g_clear_object (&font);
 
   /* new default: let the user decide the size */
-  pgram->text_fitting = TEXTFIT_WHEN_NEEDED;
+  pgram->text_fitting = DIA_TEXT_FIT_WHEN_NEEDED;
 
   element_init(elem, 8, NUM_CONNECTIONS);
 
@@ -628,24 +680,30 @@ pgram_save(Pgram *pgram, ObjectNode obj_node, DiaContext *ctx)
   data_add_boolean(new_attribute(obj_node, "show_background"),
 		   pgram->show_background, ctx);
 
-  if (pgram->line_style != LINESTYLE_SOLID)
-    data_add_enum(new_attribute(obj_node, "line_style"),
-		  pgram->line_style, ctx);
+  if (pgram->line_style != DIA_LINE_STYLE_SOLID) {
+    data_add_enum (new_attribute (obj_node, "line_style"),
+                   pgram->line_style,
+                   ctx);
+  }
 
-  if (pgram->line_style != LINESTYLE_SOLID &&
-      pgram->dashlength != DEFAULT_LINESTYLE_DASHLEN)
-    data_add_real(new_attribute(obj_node, "dashlength"),
-                  pgram->dashlength, ctx);
+  if (pgram->line_style != DIA_LINE_STYLE_SOLID &&
+      pgram->dashlength != DEFAULT_LINESTYLE_DASHLEN) {
+    data_add_real (new_attribute (obj_node, "dashlength"),
+                   pgram->dashlength,
+                   ctx);
+  }
 
   data_add_real(new_attribute(obj_node, "shear_angle"),
 		pgram->shear_angle, ctx);
 
   data_add_real(new_attribute(obj_node, "padding"), pgram->padding, ctx);
 
-  data_add_text(new_attribute(obj_node, "text"), pgram->text, ctx);
-  if (pgram->text_fitting != TEXTFIT_WHEN_NEEDED)
-    data_add_enum(new_attribute(obj_node, PROP_STDNAME_TEXT_FITTING),
-		  pgram->text_fitting, ctx);
+  data_add_text (new_attribute (obj_node, "text"), pgram->text, ctx);
+  if (pgram->text_fitting != DIA_TEXT_FIT_WHEN_NEEDED) {
+    data_add_enum (new_attribute (obj_node, PROP_STDNAME_TEXT_FITTING),
+                   pgram->text_fitting,
+                   ctx);
+  }
 }
 
 static DiaObject *
@@ -657,7 +715,7 @@ pgram_load(ObjectNode obj_node, int version,DiaContext *ctx)
   int i;
   AttributeNode attr;
 
-  pgram = g_malloc0(sizeof(Pgram));
+  pgram = g_new0 (Pgram, 1);
   elem = &pgram->element;
   obj = &elem->object;
 
@@ -686,7 +744,7 @@ pgram_load(ObjectNode obj_node, int version,DiaContext *ctx)
   if (attr != NULL)
     pgram->show_background = data_boolean(attribute_first_data(attr), ctx);
 
-  pgram->line_style = LINESTYLE_SOLID;
+  pgram->line_style = DIA_LINE_STYLE_SOLID;
   attr = object_find_attribute(obj_node, "line_style");
   if (attr != NULL)
     pgram->line_style =  data_enum(attribute_first_data(attr), ctx);
@@ -708,17 +766,22 @@ pgram_load(ObjectNode obj_node, int version,DiaContext *ctx)
     pgram->padding =  data_real(attribute_first_data(attr), ctx);
 
   pgram->text = NULL;
-  attr = object_find_attribute(obj_node, "text");
-  if (attr != NULL)
-    pgram->text = data_text(attribute_first_data(attr), ctx);
-  else /* paranoid */
-    pgram->text = new_text_default(&obj->position, &pgram->border_color, ALIGN_CENTER);
+  attr = object_find_attribute (obj_node, "text");
+  if (attr != NULL) {
+    pgram->text = data_text (attribute_first_data (attr), ctx);
+  } else {
+    /* paranoid */
+    pgram->text = new_text_default (&obj->position,
+                                    &pgram->border_color,
+                                    DIA_ALIGN_CENTRE);
+  }
 
   /* old default: only growth, manual shrink */
-  pgram->text_fitting = TEXTFIT_WHEN_NEEDED;
-  attr = object_find_attribute(obj_node, PROP_STDNAME_TEXT_FITTING);
-  if (attr != NULL)
-    pgram->text_fitting = data_enum(attribute_first_data(attr), ctx);
+  pgram->text_fitting = DIA_TEXT_FIT_WHEN_NEEDED;
+  attr = object_find_attribute (obj_node, PROP_STDNAME_TEXT_FITTING);
+  if (attr != NULL) {
+    pgram->text_fitting = data_enum (attribute_first_data (attr), ctx);
+  }
 
   element_init(elem, 8, NUM_CONNECTIONS);
 

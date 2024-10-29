@@ -18,13 +18,13 @@
 
 /* DO NOT USE THIS OBJECT AS A BASIS FOR A NEW OBJECT. */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "connectionpoint.h"
@@ -69,11 +69,11 @@ struct _Entity {
 static real entity_distance_from(Entity *entity, Point *point);
 static void entity_select(Entity *entity, Point *clicked_point,
 		       DiaRenderer *interactive_renderer);
-static ObjectChange* entity_move_handle(Entity *entity, Handle *handle,
+static DiaObjectChange* entity_move_handle(Entity *entity, Handle *handle,
 					Point *to, ConnectionPoint *cp,
 					HandleMoveReason reason,
 					ModifierKeys modifiers);
-static ObjectChange* entity_move(Entity *entity, Point *to);
+static DiaObjectChange* entity_move(Entity *entity, Point *to);
 static void entity_draw(Entity *entity, DiaRenderer *renderer);
 static void entity_update_data(Entity *entity);
 static DiaObject *entity_create(Point *startpoint,
@@ -103,7 +103,12 @@ DiaObjectType entity_type =
   "ER - Entity",  /* name */
   0,           /* version */
   entity_xpm,   /* pixmap */
-  &entity_type_ops /* ops */
+  &entity_type_ops, /* ops */
+  NULL,        /* pixmap_file */
+  NULL,  /* default_user_data */
+  NULL,     /* prop_descs */
+  NULL,   /* prop_offsets */
+  DIA_OBJECT_HAS_VARIANTS /* flags */
 };
 
 DiaObjectType *_entity_type = (DiaObjectType *) &entity_type;
@@ -183,7 +188,7 @@ static real
 entity_distance_from(Entity *entity, Point *point)
 {
   Element *elem = &entity->element;
-  Rectangle rect;
+  DiaRectangle rect;
 
   rect.left = elem->corner.x - entity->border_width/2;
   rect.right = elem->corner.x + elem->width + entity->border_width/2;
@@ -199,23 +204,33 @@ entity_select(Entity *entity, Point *clicked_point,
   element_update_handles(&entity->element);
 }
 
-static ObjectChange*
-entity_move_handle(Entity *entity, Handle *handle,
-		   Point *to, ConnectionPoint *cp,
-		   HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+entity_move_handle (Entity           *entity,
+                    Handle           *handle,
+                    Point            *to,
+                    ConnectionPoint  *cp,
+                    HandleMoveReason  reason,
+                    ModifierKeys      modifiers)
 {
-  assert(entity!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+  g_return_val_if_fail (entity != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
-  element_move_handle(&entity->element, handle->id, to, cp, reason, modifiers);
+  element_move_handle (&entity->element,
+                       handle->id,
+                       to,
+                       cp,
+                       reason,
+                       modifiers);
 
-  entity_update_data(entity);
+  entity_update_data (entity);
 
   return NULL;
 }
 
-static ObjectChange*
+
+static DiaObjectChange*
 entity_move(Entity *entity, Point *to)
 {
   entity->element.corner = *to;
@@ -226,16 +241,15 @@ entity_move(Entity *entity, Point *to)
 }
 
 static void
-entity_draw(Entity *entity, DiaRenderer *renderer)
+entity_draw (Entity *entity, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point ul_corner, lr_corner;
   Point p;
   Element *elem;
-  coord diff;
+  double diff;
 
-  assert(entity != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (entity != NULL);
+  g_return_if_fail (renderer != NULL);
 
   elem = &entity->element;
 
@@ -244,28 +258,29 @@ entity_draw(Entity *entity, DiaRenderer *renderer)
   lr_corner.x = elem->corner.x + elem->width;
   lr_corner.y = elem->corner.y + elem->height;
 
-  renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
+  dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
 
-  renderer_ops->set_linewidth(renderer, entity->border_width);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
-  renderer_ops->set_linejoin(renderer, LINEJOIN_MITER);
+  dia_renderer_set_linewidth (renderer, entity->border_width);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
+  dia_renderer_set_linejoin (renderer, DIA_LINE_JOIN_MITER);
 
-  renderer_ops->draw_rect(renderer,
-			   &ul_corner,
-			   &lr_corner,
-			   &entity->inner_color,
-			   &entity->border_color);
+  dia_renderer_draw_rect (renderer,
+                          &ul_corner,
+                          &lr_corner,
+                          &entity->inner_color,
+                          &entity->border_color);
 
-  if(entity->weak) {
+  if (entity->weak) {
     diff = WEAK_BORDER_WIDTH/*MIN(elem->width / 2.0 * 0.20, elem->height / 2.0 * 0.20)*/;
     ul_corner.x += diff;
     ul_corner.y += diff;
     lr_corner.x -= diff;
     lr_corner.y -= diff;
-    renderer_ops->draw_rect(renderer,
-			     &ul_corner, &lr_corner,
-			     NULL,
-			     &entity->border_color);
+    dia_renderer_draw_rect (renderer,
+                            &ul_corner,
+                            &lr_corner,
+                            NULL,
+                            &entity->border_color);
   }
   if(entity->associative){
     Point corners[4];
@@ -277,25 +292,26 @@ entity_draw(Entity *entity, DiaRenderer *renderer)
     corners[2].y = elem->corner.y + elem->height / 2;
     corners[3].x = elem->corner.x + elem->width / 2;
     corners[3].y = elem->corner.y + elem->height;
-    renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
+    dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
 
-    renderer_ops->set_linewidth(renderer, entity->border_width);
-    renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
-    renderer_ops->set_linejoin(renderer, LINEJOIN_MITER);
+    dia_renderer_set_linewidth (renderer, entity->border_width);
+    dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
+    dia_renderer_set_linejoin (renderer, DIA_LINE_JOIN_MITER);
 
-    renderer_ops->draw_polygon (renderer, corners, 4,
-				&entity->inner_color,
-				&entity->border_color);
+    dia_renderer_draw_polygon (renderer, corners, 4,
+                               &entity->inner_color,
+                               &entity->border_color);
   }
 
   p.x = elem->corner.x + elem->width / 2.0;
   p.y = elem->corner.y + (elem->height - entity->font_height)/2.0 +
-      dia_font_ascent(entity->name,entity->font, entity->font_height);
-  renderer_ops->set_font(renderer, entity->font, entity->font_height);
-  renderer_ops->draw_string(renderer,
-                             entity->name,
-                             &p, ALIGN_CENTER,
-                             &color_black);
+      dia_font_ascent (entity->name,entity->font, entity->font_height);
+  dia_renderer_set_font (renderer, entity->font, entity->font_height);
+  dia_renderer_draw_string (renderer,
+                            entity->name,
+                            &p,
+                            DIA_ALIGN_CENTRE,
+                            &color_black);
 }
 
 static void
@@ -374,7 +390,7 @@ entity_create(Point *startpoint,
   DiaObject *obj;
   int i;
 
-  entity = g_malloc0(sizeof(Entity));
+  entity = g_new0 (Entity, 1);
   elem = &entity->element;
   obj = &elem->object;
 
@@ -418,13 +434,15 @@ entity_create(Point *startpoint,
   return &entity->element.object;
 }
 
+
 static void
-entity_destroy(Entity *entity)
+entity_destroy (Entity *entity)
 {
-  dia_font_unref(entity->font);
-  element_destroy(&entity->element);
-  g_free(entity->name);
+  g_clear_object (&entity->font);
+  element_destroy (&entity->element);
+  g_clear_pointer (&entity->name, g_free);
 }
+
 
 static DiaObject *
 entity_copy(Entity *entity)
@@ -436,7 +454,7 @@ entity_copy(Entity *entity)
 
   elem = &entity->element;
 
-  newentity = g_malloc0(sizeof(Entity));
+  newentity = g_new0 (Entity, 1);
   newelem = &newentity->element;
   newobj = &newelem->object;
 
@@ -454,7 +472,7 @@ entity_copy(Entity *entity)
     newentity->connections[i].flags = entity->connections[i].flags;
   }
 
-  newentity->font = dia_font_ref(entity->font);
+  newentity->font = g_object_ref (entity->font);
   newentity->font_height = entity->font_height;
   newentity->name = g_strdup(entity->name);
   newentity->name_width = entity->name_width;
@@ -496,7 +514,7 @@ entity_load(ObjectNode obj_node, int version,DiaContext *ctx)
   int i;
   AttributeNode attr;
 
-  entity = g_malloc0(sizeof(Entity));
+  entity = g_new0 (Entity, 1);
   elem = &entity->element;
   obj = &elem->object;
 
@@ -535,7 +553,7 @@ entity_load(ObjectNode obj_node, int version,DiaContext *ctx)
 
   if (entity->font != NULL) {
     /* This shouldn't happen, but doesn't hurt */
-    dia_font_unref(entity->font);
+    g_clear_object (&entity->font);
     entity->font = NULL;
   }
   attr = object_find_attribute (obj_node, "font");

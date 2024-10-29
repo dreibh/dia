@@ -18,12 +18,15 @@
 * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 */
 
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include "aadl.h"
 #include "pixmaps/aadlpackage.xpm"
 
-/* To have a really useful package element, we should make it a class of its 
-   own, not inherited from aadlbox, with 2 special handles -- that could be 
+/* To have a really useful package element, we should make it a class of its
+   own, not inherited from aadlbox, with 2 special handles -- that could be
    moved -- to draw the public/private separation */
 
 /***********************************************
@@ -31,15 +34,15 @@
  ***********************************************/
 
 
-static void aadlpackage_draw_borders(Aadlbox *aadlbox, DiaRenderer *renderer)
+static void
+aadlpackage_draw_borders (Aadlbox *aadlbox, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Element *elem;
   real x, y, w, h;
   Point points[9];
 
-  assert(aadlbox != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (aadlbox != NULL);
+  g_return_if_fail (renderer != NULL);
 
   elem = &aadlbox->element;
 
@@ -48,9 +51,9 @@ static void aadlpackage_draw_borders(Aadlbox *aadlbox, DiaRenderer *renderer)
   w = elem->width;
   h = elem->height;
 
-  renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
-  renderer_ops->set_linewidth(renderer, AADLBOX_BORDERWIDTH);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
+  dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+  dia_renderer_set_linewidth (renderer, AADLBOX_BORDERWIDTH);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
 
   points[0].x = x;                 points[0].y = y;
   points[1].x = x + 0.03 * w ;     points[1].y = y;
@@ -62,7 +65,11 @@ static void aadlpackage_draw_borders(Aadlbox *aadlbox, DiaRenderer *renderer)
   points[7].x = x + w;             points[7].y = y + h;
   points[8].x = x ;                points[8].y = y + h;
 
-  renderer_ops->draw_polygon(renderer, points, 9, &aadlbox->fill_color, &aadlbox->line_color);
+  dia_renderer_draw_polygon (renderer,
+                             points,
+                             9,
+                             &aadlbox->fill_color,
+                             &aadlbox->line_color);
 }
 
 
@@ -124,7 +131,7 @@ static DiaObject *aadlpackage_create(Point *startpoint, void *user_data, Handle 
 
   obj->type = &aadlpackage_type;
   obj->ops  = &aadlpackage_ops;
-      
+
   return obj;
 }
 
@@ -134,10 +141,10 @@ aadlpackage_load(ObjectNode obj_node, int version, DiaContext *ctx)
   DiaObject *obj;
   Point startpoint = {0.0,0.0};
   Handle *handle1,*handle2;
-  
+
   obj = aadlpackage_create(&startpoint,&aadlpackage_specific, &handle1,&handle2);
   aadlbox_load(obj_node, version, ctx, (Aadlbox *) obj);
-  
+
   return obj;
 }
 

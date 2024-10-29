@@ -23,11 +23,13 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <config.h>
+
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <gtk/gtk.h>
 #define WIDGET GtkWidget
-#include "widgets.h"
 #include "properties.h"
 #include "propinternals.h"
 
@@ -61,7 +63,7 @@ dictprop_free(DictProperty *prop)
 {
   if (prop->dict)
     g_hash_table_destroy(prop->dict);
-  g_free(prop);
+  g_clear_pointer (&prop, g_free);
 }
 
 static void
@@ -230,10 +232,12 @@ _create_view (GtkTreeModel *model)
   GtkCellRenderer *renderer;
 
   widget = gtk_scrolled_window_new (NULL, NULL);
+  gtk_widget_set_vexpand (widget, TRUE);
   gtk_scrolled_window_set_shadow_type (GTK_SCROLLED_WINDOW (widget), GTK_SHADOW_ETCHED_IN);
   gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (widget), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
 
   tree_view = gtk_tree_view_new_with_model (model);
+  gtk_widget_set_vexpand (tree_view, TRUE);
   gtk_tree_view_set_rules_hint (GTK_TREE_VIEW (tree_view), TRUE);
   gtk_tree_view_set_headers_visible (GTK_TREE_VIEW (tree_view), TRUE);
 

@@ -16,7 +16,9 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,7 +39,6 @@
 
 #include <glib/gstdio.h>
 
-#include "intl.h"
 #include "app_procs.h"
 #include "object.h"
 #include "commands.h"
@@ -47,7 +48,7 @@
 #include "group.h"
 #include "message.h"
 #include "display.h"
-#include "layer_dialog.h"
+#include "layer-editor/layer_dialog.h"
 #include "load_save.h"
 #include "preferences.h"
 #include "dia_dirs.h"
@@ -61,8 +62,8 @@
 #include "sheet-editor/sheets.h"
 #include "exit_dialog.h"
 #include "dialib.h"
-#include "diaerror.h"
-#include "widgets.h"
+#include "dia-layer.h"
+#include "dia-version-info.h"
 
 static gboolean         handle_initial_diagram (const char *input_file_name,
                                                 const char *export_file_name,
@@ -77,8 +78,8 @@ static gboolean         handle_all_diagrams    (GSList     *files,
                                                 char       *export_file_format,
                                                 char       *size,
                                                 char       *show_layers,
-                                                const char *input_directory,
-                                                const char *output_directory);
+                                                const char *input_dir,
+                                                const char *output_dir);
 static void             print_credits          (void);
 static void             print_filters_list     (gboolean verbose);
 
@@ -97,15 +98,19 @@ build_output_file_name(const char *infname, const char *format, const char *outd
   if (!pe)
     return g_strconcat(outdir ? outdir : "", pp,".",format,NULL);
 
-  tmp = g_malloc0(strlen(pp)+1+strlen(format)+1);
+  tmp = g_new0 (char, strlen (pp) + 1 + strlen (format) + 1);
   memcpy(tmp,pp,pe-pp);
   strcat(tmp,".");
   strcat(tmp,format);
+
   if (outdir) {
     char *ret = g_strconcat(outdir, G_DIR_SEPARATOR_S, tmp, NULL);
-    g_free(tmp);
+
+    g_clear_pointer (&tmp, g_free);
+
     return ret;
   }
+
   return tmp;
 }
 
@@ -119,7 +124,7 @@ build_output_file_name(const char *infname, const char *format, const char *outd
 static void
 show_layers_parse_numbers (DiagramData *diagdata,
                            gboolean    *visible_layers,
-                           gint         n_layers,
+                           int          n_layers,
                            const char  *str)
 {
   char *p;
@@ -159,52 +164,55 @@ show_layers_parse_numbers (DiagramData *diagdata,
     g_warning (_("invalid layer range %lu - %lu"), low, high - 1);
     return;
   }
-  if (high > n_layers)
+
+  if (high > n_layers) {
     high = n_layers;
+  }
 
   /* Set the visible layers */
-  for ( i = low; i < high; i++ ) {
-    Layer *lay = (Layer *) g_ptr_array_index (diagdata->layers, i);
+  for (i = low; i < high; i++) {
+    DiaLayer *lay = data_layer_get_nth (diagdata, i);
 
     if (visible_layers[i] == TRUE) {
-      g_warning (_("Layer %lu (%s) selected more than once."), i, lay->name);
+      g_warning (_("Layer %lu (%s) selected more than once."),
+                 i,
+                 dia_layer_get_name (lay));
     }
     visible_layers[i] = TRUE;
   }
 }
 
+
 static void
 show_layers_parse_word (DiagramData *diagdata,
                         gboolean    *visible_layers,
-                        gint         n_layers,
+                        int          n_layers,
                         const char  *str)
 {
-  GPtrArray *layers = diagdata->layers;
   gboolean found = FALSE;
+  int len;
+  char *p;
+  const char *name;
 
   /* Apply --show-layers=LAYER,LAYER,... switch. 13.3.2004 sampo@iki.fi */
-  if (layers) {
-    int len, k = 0;
-    Layer *lay;
-    char *p;
-    for (k = 0; k < layers->len; k++) {
-      lay = (Layer *) g_ptr_array_index (layers, k);
 
-      if (lay->name) {
-        len =  strlen (lay->name);
-        if ((p = strstr (str, lay->name)) != NULL) {
-          if (((p == str) || (p[-1] == ','))    /* zap false positives */
-              && ((p[len] == 0) || (p[len] == ','))){
-            found = TRUE;
-            if (visible_layers[k] == TRUE) {
-              g_warning (_("Layer %d (%s) selected more than once."), k, lay->name);
-            }
-            visible_layers[k] = TRUE;
+  DIA_FOR_LAYER_IN_DIAGRAM (diagdata, lay, k, {
+    name = dia_layer_get_name (lay);
+
+    if (name) {
+      len = strlen (name);
+      if ((p = strstr (str, name)) != NULL) {
+        if (((p == str) || (p[-1] == ','))    /* zap false positives */
+            && ((p[len] == 0) || (p[len] == ','))){
+          found = TRUE;
+          if (visible_layers[k] == TRUE) {
+            g_warning (_("Layer %d (%s) selected more than once."), k, name);
           }
+          visible_layers[k] = TRUE;
         }
       }
     }
-  }
+  });
 
   if (found == FALSE) {
     g_warning (_("There is no layer named %s."), str);
@@ -214,7 +222,7 @@ show_layers_parse_word (DiagramData *diagdata,
 static void
 show_layers_parse_string (DiagramData *diagdata,
                           gboolean    *visible_layers,
-                          gint         n_layers,
+                          int          n_layers,
                           const char  *str)
 {
   gchar **pp;
@@ -249,38 +257,39 @@ handle_show_layers (DiagramData *diagdata,
                     const char  *show_layers)
 {
   gboolean *visible_layers;
-  Layer *layer;
+  DiaLayer *layer;
   int i;
 
-  visible_layers = g_new (gboolean, diagdata->layers->len);
+  visible_layers = g_new (gboolean, data_layer_count (diagdata));
   /* Assume all layers are non-visible */
-  for (i = 0; i < diagdata->layers->len; i++) {
+  for (i = 0; i < data_layer_count (diagdata); i++) {
     visible_layers[i] = FALSE;
   }
 
   /* Split the layer-range by commas */
   show_layers_parse_string (diagdata,
                             visible_layers,
-                            diagdata->layers->len,
+                            data_layer_count (diagdata),
                             show_layers);
 
   /* Set the visibility of the layers */
-  for (i = 0; i < diagdata->layers->len; i++) {
-    layer = g_ptr_array_index (diagdata->layers, i);
+  for (i = 0; i < data_layer_count (diagdata); i++) {
+    layer = data_layer_get_nth (diagdata, i);
 
     if (visible_layers[i] == TRUE) {
-      layer->visible = TRUE;
+      dia_layer_set_visible (layer, TRUE);
     } else {
-      layer->visible = FALSE;
+      dia_layer_set_visible (layer, FALSE);
     }
   }
-  g_free(visible_layers);
+  g_clear_pointer (&visible_layers, g_free);
 }
 
 
 const char *argv0 = NULL;
 
-/** Convert infname to outfname, using input filter inf and export filter
+/*
+ * Convert infname to outfname, using input filter inf and export filter
  * ef.  If either is null, try to guess them.
  * size might be NULL.
  */
@@ -328,11 +337,11 @@ do_convert (const char      *infname,
 
   /* Apply --show-layers */
   if (show_layers) {
-    handle_show_layers(diagdata, show_layers);
+    handle_show_layers (diagdata, show_layers);
   }
 
   /* recalculate before export */
-  data_update_extents    (diagdata);
+  data_update_extents (diagdata);
 
   /* Do our best in providing the size to the filter, but don't abuse user_data
    * too much for it. It _must not_ be changed after initialization and there
@@ -346,8 +355,8 @@ do_convert (const char      *infname,
     ef->export_func (diagdata, ctx, outfname, infname, ef->user_data);
   }
   /* if (!quiet) */
-  fprintf (stdout, _("%s --> %s\n"), infname, outfname);
-  g_object_unref (diagdata);
+  g_printerr (_("%s --> %s\n"), infname, outfname);
+  g_clear_object (&diagdata);
   dia_context_release (ctx);
   return TRUE;
 }
@@ -418,10 +427,11 @@ app_is_interactive (void)
   return dia_is_interactive;
 }
 
-/** Handle loading of diagrams given on command line, including conversions.
- * Returns TRUE if any automatic conversions were performed.
- * Note to future hackers:  'size' is currently the only argument that can be
- * sent to exporters.  If more arguments are desired, please don't just add
+/*
+ * Handle loading of diagrams given on command line, including conversions.
+ * Returns %TRUE if any automatic conversions were performed.
+ * Note to future hackers: 'size' is currently the only argument that can be
+ * sent to exporters. If more arguments are desired, please don't just add
  * even more arguments, but create a more general system.
  */
 static gboolean
@@ -451,7 +461,7 @@ handle_initial_diagram (const char *in_file_name,
                     export_file_format);
         return FALSE;
       }
-      g_free (export_file_name);
+      g_clear_pointer (&export_file_name, g_free);
       export_file_name = build_output_file_name (in_file_name,
                                                  ef->extensions[0],
                                                  outdir);
@@ -461,7 +471,7 @@ handle_initial_diagram (const char *in_file_name,
                                     ef,
                                     size,
                                     show_layers);
-    g_free (export_file_name);
+    g_clear_pointer (&export_file_name, g_free);
   } else if (out_file_name) {
     DiaExportFilter *ef = NULL;
     made_conversions |= do_convert (in_file_name,
@@ -473,7 +483,11 @@ handle_initial_diagram (const char *in_file_name,
     if (g_file_test (in_file_name, G_FILE_TEST_EXISTS)) {
       diagram = diagram_load (in_file_name, NULL);
     } else {
-      diagram = new_diagram (in_file_name);
+      GFile *file = g_file_new_for_path (in_file_name);
+
+      diagram = dia_diagram_new (file);
+
+      g_clear_object (&file);
     }
 
     if (diagram != NULL) {
@@ -483,7 +497,7 @@ handle_initial_diagram (const char *in_file_name,
         /* the display initial diagram holds two references */
         new_display (diagram);
       } else {
-        g_object_unref (diagram);
+        g_clear_object (&diagram);
       }
     }
   }
@@ -500,6 +514,7 @@ handle_initial_diagram (const char *in_file_name,
 static const gchar *input_directory = NULL;
 static const gchar *output_directory = NULL;
 
+
 static gboolean
 _check_option_input_directory (const gchar    *option_name,
                                const gchar    *value,
@@ -512,11 +527,13 @@ _check_option_input_directory (const gchar    *option_name,
     input_directory = directory;
     return TRUE;
   }
-  g_set_error (error, DIA_ERROR, DIA_ERROR_DIRECTORY,
+  g_set_error (error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
                _("Input directory '%s' must exist!\n"), directory);
-  g_free (directory);
+  g_clear_pointer (&directory, g_free);
   return FALSE;
 }
+
+
 static gboolean
 _check_option_output_directory (const gchar    *option_name,
                                 const gchar    *value,
@@ -529,32 +546,12 @@ _check_option_output_directory (const gchar    *option_name,
     output_directory = directory;
     return TRUE;
   }
-  g_set_error (error, DIA_ERROR, DIA_ERROR_DIRECTORY,
+  g_set_error (error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
                _("Output directory '%s' must exist!\n"), directory);
-  g_free (directory);
+  g_clear_pointer (&directory, g_free);
   return FALSE;
 }
 
-static void
-_setup_textdomains (void)
-{
-#ifdef G_OS_WIN32
-  /* calculate runtime directory */
-  {
-    gchar* localedir = dia_get_locale_directory ();
-
-    bindtextdomain(GETTEXT_PACKAGE, localedir);
-    g_free (localedir);
-  }
-#else
-  bindtextdomain (GETTEXT_PACKAGE, LOCALEDIR);
-#endif
-
-#if defined ENABLE_NLS && defined HAVE_BIND_TEXTDOMAIN_CODESET
-  bind_textdomain_codeset(GETTEXT_PACKAGE,"UTF-8");
-#endif
-  textdomain (GETTEXT_PACKAGE);
-}
 
 void
 app_init (int argc, char **argv)
@@ -575,10 +572,8 @@ app_init (int argc, char **argv)
   GSList *files = NULL;
   static const gchar **filenames = NULL;
   int i = 0;
-
   GOptionContext *context = NULL;
-  static GOptionEntry options[] =
-  {
+  static GOptionEntry options[] = {
     {"export", 'e', 0, G_OPTION_ARG_FILENAME, NULL /* &export_file_name */,
      N_("Export loaded file and exit"), N_("OUTPUT")},
     {"filter", 't', 0, G_OPTION_ARG_STRING, NULL /* &export_file_format */,
@@ -612,6 +607,7 @@ app_init (int argc, char **argv)
       NULL, NULL },
     { NULL }
   };
+  char *localedir = dia_get_locale_directory ();
 
   /* for users of app_init() the default is interactive */
   dia_is_interactive = TRUE;
@@ -620,13 +616,18 @@ app_init (int argc, char **argv)
   options[1].arg_data = &export_file_format;
   options[3].arg_data = &size;
   options[4].arg_data = &show_layers;
-  g_assert (strcmp (options[14].long_name, G_OPTION_REMAINING) == 0);
+  g_return_if_fail (g_strcmp0 (options[14].long_name, G_OPTION_REMAINING) == 0);
   options[14].arg_data = (void*)&filenames;
 
   argv0 = (argc > 0) ? argv[0] : "(none)";
 
-  setlocale(LC_NUMERIC, "C");
-  _setup_textdomains ();
+  setlocale (LC_NUMERIC, "C");
+
+  bindtextdomain (GETTEXT_PACKAGE, localedir);
+  bind_textdomain_codeset (GETTEXT_PACKAGE, "UTF-8");
+  textdomain (GETTEXT_PACKAGE);
+
+  g_clear_pointer (&localedir, g_free);
 
   context = g_option_context_new (_("[FILE...]"));
   g_option_context_add_main_entries (context, options, GETTEXT_PACKAGE);
@@ -637,34 +638,36 @@ app_init (int argc, char **argv)
 
     if (!g_option_context_parse (context, &argc, &argv, &error)) {
       if (error) { /* IMO !error here is a bug upstream, triggered e.g. with --gdk-debug=updates */
-        g_print ("%s", error->message);
-        g_error_free (error);
+        g_printerr ("%s", error->message);
+        g_clear_error (&error);
       } else {
-        g_print (_("Invalid option?"));
+        g_printerr (_("Invalid option?"));
       }
 
-      g_option_context_free(context);
-      exit(1);
+      g_clear_pointer (&context, g_option_context_free);
+      exit (1);
     }
-    /* second level check of command line options, existance of input files etc. */
+
+    /* second level check of command line options, existence of input files etc. */
     if (filenames) {
       while (filenames[i] != NULL) {
-        gchar *filename;
-        gchar *testpath;
+        char *filename;
+        char *testpath;
 
         if (g_str_has_prefix (filenames[i], "file://")) {
           filename = g_filename_from_uri (filenames[i], NULL, NULL);
           if (!g_utf8_validate (filename, -1, NULL)) {
-            gchar *tfn = filename;
+            char *tfn = filename;
             filename = g_filename_to_utf8 (filename, -1, NULL, NULL, NULL);
-            g_free (tfn);
+            g_clear_pointer (&tfn, g_free);
           }
         } else {
           filename = g_filename_to_utf8 (filenames[i], -1, NULL, NULL, NULL);
         }
 
         if (!filename) {
-          g_print (_("Filename conversion failed: %s\n"), filenames[i]);
+          g_printerr (_("Filename conversion failed: %s\n"), filenames[i]);
+          ++i;
           continue;
         }
 
@@ -678,12 +681,14 @@ app_init (int argc, char **argv)
         if (g_file_test (testpath, G_FILE_TEST_IS_REGULAR)) {
           files = g_slist_append (files, filename);
         } else {
-          g_print (_("Missing input: %s\n"), filename);
-          g_free (filename);
+          g_printerr (_("Missing input: %s\n"), filename);
+          g_clear_pointer (&filename, g_free);
         }
+
         if (filename != testpath) {
-          g_free (testpath);
+          g_clear_pointer (&testpath, g_free);
         }
+
         ++i;
       }
     }
@@ -692,52 +697,48 @@ app_init (int argc, char **argv)
       dia_is_interactive = FALSE;
     }
   }
+  g_clear_pointer (&context, g_option_context_free);
 
   if (argv && dia_is_interactive) {
-    GdkPixbuf *pixbuf;
-
     g_set_application_name (_("Dia Diagram Editor"));
     gtk_init (&argc, &argv);
 
-    /* GTK: (Defunct with GtkApplication)
-     * gtk_icon_theme_add_resource_path (gtk_icon_theme_get_default (),
-     *                                   "/org/gnome/Dia/icons/");
-     */
+    /* TODO: GTK: (Defunct with GtkApplication) */
+    gtk_icon_theme_add_resource_path (gtk_icon_theme_get_default (),
+                                      "/org/gnome/Dia/icons/");
 
     /* Set the icon for Dia windows & dialogs */
     /* GTK3: Use icon-name with GResource fallback */
-    pixbuf = pixbuf_from_resource ("/org/gnome/Dia/icons/org.gnome.Dia.png");
-    if (pixbuf) {
-      gtk_window_set_default_icon (pixbuf);
-      g_object_unref (pixbuf);
-    }
+    gtk_window_set_default_icon_name ("org.gnome.Dia");
   } else {
     /*
      * On Windows there is no command line without display so that gtk_init is harmless.
      * On X11 we need gtk_init_check() to avoid exit() just because there is no display
      * running outside of X11.
      */
-    if (!gtk_init_check(&argc, &argv)) {
+    if (!gtk_init_check (&argc, &argv)) {
       dia_log_message ("Running without display");
     }
   }
 
   if (version) {
-    gchar *ver_utf8;
-    gchar *ver_locale;
+    char *ver_str;
+
 #if (defined __TIME__) && (defined __DATE__)
     /* TRANSLATOR: 2nd and 3rd %s are time and date respectively. */
-    ver_utf8 = g_strdup_printf (_("Dia version %s, compiled %s %s\n"), VERSION, __TIME__, __DATE__);
+    ver_str = g_strdup_printf (_("Dia version %s, compiled %s %s\n"), dia_version_string (), __TIME__, __DATE__);
 #else
-    ver_utf8 = g_strdup_printf (_("Dia version %s\n"), VERSION);
+    ver_str = g_strdup_printf (_("Dia version %s\n"), dia_version_string ());
 #endif
-    ver_locale = g_locale_from_utf8 (ver_utf8, -1, NULL, NULL, NULL);
-    printf ("%s\n", ver_locale);
-    g_free (ver_locale);
-    g_free (ver_utf8);
+
+    g_print ("%s\n", ver_str);
+
+    g_clear_pointer (&ver_str, g_free);
+
     if (verbose) {
       dump_dependencies ();
     }
+
     exit (0);
   }
 
@@ -788,15 +789,15 @@ app_init (int argc, char **argv)
     message_error (_("Couldn't find standard objects when looking for "
                      "object-libs; exiting..."));
     g_critical (_("Couldn't find standard objects when looking for "
-                  "object-libs in '%s'; exiting..."),
-                dia_get_lib_directory());
+                  "object-libs in “%s”; exiting..."),
+                dia_get_lib_directory ());
     exit (1);
   }
 
   persistence_load ();
 
   /** Must load prefs after persistence */
-  prefs_init ();
+  dia_preferences_init ();
 
   if (dia_is_interactive) {
 
@@ -812,6 +813,7 @@ app_init (int argc, char **argv)
       persistence_register_window_create ("layer_window",
                                           (NullaryFunc*) &layer_dialog_create);
     }
+
     /*fill recent file menu */
     recent_file_history_init ();
 
@@ -819,8 +821,8 @@ app_init (int argc, char **argv)
     g_timeout_add_seconds (5 * 60, autosave_check_autosave, NULL);
 
 #if 0 /* do we really open these automatically in the next session? */
-    persistence_register_window_create("diagram_tree",
-                                       &diagram_tree_show);
+    persistence_register_window_create ("diagram_tree",
+                                        &diagram_tree_show);
 #endif
     persistence_register_window_create ("sheets_main_dialog",
                                         (NullaryFunc*) &sheets_dialog_create);
@@ -839,29 +841,16 @@ app_init (int argc, char **argv)
                                           output_directory);
 
   if (dia_is_interactive && files == NULL && !nonew) {
-    if (use_integrated_ui) {
-      GList * list;
+    GList *list;
 
-      file_new_callback (NULL);
-      list = dia_open_diagrams ();
-      if (list) {
-        Diagram * diagram = list->data;
-        diagram_update_extents (diagram);
-        diagram->is_default = TRUE;
-      }
-    } else {
-      gchar *filename = g_filename_from_utf8 (_("Diagram1.dia"), -1, NULL, NULL, NULL);
-      Diagram *diagram = new_diagram (filename);
-      g_free (filename);
+    file_new_callback (NULL);
 
-      if (diagram != NULL) {
-        diagram_update_extents (diagram);
-        diagram->is_default = TRUE;
-        /* I think this is done in diagram_init() with a call to
-         * layer_dialog_update_diagram_list() */
-        layer_dialog_set_diagram (diagram);
-        new_display (diagram);
-      }
+    list = dia_open_diagrams ();
+    if (list) {
+      Diagram *diagram = list->data;
+      diagram_update_extents (diagram);
+      diagram->is_default = TRUE;
+      layer_dialog_set_diagram (diagram);
     }
   }
   g_slist_free (files);
@@ -873,6 +862,17 @@ app_init (int argc, char **argv)
   dia_log_message ("initialized");
 }
 
+
+/**
+ * app_exit:
+ *
+ * Exit the application, but asking the user for confirmation
+ * if there are changed diagrams.
+ *
+ * Returns: %TRUE if the application exits.
+ *
+ * Since: dawn-of-time
+ */
 gboolean
 app_exit (void)
 {
@@ -895,66 +895,72 @@ app_exit (void)
 
   if (diagram_modified_exists()) {
     if (is_integrated_ui ()) {
-      GtkWidget                *dialog;
-      int                       result;
-      exit_dialog_item_array_t *items  = NULL;
-      GList *                   list;
-      Diagram *                 diagram;
+      DiaExitDialog *dialog;
+      int            result;
+      GPtrArray     *items  = NULL;
+      GList         *diagrams;
+      Diagram       *diagram;
 
-      dialog = exit_dialog_make (GTK_WINDOW (interface_get_toolbox_shell ()),
-                                 _("Exiting Dia"));
+      dialog = dia_exit_dialog_new (GTK_WINDOW (interface_get_toolbox_shell ()));
 
-      list = dia_open_diagrams ();
-      while (list) {
-        diagram = list->data;
+      diagrams = dia_open_diagrams ();
+      while (diagrams) {
+        diagram = diagrams->data;
 
         if (diagram_is_modified (diagram)) {
-          const gchar * name = diagram_get_name (diagram);
-          const gchar * path = diagram->filename;
-          exit_dialog_add_item (dialog, name, path, diagram);
+          const char *name = diagram_get_name (diagram);
+          const char *path = diagram->filename;
+          dia_exit_dialog_add_item (dialog, name, path, diagram);
         }
 
-        list = g_list_next (list);
+        diagrams = g_list_next (diagrams);
       }
 
-      result = exit_dialog_run (dialog, &items);
+      result = dia_exit_dialog_run (dialog, &items);
 
-      gtk_widget_destroy (dialog);
+      g_clear_object (&dialog);
 
-      if (result == EXIT_DIALOG_EXIT_CANCEL) {
+      if (result == DIA_EXIT_DIALOG_CANCEL) {
         return FALSE;
-      } else if (result == EXIT_DIALOG_EXIT_SAVE_SELECTED) {
-        DiaContext *ctx = dia_context_new(_("Save"));
-        int i;
-        for (i = 0; i < items->array_size; i++) {
-          gchar *filename;
+      } else if (result == DIA_EXIT_DIALOG_SAVE) {
+        DiaContext *ctx = dia_context_new (_("Save"));
 
-          diagram  = items->array[i].data;
-          filename = g_filename_from_utf8 (diagram->filename, -1, NULL, NULL, NULL);
-          diagram_update_extents (diagram);
+        for (int i = 0; i < items->len; i++) {
+          DiaExitDialogItem *item = g_ptr_array_index (items, i);
+          char *filename;
+
+          filename = g_filename_from_utf8 (item->data->filename, -1, NULL, NULL, NULL);
+          diagram_update_extents (item->data);
           dia_context_set_filename (ctx, filename);
-          if (!diagram_save (diagram, filename, ctx)) {
-            exit_dialog_free_items (items);
+
+          if (!diagram_save (item->data, filename, ctx)) {
             dia_context_release (ctx);
+
+            g_clear_pointer (&filename, g_free);
+            g_clear_pointer (&items, g_ptr_array_unref);
+
             return FALSE;
           } else {
             dia_context_reset (ctx);
           }
-          g_free (filename);
+
+          g_clear_pointer (&filename, g_free);
         }
+
         dia_context_release (ctx);
-        exit_dialog_free_items (items);
-      } else if (result == EXIT_DIALOG_EXIT_NO_SAVE) {
-        list = dia_open_diagrams ();
-        while (list) {
-          diagram = list->data;
+      } else if (result == DIA_EXIT_DIALOG_QUIT) {
+        diagrams = dia_open_diagrams ();
+        while (diagrams) {
+          diagram = diagrams->data;
 
           /* slight hack: don't ask again */
           diagram_set_modified (diagram, FALSE);
           undo_clear (diagram->undo);
-          list = g_list_next (list);
+          diagrams = g_list_next (diagrams);
         }
       }
+
+      g_clear_pointer (&items, g_ptr_array_unref);
     } else {
       GtkWidget *dialog;
       GtkWidget *button;
@@ -970,12 +976,12 @@ app_exit (void)
 
       gtk_window_set_title (GTK_WINDOW (dialog), _("Quit Dia"));
 
-      button = gtk_button_new_from_stock (GTK_STOCK_CANCEL);
+      button = gtk_button_new_with_mnemonic (_("_Cancel"));
       gtk_dialog_add_action_widget (GTK_DIALOG (dialog), button, GTK_RESPONSE_CANCEL);
       gtk_widget_set_can_default (GTK_WIDGET (button), TRUE);
       gtk_dialog_set_default_response (GTK_DIALOG (dialog), GTK_RESPONSE_CANCEL);
 
-      button = gtk_button_new_from_stock (GTK_STOCK_QUIT);
+      button = gtk_button_new_with_mnemonic (_("_Quit"));
       gtk_dialog_add_action_widget (GTK_DIALOG (dialog), button, GTK_RESPONSE_OK);
 
       gtk_widget_show_all (dialog);
@@ -987,7 +993,6 @@ app_exit (void)
       gtk_widget_destroy (dialog);
     }
   }
-  prefs_save ();
 
   persistence_save ();
 
@@ -1059,15 +1064,15 @@ create_user_dirs (void)
   /* it is no big deal if these directories can't be created */
   subdir = g_strconcat (dir, G_DIR_SEPARATOR_S "objects", NULL);
   g_mkdir (subdir, 0755);
-  g_free (subdir);
+  g_clear_pointer (&subdir, g_free);
   subdir = g_strconcat (dir, G_DIR_SEPARATOR_S "shapes", NULL);
   g_mkdir (subdir, 0755);
-  g_free (subdir);
+  g_clear_pointer (&subdir, g_free);
   subdir = g_strconcat (dir, G_DIR_SEPARATOR_S "sheets", NULL);
   g_mkdir (subdir, 0755);
-  g_free (subdir);
+  g_clear_pointer (&subdir, g_free);
 
-  g_free (dir);
+  g_clear_pointer (&dir, g_free);
 }
 
 static PluginInitResult
@@ -1100,23 +1105,23 @@ handle_all_diagrams (GSList     *files,
                      char       *export_file_format,
                      char       *size,
                      char       *show_layers,
-                     const char *input_directory,
-                     const char *output_directory)
+                     const char *input_dir,
+                     const char *output_dir)
 {
   GSList *node = NULL;
   gboolean made_conversions = FALSE;
 
   for (node = files; node; node = node->next) {
-    gchar *inpath = input_directory ? g_build_filename (input_directory, node->data, NULL) : node->data;
+    gchar *inpath = input_dir ? g_build_filename (input_dir, node->data, NULL) : node->data;
     made_conversions |=
       handle_initial_diagram (inpath,
                               export_file_name,
                               export_file_format,
                               size,
                               show_layers,
-                              output_directory);
+                              output_dir);
     if (inpath != node->data) {
-      g_free (inpath);
+      g_clear_pointer (&inpath, g_free);
     }
   }
   return made_conversions;
@@ -1135,8 +1140,8 @@ static void
 print_credits (void)
 {
   int i;
-  const gint nauthors = (sizeof (authors) / sizeof (authors[0])) - 1;
-  const gint ndocumentors = (sizeof (documentors) / sizeof (documentors[0])) - 1;
+  const int nauthors = (sizeof (authors) / sizeof (authors[0])) - 1;
+  const int ndocumentors = (sizeof (documentors) / sizeof (documentors[0])) - 1;
 
   g_print (_("The original author of Dia was:\n\n"));
   for (i = 0; i < NUMBER_OF_ORIG_AUTHORS; i++) {
@@ -1180,7 +1185,7 @@ _cmp_filter (const void *a, const void *b)
  * Almost all of Dia's export formats are realized with plug-ins, either
  * implemented in C or Python. Instead of a static help string which tries
  * to cover these at compile time, this function queries the registered
- * filters to proide the complete list for the current configuration.
+ * filters to provide the complete list for the current configuration.
  *
  * This list still might not cover all available filters for two reasons:
  *  - only configured filters are registered

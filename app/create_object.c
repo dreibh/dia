@@ -15,7 +15,10 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <config.h>
+
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include "create_object.h"
 #include "connectionpoint_ops.h"
@@ -29,9 +32,9 @@
 #include "parent.h"
 #include "message.h"
 #include "object.h"
-#include "intl.h"
 #include "menus.h"
 #include "widgets.h"
+#include "dia-layer.h"
 
 static void create_object_button_press(CreateObjectTool *tool, GdkEventButton *event,
 				     DDisplay *ddisp);
@@ -107,9 +110,12 @@ create_object_button_press(CreateObjectTool *tool, GdkEventButton *event,
     tool->moving = TRUE;
     tool->last_to = handle2->pos;
 
-    gdk_pointer_grab (gtk_widget_get_window(ddisp->canvas), FALSE,
-		      GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON1_MOTION_MASK | GDK_BUTTON_RELEASE_MASK,
-		      NULL, NULL, event->time);
+    gdk_device_grab (gdk_event_get_device ((GdkEvent*)event),
+                     gtk_widget_get_window(ddisp->canvas),
+                     GDK_OWNERSHIP_APPLICATION,
+                     FALSE,
+                     GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON1_MOTION_MASK | GDK_BUTTON_RELEASE_MASK,
+                     NULL, event->time);
     ddisplay_set_all_cursor_name (NULL, "move");
   } else {
     diagram_update_extents(ddisp->diagram);
@@ -139,7 +145,7 @@ create_object_button_release(CreateObjectTool *tool, GdkEventButton *event,
     return; /* could be a legal invariant */
 
   if (tool->moving) {
-    gdk_pointer_ungrab (event->time);
+    gdk_device_ungrab (gdk_event_get_device ((GdkEvent*)event), event->time);
 
     object_add_updates(tool->obj, ddisp->diagram);
     tool->obj->ops->move_handle(tool->obj, tool->handle, &tool->last_to,
@@ -149,16 +155,16 @@ create_object_button_release(CreateObjectTool *tool, GdkEventButton *event,
   }
 
   parent_candidates =
-    layer_find_objects_containing_rectangle(obj->parent_layer,
-					    &obj->bounding_box);
+    dia_layer_find_objects_containing_rectangle (obj->parent_layer,
+                                                 &obj->bounding_box);
 
   /* whole object must be within another object to parent it */
   for (; parent_candidates != NULL; parent_candidates = g_list_next(parent_candidates)) {
     DiaObject *parent_obj = (DiaObject *) parent_candidates->data;
     if (obj != parent_obj
-	&& object_within_parent(obj, parent_obj)) {
-      Change *change = undo_parenting(ddisp->diagram, parent_obj, obj, TRUE);
-      (change->apply)(change, ddisp->diagram);
+        && object_within_parent (obj, parent_obj)) {
+      DiaChange *change = dia_parenting_change_new (ddisp->diagram, parent_obj, obj, TRUE);
+      dia_change_apply (change, DIA_DIAGRAM_DATA (ddisp->diagram));
       break;
     /*
     obj->parent = parent_obj;
@@ -170,7 +176,7 @@ create_object_button_release(CreateObjectTool *tool, GdkEventButton *event,
 
   list = g_list_prepend(list, tool->obj);
 
-  undo_insert_objects(ddisp->diagram, list, 1);
+  dia_insert_objects_change_new (ddisp->diagram, list, 1);
 
   if (tool->moving) {
     if (tool->handle->connect_type != HANDLE_NONCONNECTABLE) {
@@ -240,7 +246,7 @@ create_object_motion(CreateObjectTool *tool, GdkEventMotion *event,
   }
 
   if (connectionpoint == NULL) {
-    /* No connectionopoint near, then snap to grid (if enabled) */
+    /* No connectionpoint near, then snap to grid (if enabled) */
     snap_to_grid(ddisp, &to.x, &to.y);
     highlight_reset_all(ddisp->diagram);
     ddisplay_set_all_cursor_name (NULL, "move");
@@ -264,9 +270,9 @@ create_object_motion(CreateObjectTool *tool, GdkEventMotion *event,
   gtk_statusbar_pop (statusbar, context_id);
   gtk_statusbar_push (statusbar, context_id, postext);
 
-  g_free(postext);
+  g_clear_pointer (&postext, g_free);
 
-  diagram_flush(ddisp->diagram);
+  diagram_flush (ddisp->diagram);
 
   tool->last_to = to;
 
@@ -307,13 +313,16 @@ create_create_object_tool(DiaObjectType *objtype, void *user_data,
   return (Tool *) tool;
 }
 
-void free_create_object_tool(Tool *tool)
+
+void
+free_create_object_tool(Tool *tool)
 {
   CreateObjectTool *real_tool = (CreateObjectTool *)tool;
 
   if (real_tool->moving) { /* should not get here, but see bug #619246 */
-    gdk_pointer_ungrab (GDK_CURRENT_TIME);
-    ddisplay_set_all_cursor(default_cursor);
+    // deprecated gdk_pointer_ungrab (GDK_CURRENT_TIME);
+    ddisplay_set_all_cursor (default_cursor);
   }
-  g_free(tool);
+
+  g_clear_pointer (&tool, g_free);
 }

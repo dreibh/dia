@@ -16,12 +16,12 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "connectionpoint.h"
@@ -31,6 +31,7 @@
 #include "pattern.h"
 #include "diapathrenderer.h"
 #include "message.h"
+
 
 #define DEFAULT_WIDTH 2.0
 #define DEFAULT_HEIGHT 1.0
@@ -55,15 +56,15 @@ struct _Ellipse {
   ConnectionPoint connections[9];
   Handle center_handle;
 
-  real border_width;
+  double border_width;
   Color border_color;
   Color inner_color;
   gboolean show_background;
   AspectType aspect;
-  LineStyle line_style;
-  real dashlength;
+  DiaLineStyle line_style;
+  double dashlength;
   DiaPattern *pattern;
-  real angle; /*!< between [-45-45] to simplify connection point handling */
+  double angle; /*!< between [-45-45] to simplify connection point handling */
 };
 
 static struct _EllipseProperties {
@@ -71,13 +72,20 @@ static struct _EllipseProperties {
   gboolean show_background;
 } default_properties = { FREE_ASPECT, TRUE };
 
-static real ellipse_distance_from(Ellipse *ellipse, Point *point);
-static void ellipse_select(Ellipse *ellipse, Point *clicked_point,
-			   DiaRenderer *interactive_renderer);
-static ObjectChange* ellipse_move_handle(Ellipse *ellipse, Handle *handle,
-					 Point *to, ConnectionPoint *cp,
-					 HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* ellipse_move(Ellipse *ellipse, Point *to);
+
+static double           ellipse_distance_from   (Ellipse          *ellipse,
+                                                 Point            *point);
+static void             ellipse_select          (Ellipse          *ellipse,
+                                                 Point            *clicked_point,
+                                                 DiaRenderer      *interactive_renderer);
+static DiaObjectChange *ellipse_move_handle     (Ellipse          *ellipse,
+                                                 Handle           *handle,
+                                                 Point            *to,
+                                                 ConnectionPoint  *cp,
+                                                 HandleMoveReason  reason,
+                                                 ModifierKeys      modifiers);
+static DiaObjectChange *ellipse_move            (Ellipse          *ellipse,
+                                                 Point            *to);
 static void ellipse_draw(Ellipse *ellipse, DiaRenderer *renderer);
 static void ellipse_update_data(Ellipse *ellipse);
 static DiaObject *ellipse_create(Point *startpoint,
@@ -223,160 +231,199 @@ ellipse_distance_from(Ellipse *ellipse, Point *point)
 				ellipse->border_width, point);
 }
 
+
 static void
-ellipse_select(Ellipse *ellipse, Point *clicked_point,
-	       DiaRenderer *interactive_renderer)
+ellipse_select (Ellipse     *ellipse,
+                Point       *clicked_point,
+                DiaRenderer *interactive_renderer)
 {
-  element_update_handles(&ellipse->element);
+  element_update_handles (&ellipse->element);
 }
 
-static ObjectChange*
-ellipse_move_handle(Ellipse *ellipse, Handle *handle,
-		    Point *to, ConnectionPoint *cp,
-		    HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange*
+ellipse_move_handle (Ellipse          *ellipse,
+                     Handle           *handle,
+                     Point            *to,
+                     ConnectionPoint  *cp,
+                     HandleMoveReason  reason,
+                     ModifierKeys      modifiers)
 {
   Element *elem = &ellipse->element;
   Point nw_to, se_to;
 
-  assert(ellipse!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+  g_return_val_if_fail (ellipse != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
-  assert(handle->id < 8 || handle->id == HANDLE_CUSTOM1);
+  g_return_val_if_fail (handle->id < 8 || handle->id == HANDLE_CUSTOM1, NULL);
+
   if (handle->id == HANDLE_CUSTOM1) {
     Point delta, corner_to;
     delta.x = to->x - (elem->corner.x + elem->width/2);
     delta.y = to->y - (elem->corner.y + elem->height/2);
     corner_to.x = elem->corner.x + delta.x;
     corner_to.y = elem->corner.y + delta.y;
-    return ellipse_move(ellipse, &corner_to);
+    return ellipse_move (ellipse, &corner_to);
   } else {
     if (ellipse->aspect != FREE_ASPECT){
-        float width, height;
-        float new_width, new_height;
-        float to_width, aspect_width;
-        Point center;
+      float width, height;
+      float new_width, new_height;
+      float to_width, aspect_width;
+      Point center;
 
-        width = ellipse->element.width;
-        height = ellipse->element.height;
-        center.x = elem->corner.x + width/2;
-        center.y = elem->corner.y + height/2;
-        switch (handle->id) {
+      width = ellipse->element.width;
+      height = ellipse->element.height;
+      center.x = elem->corner.x + width/2;
+      center.y = elem->corner.y + height/2;
+      switch (handle->id) {
         case HANDLE_RESIZE_E:
         case HANDLE_RESIZE_W:
-            new_width = 2 * fabs(to->x - center.x);
-            new_height = new_width / width * height;
-            break;
+          new_width = 2 * fabs(to->x - center.x);
+          new_height = new_width / width * height;
+          break;
         case HANDLE_RESIZE_N:
         case HANDLE_RESIZE_S:
-            new_height = 2 * fabs(to->y - center.y);
-            new_width = new_height / height * width;
-            break;
+          new_height = 2 * fabs(to->y - center.y);
+          new_width = new_height / height * width;
+          break;
         case HANDLE_RESIZE_NW:
         case HANDLE_RESIZE_NE:
         case HANDLE_RESIZE_SW:
         case HANDLE_RESIZE_SE:
-            to_width = 2 * fabs(to->x - center.x);
-            aspect_width = 2 * fabs(to->y - center.y) / height * width;
-            new_width = to_width < aspect_width ? to_width : aspect_width;
-            new_height = new_width / width * height;
-            break;
-	default:
-	    new_width = width;
-	    new_height = height;
-	    break;
-        }
+          to_width = 2 * fabs(to->x - center.x);
+          aspect_width = 2 * fabs(to->y - center.y) / height * width;
+          new_width = to_width < aspect_width ? to_width : aspect_width;
+          new_height = new_width / width * height;
+          break;
+        case HANDLE_MOVE_STARTPOINT:
+        case HANDLE_MOVE_ENDPOINT:
+        case HANDLE_CUSTOM1:
+        case HANDLE_CUSTOM2:
+        case HANDLE_CUSTOM3:
+        case HANDLE_CUSTOM4:
+        case HANDLE_CUSTOM5:
+        case HANDLE_CUSTOM6:
+        case HANDLE_CUSTOM7:
+        case HANDLE_CUSTOM8:
+        case HANDLE_CUSTOM9:
+        default:
+          new_width = width;
+          new_height = height;
+          break;
+      }
 
-        nw_to.x = center.x - new_width/2;
-        nw_to.y = center.y - new_height/2;
-        se_to.x = center.x + new_width/2;
-        se_to.y = center.y + new_height/2;
+      nw_to.x = center.x - new_width/2;
+      nw_to.y = center.y - new_height/2;
+      se_to.x = center.x + new_width/2;
+      se_to.y = center.y + new_height/2;
 
-        element_move_handle(&ellipse->element, HANDLE_RESIZE_NW, &nw_to, cp, reason, modifiers);
-        element_move_handle(&ellipse->element, HANDLE_RESIZE_SE, &se_to, cp, reason, modifiers);
+      element_move_handle (&ellipse->element, HANDLE_RESIZE_NW, &nw_to, cp, reason, modifiers);
+      element_move_handle (&ellipse->element, HANDLE_RESIZE_SE, &se_to, cp, reason, modifiers);
     } else {
-        Point center;
-        Point opposite_to;
-        center.x = elem->corner.x + elem->width/2;
-        center.y = elem->corner.y + elem->height/2;
-        opposite_to.x = center.x - (to->x-center.x);
-        opposite_to.y = center.y - (to->y-center.y);
+      Point center;
+      Point opposite_to;
+      center.x = elem->corner.x + elem->width/2;
+      center.y = elem->corner.y + elem->height/2;
+      opposite_to.x = center.x - (to->x-center.x);
+      opposite_to.y = center.y - (to->y-center.y);
 
-        element_move_handle(&ellipse->element, handle->id, to, cp, reason, modifiers);
-        /* this second move screws the intended object size, e.g. from dot2dia.py
-	 * but without it the 'centered' behaviour during edit is screwed
-	 */
-        element_move_handle(&ellipse->element, 7-handle->id, &opposite_to, cp, reason, modifiers);
+      element_move_handle (&ellipse->element, handle->id, to, cp, reason, modifiers);
+      /* this second move screws the intended object size, e.g. from dot2dia.py
+       * but without it the 'centered' behaviour during edit is screwed
+       */
+      element_move_handle (&ellipse->element, 7-handle->id, &opposite_to, cp, reason, modifiers);
     }
 
-    ellipse_update_data(ellipse);
+    ellipse_update_data (ellipse);
 
     return NULL;
   }
 }
 
-static ObjectChange*
-ellipse_move(Ellipse *ellipse, Point *to)
+
+static DiaObjectChange *
+ellipse_move (Ellipse *ellipse, Point *to)
 {
   ellipse->element.corner = *to;
-  ellipse_update_data(ellipse);
+  ellipse_update_data (ellipse);
 
   return NULL;
 }
 
+
 static void
-ellipse_draw(Ellipse *ellipse, DiaRenderer *renderer)
+ellipse_draw (Ellipse *ellipse, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point center;
   Element *elem;
   GArray *path = NULL;
 
-  assert(ellipse != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (ellipse != NULL);
+  g_return_if_fail (renderer != NULL);
 
   elem = &ellipse->element;
 
   center.x = elem->corner.x + elem->width/2;
   center.y = elem->corner.y + elem->height/2;
 
-  if (ellipse->angle != 0)
+  if (ellipse->angle != 0) {
     path = _ellipse_to_path (ellipse, &center);
+  }
 
-  renderer_ops->set_linewidth(renderer, ellipse->border_width);
-  renderer_ops->set_linestyle(renderer, ellipse->line_style, ellipse->dashlength);
+  dia_renderer_set_linewidth (renderer, ellipse->border_width);
+  dia_renderer_set_linestyle (renderer, ellipse->line_style, ellipse->dashlength);
+
   if (ellipse->show_background) {
     Color fill = ellipse->inner_color;
-    renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
+
+    dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+
     if (ellipse->pattern) {
       dia_pattern_get_fallback_color (ellipse->pattern, &fill);
-      if (renderer_ops->is_capable_to(renderer, RENDER_PATTERN))
-        renderer_ops->set_pattern (renderer, ellipse->pattern);
+
+      if (dia_renderer_is_capable_of (renderer, RENDER_PATTERN)) {
+        dia_renderer_set_pattern (renderer, ellipse->pattern);
+      }
     }
-    if (!path)
-      renderer_ops->draw_ellipse (renderer,
-				  &center,
-				  elem->width, elem->height,
-				  &fill, &ellipse->border_color);
-    else
-      renderer_ops->draw_beziergon (renderer,
-				    &g_array_index (path, BezPoint, 0), path->len,
-				    &fill, &ellipse->border_color);
-    if (renderer_ops->is_capable_to(renderer, RENDER_PATTERN))
-      renderer_ops->set_pattern (renderer, NULL);
+
+    if (!path) {
+      dia_renderer_draw_ellipse (renderer,
+                                 &center,
+                                 elem->width,
+                                 elem->height,
+                                 &fill,
+                                 &ellipse->border_color);
+    } else {
+      dia_renderer_draw_beziergon (renderer,
+                                   &g_array_index (path, BezPoint, 0),
+                                   path->len,
+                                   &fill, &ellipse->border_color);
+    }
+
+    if (dia_renderer_is_capable_of (renderer, RENDER_PATTERN)) {
+      dia_renderer_set_pattern (renderer, NULL);
+    }
   } else {
-    if (!path)
-      renderer_ops->draw_ellipse (renderer,
-				  &center,
-				  elem->width, elem->height,
-				  NULL, &ellipse->border_color);
-    else
-      renderer_ops->draw_beziergon (renderer,
-				    &g_array_index (path, BezPoint, 0), path->len,
-				    NULL, &ellipse->border_color);
+    if (!path) {
+      dia_renderer_draw_ellipse (renderer,
+                                 &center,
+                                 elem->width,
+                                 elem->height,
+                                 NULL,
+                                 &ellipse->border_color);
+    } else {
+      dia_renderer_draw_beziergon (renderer,
+                                   &g_array_index (path, BezPoint, 0),
+                                   path->len,
+                                   NULL,
+                                   &ellipse->border_color);
+    }
   }
-  if (path)
+
+  if (path) {
     g_array_free (path, TRUE);
+  }
 }
 
 static void
@@ -463,7 +510,7 @@ ellipse_create(Point *startpoint,
   DiaObject *obj;
   int i;
 
-  ellipse = g_malloc0(sizeof(Ellipse));
+  ellipse = g_new0 (Ellipse, 1);
   elem = &ellipse->element;
   obj = &elem->object;
 
@@ -504,13 +551,14 @@ ellipse_create(Point *startpoint,
   return &ellipse->element.object;
 }
 
+
 static void
 ellipse_destroy(Ellipse *ellipse)
 {
-  if (ellipse->pattern)
-    g_object_unref (ellipse->pattern);
-  element_destroy(&ellipse->element);
+  g_clear_object (&ellipse->pattern);
+  element_destroy (&ellipse->element);
 }
+
 
 static DiaObject *
 ellipse_copy(Ellipse *ellipse)
@@ -522,7 +570,7 @@ ellipse_copy(Ellipse *ellipse)
 
   elem = &ellipse->element;
 
-  newellipse = g_malloc0(sizeof(Ellipse));
+  newellipse = g_new0 (Ellipse, 1);
   newelem = &newellipse->element;
   newobj = &newelem->object;
 
@@ -583,7 +631,7 @@ ellipse_save(Ellipse *ellipse, ObjectNode obj_node, DiaContext *ctx)
     data_add_real(new_attribute(obj_node, "angle"),
 		  ellipse->angle, ctx);
 
-  if (ellipse->line_style != LINESTYLE_SOLID) {
+  if (ellipse->line_style != DIA_LINE_STYLE_SOLID) {
     data_add_enum(new_attribute(obj_node, "line_style"),
 		  ellipse->line_style, ctx);
 
@@ -605,7 +653,7 @@ static DiaObject *ellipse_load(ObjectNode obj_node, int version, DiaContext *ctx
   int i;
   AttributeNode attr;
 
-  ellipse = g_malloc0(sizeof(Ellipse));
+  ellipse = g_new0 (Ellipse, 1);
   elem = &ellipse->element;
   obj = &elem->object;
 
@@ -644,7 +692,7 @@ static DiaObject *ellipse_load(ObjectNode obj_node, int version, DiaContext *ctx
   if (attr != NULL)
     ellipse->angle =  data_real(attribute_first_data(attr), ctx);
 
-  ellipse->line_style = LINESTYLE_SOLID;
+  ellipse->line_style = DIA_LINE_STYLE_SOLID;
   attr = object_find_attribute(obj_node, "line_style");
   if (attr != NULL)
     ellipse->line_style =  data_enum(attribute_first_data(attr), ctx);
@@ -678,52 +726,65 @@ static DiaObject *ellipse_load(ObjectNode obj_node, int version, DiaContext *ctx
   return &ellipse->element.object;
 }
 
-struct AspectChange {
-  ObjectChange obj_change;
+
+#define DIA_TYPE_ELLIPES_ASPECT_OBJECT_CHANGE dia_ellipse_aspect_object_change_get_type ()
+G_DECLARE_FINAL_TYPE (DiaEllipseAspectObjectChange,
+                      dia_ellipse_aspect_object_change,
+                      DIA, ELLIPES_ASPECT_OBJECT_CHANGE,
+                      DiaObjectChange)
+
+
+struct _DiaEllipseAspectObjectChange {
+  DiaObjectChange obj_change;
   AspectType old_type, new_type;
   /* The points before this got applied.  Afterwards, all points can be
    * calculated.
    */
   Point topleft;
-  real width, height;
+  double width, height;
 };
 
+
+DIA_DEFINE_OBJECT_CHANGE (DiaEllipseAspectObjectChange, dia_ellipse_aspect_object_change)
+
+
 static void
-aspect_change_free(struct AspectChange *change)
+dia_ellipse_aspect_object_change_free (DiaObjectChange *self)
 {
 }
 
+
 static void
-aspect_change_apply(struct AspectChange *change, DiaObject *obj)
+dia_ellipse_aspect_object_change_apply (DiaObjectChange *self, DiaObject *obj)
 {
-  Ellipse *ellipse = (Ellipse*)obj;
+  DiaEllipseAspectObjectChange *change = DIA_ELLIPES_ASPECT_OBJECT_CHANGE (self);
+  Ellipse *ellipse = (Ellipse*) obj;
 
   ellipse->aspect = change->new_type;
-  ellipse_update_data(ellipse);
+  ellipse_update_data (ellipse);
 }
 
+
 static void
-aspect_change_revert(struct AspectChange *change, DiaObject *obj)
+dia_ellipse_aspect_object_change_revert (DiaObjectChange *self, DiaObject *obj)
 {
-  Ellipse *ellipse = (Ellipse*)obj;
+  DiaEllipseAspectObjectChange *change = DIA_ELLIPES_ASPECT_OBJECT_CHANGE (self);
+  Ellipse *ellipse = (Ellipse*) obj;
 
   ellipse->aspect = change->old_type;
   ellipse->element.corner = change->topleft;
   ellipse->element.width = change->width;
   ellipse->element.height = change->height;
-  ellipse_update_data(ellipse);
+  ellipse_update_data (ellipse);
 }
 
-static ObjectChange *
-aspect_create_change(Ellipse *ellipse, AspectType aspect)
+
+static DiaObjectChange *
+aspect_create_change (Ellipse *ellipse, AspectType aspect)
 {
-  struct AspectChange *change;
+  DiaEllipseAspectObjectChange *change;
 
-  change = g_new0(struct AspectChange, 1);
-
-  change->obj_change.apply = (ObjectChangeApplyFunc) aspect_change_apply;
-  change->obj_change.revert = (ObjectChangeRevertFunc) aspect_change_revert;
-  change->obj_change.free = (ObjectChangeFreeFunc) aspect_change_free;
+  change = dia_object_change_new (DIA_TYPE_ELLIPES_ASPECT_OBJECT_CHANGE);
 
   change->old_type = ellipse->aspect;
   change->new_type = aspect;
@@ -731,20 +792,21 @@ aspect_create_change(Ellipse *ellipse, AspectType aspect)
   change->width = ellipse->element.width;
   change->height = ellipse->element.height;
 
-  return (ObjectChange *)change;
+  return DIA_OBJECT_CHANGE (change);
 }
 
 
-static ObjectChange *
-ellipse_set_aspect_callback (DiaObject* obj, Point* clicked, gpointer data)
+static DiaObjectChange *
+ellipse_set_aspect_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
-  ObjectChange *change;
+  DiaObjectChange *change;
 
-  change = aspect_create_change((Ellipse*)obj, (AspectType)data);
-  change->apply(change, obj);
+  change = aspect_create_change ((Ellipse *) obj, (AspectType) data);
+  dia_object_change_apply (change, obj);
 
   return change;
 }
+
 
 static DiaMenuItem ellipse_menu_items[] = {
   { N_("Free aspect"), ellipse_set_aspect_callback, (void*)FREE_ASPECT,

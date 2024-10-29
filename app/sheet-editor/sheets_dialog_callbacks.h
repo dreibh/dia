@@ -25,31 +25,17 @@
 gboolean    on_sheets_main_dialog_delete_event                     (GtkWidget       *widget,
                                                                     GdkEvent        *event,
                                                                     gpointer         user_data);
-void        on_sheets_dialog_optionmenu_activate                   (GtkMenuItem     *menuitem,
-                                                                    gpointer         user_data);
-void        on_sheets_dialog_button_move_up_clicked                (GtkButton       *button,
+void        on_sheets_dialog_combo_changed                         (GtkComboBox     *widget,
                                                                     gpointer         user_data);
 void        on_sheets_dialog_button_move_up_clicked                (GtkButton       *button,
                                                                     gpointer         user_data);
 void        on_sheets_dialog_button_new_clicked                    (GtkButton       *button,
                                                                     gpointer         user_data);
-void        on_sheets_dialog_button_new_clicked                    (GtkButton       *button,
-                                                                    gpointer         user_data);
 void        on_sheets_dialog_button_close_clicked                  (GtkButton       *button,
-                                                                    gpointer         user_data);
-void        on_sheets_dialog_button_close_clicked                  (GtkButton       *button,
-                                                                    gpointer         user_data);
-void        on_sheets_new_dialog_button_cancel_clicked             (GtkButton       *button,
                                                                     gpointer         user_data);
 void        on_sheets_dialog_button_edit_clicked                   (GtkButton       *button,
                                                                     gpointer         user_data);
-void        on_sheets_edit_dialog_button_cancel_clicked            (GtkButton       *button,
-                                                                    gpointer         user_data);
 void        on_sheets_dialog_button_remove_clicked                 (GtkButton       *button,
-                                                                    gpointer         user_data);
-void        on_sheets_dialog_button_remove_clicked                 (GtkButton       *button,
-                                                                    gpointer         user_data);
-void        on_sheets_remove_dialog_button_cancel_clicked          (GtkButton       *button,
                                                                     gpointer         user_data);
 void        on_sheets_new_dialog_radiobutton_svg_shape_toggled     (GtkToggleButton *togglebutton,
                                                                     gpointer         user_data);
@@ -63,13 +49,16 @@ void        on_sheets_remove_dialog_radiobutton_sheet_toggled      (GtkToggleBut
                                                                     gpointer         user_data);
 void        on_sheets_dialog_button_move_down_clicked              (GtkButton       *button,
                                                                     gpointer         user_data);
-void        on_sheets_new_dialog_button_ok_clicked                 (GtkButton       *button,
+void        on_sheets_new_dialog_response                          (GtkWidget       *sheets_new_dialog,
+                                                                    int              response,
                                                                     gpointer         user_data);
 void        on_sheets_new_dialog_radiobutton_line_break_toggled    (GtkToggleButton *togglebutton,
                                                                     gpointer         user_data);
-void        on_sheets_remove_dialog_button_ok_clicked              (GtkButton       *button,
+void        on_sheets_remove_dialog_response                       (GtkWidget       *button,
+                                                                    int response,
                                                                     gpointer         user_data);
-void        on_sheets_edit_dialog_button_ok_clicked                (GtkButton       *button,
+void        on_sheets_edit_dialog_response                         (GtkWidget       *sheets_edit_dialog,
+                                                                    int              response,
                                                                     gpointer         user_data);
 void        on_sheets_edit_dialog_entry_object_description_changed (GtkEditable     *editable,
                                                                     gpointer         user_data);
@@ -88,10 +77,6 @@ void        on_sheets_dialog_button_move_all_clicked               (GtkButton   
 void        on_sheets_dialog_button_apply_clicked                  (GtkButton       *button,
                                                                     gpointer         user_data);
 void        on_sheets_dialog_button_revert_clicked                 (GtkButton       *button,
-                                                                    gpointer         user_data);
-void        on_sheets_shapeselection_dialog_button_ok_clicked      (GtkButton       *button,
-                                                                    gpointer         user_data);
-void        on_sheets_shapeselection_dialog_button_cancel_clicked  (GtkButton       *button,
                                                                     gpointer         user_data);
 GtkWidget  *sheets_dialog_get_active_button                        (GtkWidget      **wrapbox,
                                                                     GList          **button_list);

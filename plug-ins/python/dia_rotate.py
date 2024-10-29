@@ -1,4 +1,4 @@
-# PyDia Rotation 
+# PyDia Rotation
 # Copyright (c) 2003, Hans Breuer <hans@breuer.org>
 # Copyright (c) 2009, 2011  Steffen Macke <sdteffen@sdteffen.de
 #
@@ -16,53 +16,61 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
-import dia, math, string
+import warnings
+import dia, math
+
+import gettext
+_ = gettext.gettext
 
 class CRotateDialog :
-	def __init__(self, d, data) :
-		import pygtk
-		pygtk.require("2.0")
-		import gtk
-		win = gtk.Window()
-		win.connect("delete_event", self.on_delete)
-		win.set_title("Rotate counter-clockwise")
+	def __init__(self, data) :
+		import gi
 
-		self.diagram = d
-		self.data = data
+		gi.require_version('Gtk', '3.0')
+
+		with warnings.catch_warnings():
+			warnings.filterwarnings("ignore", category=RuntimeWarning)
+			from gi.repository import Gtk
+
+		win = Gtk.Window()
+		win.connect("delete_event", self.on_delete)
+		win.set_title(_("Rotate counter-clockwise"))
+
+		self.diagram = data
 		self.win = win
 
-		box1 = gtk.VBox()
+		box1 = Gtk.VBox()
 		win.add(box1)
 		box1.show()
 
-		box2 = gtk.VBox(spacing=10)
+		box2 = Gtk.VBox(spacing=10)
 		box2.set_border_width(10)
-		box1.pack_start(box2)
+		box1.pack_start(box2, True, True, 0)
 		box2.show()
 
-		label1 = gtk.Label()
-		label1.set_text('Rotation around (0,0). Rotation angle in degrees:')
-		box2.pack_start(label1)
+		label1 = Gtk.Label()
+		label1.set_text(_('Rotation around (0,0). Rotation angle in degrees:'))
+		box2.pack_start(label1, True, True, 0)
 		label1.show()
 
-		self.entry = gtk.Entry()
+		self.entry = Gtk.Entry()
 		self.entry.set_text("0.0")
-		box2.pack_start(self.entry)
+		box2.pack_start(self.entry, True, True, 0)
 		self.entry.show()
 
-		separator = gtk.HSeparator()
-		box1.pack_start(separator, expand=0)
+		separator = Gtk.HSeparator()
+		box1.pack_start(separator, 0, True, 0)
 		separator.show()
 
-		box2 = gtk.VBox(spacing=10)
+		box2 = Gtk.VBox(spacing=10)
 		box2.set_border_width(10)
-		box1.pack_start(box2, expand=0)
+		box1.pack_start(box2, 0, True, 0)
 		box2.show()
 
-		button = gtk.Button("rotate")
+		button = Gtk.Button("rotate")
 		button.connect("clicked", self.on_rotate)
-		box2.pack_start(button)
-		button.set_flags(gtk.CAN_DEFAULT)
+		box2.pack_start(button, True, True, 0)
+		button.set_can_default(True)
 		button.grab_default()
 		button.show()
 		win.show()
@@ -71,8 +79,8 @@ class CRotateDialog :
 		s = self.entry.get_text()
 		angle = float(s)
 		if angle >= 0 and angle <= 360 :
-			SimpleRotate (self.data, angle)
-			self.data.update_extents()
+			SimpleRotate (self.diagram, angle)
+			self.diagram.update_extents()
 			self.diagram.flush()
 		else :
 			dia.message(1, "Please enter an angle between 0 and 360 degrees.")
@@ -95,7 +103,7 @@ def SimpleRotate(data, angle) :
 	scaleFailed = {}
 	ptype = dia.get_object_type('Standard - Polygon')
 	for o in objs :
-		if o.type.name == 'Standard - Box' :			
+		if o.type.name == 'Standard - Box' :
 			r = o.properties['obj_bb'].value
 			p = ptype.create(0,0)
 			p = p[0]
@@ -113,13 +121,13 @@ def SimpleRotate(data, angle) :
 			x = math.cos(angle_rad)*(h.pos.x+xm)-math.sin(angle_rad)*(h.pos.y+ym)
 			y = math.sin(angle_rad)*(h.pos.x+xm)+math.cos(angle_rad)*(h.pos.y)
 			o.move_handle(h, (x,y), 0, 0)
-					
+
 	data.update_extents ()
 	dia.active_display().add_update_all()
 
 def rotate_cb(data, flags) :
-	dlg = CRotateDialog(dia.active_display().diagram, data)
+	dlg = CRotateDialog(data)
 
-dia.register_action ("ObjectsSimplerotation", "Simple Rotation",
-		     "/DisplayMenu/Objects/ObjectsExtensionStart", 
+dia.register_action ("ObjectsSimplerotation", _("Simple _Rotation"),
+		     "/DisplayMenu/Objects/ObjectsExtensionStart",
 		     rotate_cb)

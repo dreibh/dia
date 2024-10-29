@@ -15,33 +15,33 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef PREFERENCES_H
-#define PREFERENCES_H
+
+#pragma once
+
+#include <gtk/gtk.h>
 
 #include "diatypes.h"
 #include "diagramdata.h"
-
-#define DEFAULT_GRID_COLOR { 0.85, .90, .90, 1.0 }
-#define DEFAULT_PAGEBREAK_COLOR { 0.0, 0.0, 0.6, 1.0 }
+#include "units.h"
 
 struct DiaPreferences {
   struct {
     int visible;
     int snap;
     gboolean dynamic;
-    real x;
-    real y;
+    double x;
+    double y;
     int vis_x;
     int vis_y;
     int major_lines;
     int hex;
-    real w;
+    double hex_size;
   } grid;
-  
+
   struct {
     int width;
     int height;
-    real zoom;
+    double zoom;
     int use_menu_bar;
   } new_view;
 
@@ -56,20 +56,15 @@ struct DiaPreferences {
   int reverse_rubberbanding_intersects;
   guint recent_documents_list_size;
 
-  gchar* length_unit;
-  gchar* fontsize_unit;
-  
   struct {
     int visible;
     int solid;
   } pagebreak;
 
-  int fixed_icon_size;
-
   int toolbox_on_top;
 
   int use_integrated_ui;
-  
+
   /* a dedicated filter name or NULL */
   struct {
     char *png;
@@ -79,13 +74,17 @@ struct DiaPreferences {
     char *emf;
     char *print;
   } favored_filter;
+
+  int guides_visible;   /** Whether guides are visible. */
+  int guides_snap;      /** Whether to snap to guides. */
+  guint snap_distance;  /** The snapping distance for guides. */
 };
 
 extern struct DiaPreferences prefs;
 
-void prefs_show(void);
-void prefs_set_defaults(void);
-void prefs_save(void);
-void prefs_init(void);
+void dia_preferences_init (void);
 
-#endif /* PREFERENCES_H */
+#define DIA_TYPE_PREFERENCES_DIALOG dia_preferences_dialog_get_type ()
+G_DECLARE_FINAL_TYPE (DiaPreferencesDialog, dia_preferences_dialog, DIA, PREFERENCES_DIALOG, GtkDialog)
+
+void dia_preferences_dialog_show (void);

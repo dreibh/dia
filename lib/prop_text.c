@@ -23,12 +23,13 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <gtk/gtk.h>
 #include <gdk/gdk.h>
 #include <gdk/gdkkeysyms.h>
-#include "widgets.h"
 #include "properties.h"
 #include "propinternals.h"
 #include "text.h"
@@ -78,8 +79,8 @@ stringprop_copy(StringProperty *src)
 static void
 stringprop_free(StringProperty *prop)
 {
-  g_free(prop->string_data);
-  g_free(prop);
+  g_clear_pointer (&prop->string_data, g_free);
+  g_clear_pointer (&prop, g_free);
 }
 
 static GtkWidget *
@@ -101,7 +102,7 @@ stringprop_reset_widget(StringProperty *prop, GtkWidget *widget)
 static void
 stringprop_set_from_widget(StringProperty *prop, GtkWidget *widget)
 {
-  g_free(prop->string_data);
+  g_clear_pointer (&prop->string_data, g_free);
   prop->string_data =
     g_strdup (gtk_entry_get_text (GTK_ENTRY(widget)));
 }
@@ -109,11 +110,11 @@ stringprop_set_from_widget(StringProperty *prop, GtkWidget *widget)
 static gboolean
 multistringprop_handle_key(GtkWidget *wid, GdkEventKey *event)
 {
-  /** Normal textview doesn't grab return, so to avoid closing the dialog...*/
-  /** Actually, this doesn't seem to work -- I guess the dialog closes
+  /* Normal textview doesn't grab return, so to avoid closing the dialog...*/
+  /* Actually, this doesn't seem to work -- I guess the dialog closes
    * becore this is called :(
    */
-  if (event->keyval == GDK_Return)
+  if (event->keyval == GDK_KEY_Return)
     return TRUE;
   return FALSE;
 }
@@ -149,40 +150,61 @@ multistringprop_set_from_widget(StringProperty *prop, GtkWidget *widget) {
   GtkTextIter start, end;
   gtk_text_buffer_get_start_iter(buffer, &start);
   gtk_text_buffer_get_end_iter(buffer, &end);
-  g_free(prop->string_data);
+  g_clear_pointer (&prop->string_data, g_free);
   prop->string_data =
     g_strdup (gtk_text_buffer_get_text (buffer, &start, &end, TRUE));
 }
 
+
 static GtkWidget *
-fileprop_get_widget(StringProperty *prop, PropDialog *dialog)
+fileprop_get_widget (StringProperty *prop, PropDialog *dialog)
 {
-  GtkWidget *ret = dia_file_selector_new();
-  if (prop->common.descr->extra_data)
-    dia_file_selector_set_extensions (DIAFILESELECTOR(ret), prop->common.descr->extra_data);
-  prophandler_connect(&prop->common, G_OBJECT(ret), "value-changed");
+  GtkFileFilter *filter = gtk_file_filter_new ();
+  GtkWidget *ret = gtk_file_chooser_button_new (_("Choose a file..."),
+                                                GTK_FILE_CHOOSER_ACTION_OPEN);
+
+  if (prop->common.descr->extra_data) {
+    const char **exts = prop->common.descr->extra_data;
+
+    for (int i = 0; exts[i] != NULL; i++) {
+      char *globbed = g_strdup_printf ("*.%s", exts[i]);
+
+      gtk_file_filter_add_pattern (filter, globbed);
+
+      g_free (globbed);
+    }
+  } else {
+    gtk_file_filter_add_pixbuf_formats (filter);
+  }
+
+  gtk_file_chooser_set_filter (GTK_FILE_CHOOSER (ret), filter);
+  prophandler_connect (&prop->common, G_OBJECT (ret), "file-set");
+
   return ret;
 }
 
-static void
-fileprop_reset_widget(StringProperty *prop, GtkWidget *widget)
-{
-  if (prop->string_data)
-    dia_file_selector_set_file(DIAFILESELECTOR(widget),prop->string_data);
-}
 
 static void
-fileprop_set_from_widget(StringProperty *prop, GtkWidget *widget)
+fileprop_reset_widget (StringProperty *prop, GtkWidget *widget)
 {
-  g_free(prop->string_data);
-  prop->string_data =
-    g_strdup(dia_file_selector_get_file(DIAFILESELECTOR(widget)));
+  if (prop->string_data) {
+    gtk_file_chooser_set_filename (GTK_FILE_CHOOSER (widget), prop->string_data);
+  }
 }
+
+
+static void
+fileprop_set_from_widget (StringProperty *prop, GtkWidget *widget)
+{
+  g_clear_pointer (&prop->string_data, g_free);
+  prop->string_data = gtk_file_chooser_get_filename (GTK_FILE_CHOOSER (widget));
+}
+
 
 static void
 stringprop_load(StringProperty *prop, AttributeNode attr, DataNode data, DiaContext *ctx)
 {
-  g_free(prop->string_data);
+  g_clear_pointer (&prop->string_data, g_free);
   prop->string_data = data_string(data, ctx);
   if (prop->string_data == NULL) {
     prop->string_data = g_strdup("");
@@ -196,25 +218,32 @@ stringprop_save(StringProperty *prop, AttributeNode attr, DiaContext *ctx)
 }
 
 static void
-stringprop_get_from_offset(StringProperty *prop,
-                           void *base, guint offset, guint offset2)
+stringprop_get_from_offset (StringProperty *prop,
+                            void           *base,
+                            guint           offset,
+                            guint           offset2)
 {
-  g_free(prop->string_data);
-  prop->string_data = g_strdup(struct_member(base,offset,gchar *));
+  g_clear_pointer (&prop->string_data, g_free);
+  prop->string_data = g_strdup (struct_member (base, offset, char *));
 }
+
 
 static void
-stringprop_set_from_offset(StringProperty *prop,
-                           void *base, guint offset, guint offset2)
+stringprop_set_from_offset (StringProperty *prop,
+                            void           *base,
+                            guint           offset,
+                            guint           offset2)
 {
-  g_free(struct_member(base,offset,gchar *));
-  struct_member(base,offset,gchar *) = g_strdup(prop->string_data);
+  g_clear_pointer (&struct_member(base, offset, char *), g_free);
+  struct_member (base, offset, char *) = g_strdup (prop->string_data);
 }
 
+
 static int
-stringprop_get_data_size(StringProperty *prop)
+stringprop_get_data_size(void)
 {
-  return sizeof (prop->string_data); /* only the pointer */
+  StringProperty prop;
+  return sizeof (prop.string_data); /* only the pointer */
 }
 
 static StringListProperty *
@@ -231,7 +260,7 @@ stringlistprop_free(StringListProperty *prop)
 {
   g_list_foreach(prop->string_list, (GFunc)g_free, NULL);
   g_list_free(prop->string_list);
-  g_free(prop);
+  g_clear_pointer (&prop, g_free);
 }
 
 static StringListProperty *
@@ -385,19 +414,18 @@ textprop_copy(TextProperty *src)
 }
 
 static void
-textprop_free(TextProperty *prop)
+textprop_free (TextProperty *prop)
 {
-  if (prop->attr.font)
-    dia_font_unref(prop->attr.font);
-  g_free(prop->text_data);
-  g_free(prop);
+  g_clear_object (&prop->attr.font);
+  g_clear_pointer (&prop->text_data, g_free);
+  g_clear_pointer (&prop, g_free);
 }
 
 static void
 textprop_load(TextProperty *prop, AttributeNode attr, DataNode data, DiaContext *ctx)
 {
   Text *text;
-  g_free(prop->text_data);
+  g_clear_pointer (&prop->text_data, g_free);
   text = data_text(data, ctx);
   text_get_attributes(text,&prop->attr);
   prop->text_data = text_get_string_copy(text);
@@ -422,7 +450,7 @@ textprop_get_from_offset(TextProperty *prop,
                          void *base, guint offset, guint offset2)
 {
   Text *text = struct_member(base,offset,Text *);
-  g_free(prop->text_data);
+  g_clear_pointer (&prop->text_data, g_free);
   prop->text_data = text_get_string_copy(text);
   text_get_attributes(text,&prop->attr);
 }

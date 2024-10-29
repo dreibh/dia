@@ -1,5 +1,9 @@
+#pragma once
+
 #include <gtk/gtk.h>
 #include "diagram.h"
+
+G_BEGIN_DECLS
 
 typedef enum {
   CONFIRM_PAGES = (1<<0),
@@ -8,3 +12,5 @@ typedef enum {
 } ConfirmationKind;
 
 gboolean confirm_export_size (Diagram *dia, GtkWindow *parent, guint flags);
+
+G_END_DECLS

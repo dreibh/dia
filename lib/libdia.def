@@ -1,14 +1,15 @@
 EXPORTS
 ; exported functions
+
  apply_textattr_properties
  apply_textstr_properties
  arrow_bbox
- arrow_draw
+ dia_arrow_draw
  arrow_type_from_name
  arrow_get_name_from_type
  get_arrow_names
- load_arrow
- save_arrow
+ dia_arrow_load
+ dia_arrow_save
 
  attribute_first_data
  attribute_num_data
@@ -31,8 +32,8 @@ EXPORTS
  new_attribute
 
  bezier_draw_control_lines
- bezier_render_stroke
- bezier_render_fill
+ dia_renderer_bezier_stroke
+ dia_renderer_bezier_fill
  beziercommon_set_points
  beziercommon_closest_segment
 
@@ -74,12 +75,12 @@ EXPORTS
 
  calculate_arrow_point
 
- change_list_add
- change_list_create
+ dia_object_change_list_get_type
+ dia_object_change_list_new
+ dia_object_change_list_add
 
  color_convert
  color_equals
- color_init
  color_new_rgb
  color_new_rgba
 
@@ -98,7 +99,7 @@ EXPORTS
 
  connpoint_is_autogap
  connpoint_update
- 
+
  connpointline_add_points
  connpointline_adjust_count
  connpointline_can_add_point
@@ -160,7 +161,7 @@ EXPORTS
  data_get_sorted_selected_remove
  data_highlight_add
  data_highlight_remove
- data_object_get_highlight 
+ data_object_get_highlight
  data_int
  data_layer_count
  data_layer_get_index
@@ -177,6 +178,7 @@ EXPORTS
  data_render_paginated
  data_select
  data_set_active_layer
+ dia_diagram_data_get_active_layer
  data_string
  data_text
  data_unselect
@@ -187,23 +189,32 @@ EXPORTS
  dia_asin
  dia_acos
 
- dia_alignment_selector_get_alignment
- dia_alignment_selector_new
- dia_alignment_selector_set_alignment
  dia_arrow_chooser_new
  dia_arrow_chooser_set_arrow
  dia_arrow_chooser_get_arrow_type
  dia_arrow_chooser_get_type
+
  dia_arrow_selector_get_arrow
  dia_arrow_selector_get_type
  dia_arrow_selector_new
  dia_arrow_selector_set_arrow
+
+ dia_arrow_preview_new
+ dia_arrow_preview_get_type
+ dia_arrow_preview_set_arrow
+ dia_arrow_preview_get_arrow
+
+ dia_arrow_cell_renderer_new
+
  dia_assert_true
- dia_color_selector_get_color
-; dia_color_selector_get_type
- dia_color_selector_new
- dia_color_selector_set_color
- dia_color_selector_set_use_alpha
+ dia_colour_selector_get_colour
+ dia_colour_selector_get_type
+ dia_colour_selector_new
+ dia_colour_selector_set_colour
+ dia_colour_selector_set_use_alpha
+
+ dia_colour_cell_renderer_new
+
  dia_config_filename
 
  dia_context_add_message
@@ -213,25 +224,6 @@ EXPORTS
  dia_context_release
  dia_context_reset
  dia_context_set_filename
-
- dia_dynamic_menu_get_type
- dia_dynamic_menu_new
- dia_dynamic_menu_new_stringbased
- dia_dynamic_menu_new_listbased
- dia_dynamic_menu_new_stringlistbased
- dia_dynamic_menu_add_default_entry
- dia_dynamic_menu_add_entry
- dia_dynamic_menu_set_sorting_method
- dia_dynamic_menu_reset
- dia_dynamic_menu_set_max_entries
- dia_dynamic_menu_set_columns
- dia_dynamic_menu_get_entry
- dia_dynamic_menu_select_entry
-
- dia_file_selector_get_file
- dia_file_selector_get_type
- dia_file_selector_new
- dia_file_selector_set_file
 
  dia_font_ascent
  dia_font_build_layout
@@ -246,11 +238,9 @@ EXPORTS
  dia_font_get_slant_string
  dia_font_get_style
  dia_font_get_weight_string
- dia_font_init
  dia_font_new
  dia_font_new_from_legacy_name
  dia_font_new_from_style
- dia_font_ref
  dia_font_set_any_family
  dia_font_set_height
  dia_font_set_slant
@@ -260,20 +250,21 @@ EXPORTS
  dia_font_copy
  dia_font_string_width
 
- dia_font_unref
  dia_font_selector_get_font
  dia_font_selector_get_type
  dia_font_selector_new
  dia_font_selector_set_font
 
+ dia_guide_new
+ dia_guide_copy
+ dia_guide_free
+ dia_guide_get_type
 
  dia_get_data_directory
  dia_get_lib_directory
  dia_get_locale_directory
- dia_get_absolute_filename
  dia_relativize_filename
  dia_absolutize_filename
- dia_get_canonical_path
 
  dia_image_add_ref
  dia_image_filename
@@ -314,20 +305,20 @@ EXPORTS
  data_pattern
  dia_object_set_pattern
 
- dia_interactive_renderer_interface_get_type
- 
- dialog_make
- dialog_add_spinbutton
- 
- dia_line_chooser_new
-
  dia_line_style_selector_get_linestyle
  dia_line_style_selector_get_type
  dia_line_style_selector_new
  dia_line_style_selector_set_linestyle
 
+ dia_line_chooser_new
  dia_line_chooser_get_type
  dia_line_chooser_set_line_style
+
+ dia_line_preview_new
+ dia_line_preview_get_type
+ dia_line_preview_set_style
+
+ dia_line_cell_renderer_new
 
  dia_list_plugins
 
@@ -349,6 +340,37 @@ EXPORTS
  dia_object_set_string
  dia_object_get_num_connections
 
+
+ dia_object_draw
+ dia_object_distance_from
+ dia_object_select
+ dia_object_clone
+ dia_object_move
+ dia_object_move_handle
+ dia_object_get_editor
+ dia_object_apply_editor
+ dia_object_get_menu
+ dia_object_describe_properties
+ dia_object_get_properties
+ dia_object_set_properties
+ dia_object_apply_properties
+ dia_object_edit_text
+ dia_object_transform
+
+ dia_change_get_type
+ dia_change_new
+ dia_change_ref
+ dia_change_unref
+ dia_change_apply
+ dia_change_revert
+
+ dia_object_change_get_type
+ dia_object_change_new
+ dia_object_change_ref
+ dia_object_change_unref
+ dia_object_change_apply
+ dia_object_change_revert
+
  dia_plugin_can_unload
  dia_plugin_check_version
  dia_plugin_get_description
@@ -367,10 +389,54 @@ EXPORTS
  dia_register_plugins
  dia_register_plugins_in_dir
 
+ dia_font_get_type
+ dia_object_draw
+
+ dia_renderer_fill_arc
  dia_renderer_get_type
- dia_renderer_get_width_pixels
- dia_renderer_get_height_pixels
- dia_renderer_set_size
+ dia_renderer_get_text_width
+ dia_renderer_get_font
+ dia_renderer_set_font
+ dia_renderer_set_fillstyle
+ dia_renderer_set_linewidth
+ dia_renderer_set_linestyle
+ dia_renderer_set_linecaps
+ dia_renderer_set_linejoin
+ dia_renderer_set_pattern
+ dia_renderer_draw_arc
+ dia_renderer_draw_arc_with_arrows
+ dia_renderer_draw_object
+ dia_renderer_draw_line
+ dia_renderer_draw_line_with_arrows
+ dia_renderer_draw_string
+ dia_renderer_draw_polygon
+ dia_renderer_draw_polyline
+ dia_renderer_draw_polyline_with_arrows
+ dia_renderer_draw_rounded_polyline
+ dia_renderer_draw_rounded_polyline_with_arrows
+ dia_renderer_draw_rounded_rect
+ dia_renderer_draw_rotated_text
+ dia_renderer_draw_rotated_image
+ dia_renderer_draw_ellipse
+ dia_renderer_draw_image
+ dia_renderer_draw_bezier
+ dia_renderer_draw_bezier_with_arrows
+ dia_renderer_draw_beziergon
+ dia_renderer_draw_rect
+ dia_renderer_begin_render
+ dia_renderer_end_render
+ dia_renderer_is_capable_of
+
+ dia_interactive_renderer_get_type
+ dia_interactive_renderer_draw_pixel_line
+ dia_interactive_renderer_get_width_pixels
+ dia_interactive_renderer_get_height_pixels
+ dia_interactive_renderer_draw_object_highlighted
+ dia_interactive_renderer_fill_pixel_rect
+ dia_interactive_renderer_set_size
+ dia_interactive_renderer_draw_pixel_rect
+ dia_interactive_renderer_clip_region_clear
+ dia_interactive_renderer_clip_region_add_rect
 
  dia_size_selector_get_type
  dia_size_selector_new
@@ -406,7 +472,7 @@ EXPORTS
  sheet_append_sheet_obj
 
  diagram_data_get_type
- 
+
  dia_unit_spinner_get_type
  dia_unit_spinner_get_value
  dia_unit_spinner_new
@@ -464,24 +530,36 @@ EXPORTS
 
  find_paper
  find_slope_directions
- 
+
  focus_get_object
  focus_get_first_on_object
  focus_previous_on_diagram
  focus_next_on_diagram
- 
+
 
  get_default_paper
  get_paper_bmargin
  get_paper_info
  get_paper_lmargin
- get_paper_name
+ dia_paper_get_name
  get_paper_name_list
  get_paper_psheight
  get_paper_pswidth
  get_paper_rmargin
  get_paper_tmargin
- get_units_name_list
+
+ dia_line_caps_get_type
+ dia_line_join_get_type
+ dia_line_style_get_type
+ dia_fill_style_get_type
+ dia_alignment_get_type
+ dia_text_fitting_get_type
+
+ dia_unit_get_type
+ dia_unit_get_name
+ dia_unit_get_symbol
+ dia_unit_get_factor
+ dia_unit_get_digits
 
  group_create
  group_create_with_matrix
@@ -492,47 +570,49 @@ EXPORTS
 
  get_active_focus
  give_focus
-; give_focus_to_object
- 
- int_rectangle_union
 
  intl_score_locale
 
- layer_add_object
- layer_add_object_at
- layer_add_objects
- layer_add_objects_first
- layer_destroy
- layer_find_closest_connectionpoint
- layer_find_closest_object
- layer_find_closest_object_except
- layer_find_objects_containing_rectangle
- layer_find_objects_in_rectangle
- layer_find_objects_intersecting_rectangle
- layer_get_parent_diagram
- layer_get_name
- layer_object_count
- layer_object_get_index
- layer_object_get_nth
- layer_remove_object
- layer_remove_objects
- layer_render
- layer_replace_object_with_list
- layer_set_object_list
- layer_update_extents
- new_layer
+ dia_layer_add_object
+ dia_layer_add_object_at
+ dia_layer_add_objects
+ dia_layer_add_objects_first
+ dia_layer_find_closest_connectionpoint
+ dia_layer_find_closest_object
+ dia_layer_find_closest_object_except
+ dia_layer_find_objects_containing_rectangle
+ dia_layer_find_objects_in_rectangle
+ dia_layer_find_objects_intersecting_rectangle
+ dia_layer_get_parent_diagram
+ dia_layer_get_name
+ dia_layer_object_count
+ dia_layer_object_get_index
+ dia_layer_object_get_nth
+ dia_layer_remove_object
+ dia_layer_remove_objects
+ dia_layer_render
+ dia_layer_replace_object_with_list
+ dia_layer_set_object_list
+ dia_layer_update_extents
+ dia_layer_new
+ dia_layer_new_from_layer
+ dia_layer_is_visible
+ dia_layer_set_visible
+ dia_layer_is_connectable
+ dia_layer_set_connectable
+ dia_layer_get_type
+ dia_layer_get_object_list
+ dia_layer_get_extents
 
  line_bbox
  line_line_intersection
 
- dia_error_quark
- 
  message_error
  message_notice
  message_warning
  set_message_func
 
- new_object_state_change
+ dia_state_object_change_new
 
  object_add_connectionpoint
  object_add_handle
@@ -611,6 +691,7 @@ EXPORTS
  persistence_register_string_entry
  persistence_change_string_entry
  persistence_register_list
+ persistent_list_clear
  persistent_list_get
  persistent_list_get_glist
  persistent_list_add
@@ -677,8 +758,9 @@ EXPORTS
 
  make_new_prop
  prefs_get_length_unit
- prefs_set_fontsize_unit
  prefs_set_length_unit
+ prefs_get_fontsize_unit
+ prefs_set_fontsize_unit
  prop_desc_find_real_handler
  prop_desc_insert_handler
  prop_desc_list_calculate_quarks
@@ -715,11 +797,9 @@ EXPORTS
  rectangle_union
 
  remove_focus_on_diagram
- remove_focus_object 
+ remove_focus_object
 
  reset_foci_on_diagram
-
- nearest_pow
 
  new_text
  new_text_default
@@ -766,6 +846,9 @@ EXPORTS
  text_line_get_descent
  text_line_get_alignment_adjustment
 
+ dia_check_version
+ dia_version_string
+
  diaXmlParseFile
  xmlDiaSaveFile
  xmlDoParseFile
@@ -778,12 +861,10 @@ EXPORTS
 
  calculate_object_edge
 
-; exported for libart renderer only 
- dia_font_pop_context
- dia_font_push_context
+; exported for libart renderer only
  dia_transform_coords_double
  text_line_adjust_layout_line
- 
+
  libdia_init
  dia_log_message
 
@@ -795,6 +876,7 @@ EXPORTS
  dia_matrix_set_rotate_around
  dia_matrix_multiply
 
+ dia_option_menu_get_type
  dia_option_menu_add_item
  dia_option_menu_get_active
  dia_option_menu_new
@@ -808,4 +890,3 @@ EXPORTS
  cairo_export_data
  cairo_print_callback
  dia_cairo_renderer_get_type
- 

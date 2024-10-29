@@ -1,4 +1,4 @@
-#    PyDia imgmap.py : produce an html image map 
+#    PyDia imgmap.py : produce an html image map
 #    Copyright (c) 2007  Hans Breuer  <hans@breuer.org>
 
 #    This program is free software; you can redistribute it and/or modify
@@ -15,7 +15,10 @@
 #   along with this program; if not, write to the Free Software
 #   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
-import dia, sys, os.path, string
+import dia, sys, os.path
+
+import gettext
+_ = gettext.gettext
 
 class ObjRenderer :
 	def __init__ (self) :
@@ -35,10 +38,10 @@ class ObjRenderer :
 		width = int((r.right - r.left) * scale)
 		height = int((r.bottom - r.top) * scale)
 		name = os.path.split (filename)[1]
-		fname = name[:string.find(name, ".")] + ".png" # guessing
+		fname = name[:name.find(".")] + ".png" # guessing
 		self.f.write ('<image src="%s" width="%d", height="%d" usemap="#%s">\n' % (fname, width, height, name))
 		self.f.write ('<map name="%s">\n' % (name,))
-		
+
 		self.xofs = - (r.left * scale)
 		self.yofs = - (r.top * scale)
 		if bMapLayer :
@@ -51,17 +54,17 @@ class ObjRenderer :
 	def WriteAreas (self, layer, scale) :
 		for o in layer.objects :
 			r = o.bounding_box
-			if o.properties.has_key ("name") :
+			if "name" in o.properties :
 				url = o.properties["name"].value
-			elif o.properties.has_key ("text") :
+			elif "text" in o.properties :
 				url = o.properties["text"].value.text
 			else :
 				continue
-			if len(url) == 0 or string.find (url, " ") >= 0 :
+			if len(url) == 0 or url.find (" ") >= 0 :
 				continue
 
 			alt = url
-			if o.properties.has_key ("comment") :
+			if "comment" in o.properties :
 				alt = o.properties["comment"].value
 			# need to sale the original coords to the bitmap size
 			x1 = int(r.left * scale) + self.xofs
@@ -74,4 +77,4 @@ class ObjRenderer :
 		self.f.close()
 
 # dia-python keeps a reference to the renderer class and uses it on demand
-dia.register_export ("Imagemap", "cmap", ObjRenderer())
+dia.register_export (_("Imagemap"), "cmap", ObjRenderer())

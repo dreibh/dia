@@ -15,15 +15,14 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <config.h>
+
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 /* so we get fdopen declared even when compiling with -ansi */
 #define _POSIX_C_SOURCE 200809L
 #define _DEFAULT_SOURCE 1 /* to get the prototype for fchmod() */
-#include <sys/stat.h>
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#endif
 #include <stdlib.h>
 #include <sys/types.h>
 #include <stdio.h>
@@ -37,8 +36,6 @@
 #define W_OK 2
 #endif
 
-#include "intl.h"
-
 #include <libxml/tree.h>
 #include <libxml/parser.h>
 #include <libxml/xmlmemory.h>
@@ -51,9 +48,10 @@
 #include "object.h"
 #include "message.h"
 #include "preferences.h"
-#include "diapagelayout.h"
+#include "dia-page-layout.h"
 #include "autosave.h"
 #include "display.h"
+#include "dia-layer.h"
 
 #ifdef G_OS_WIN32
 #include <io.h>
@@ -86,17 +84,27 @@ static gboolean diagram_data_save(DiagramData *data, DiaContext *ctx, const char
 
 
 static void
-GHFuncUnknownObjects(gpointer key,
-                     gpointer value,
-                     gpointer user_data)
+GHFuncUnknownObjects (gpointer key,
+                      gpointer value,
+                      gpointer user_data)
 {
-  GString* s = (GString*)user_data;
-  g_string_append(s, "\n");
-  g_string_append(s, (gchar*)key);
-  g_free(key);
+  GString *s = (GString *) user_data;
+
+  g_string_append (s, "\n");
+  g_string_append (s, (char*) key);
+
+  g_free (key);
 }
 
+
 /**
+ * read_objects:
+ * @objects: node to read from
+ * @objects_hash: object id -> object of read objects
+ * @ctx: the current #DiaContent
+ * @parent: the parent #DiaObject
+ * @unknown_objects_hash: objects with unknown type
+ *
  * Recursive function to read objects from a specific level in the xml.
  *
  * Nowadays there are quite a few of them :
@@ -112,13 +120,15 @@ GHFuncUnknownObjects(gpointer key,
  *   themselves. But to maintain forward compatibility (allow to let older versions
  *   of Dia to see as much as possible) they were added all on the same level and
  *   the parent child relation is reconstructed from additional attributes.
+ *
+ * Since: dawn-of-time
  */
 static GList *
-read_objects(xmlNodePtr objects,
-             GHashTable *objects_hash,
-	     DiaContext *ctx,
-	     DiaObject *parent,
-	     GHashTable *unknown_objects_hash)
+read_objects (xmlNodePtr objects,
+              GHashTable *objects_hash,
+              DiaContext *ctx,
+              DiaObject  *parent,
+              GHashTable *unknown_objects_hash)
 {
   GList *list;
   DiaObjectType *type;
@@ -134,8 +144,8 @@ read_objects(xmlNodePtr objects,
 
   obj_node = objects->xmlChildrenNode;
 
-  while ( obj_node != NULL) {
-    if (xmlIsBlankNode(obj_node)) {
+  while (obj_node != NULL) {
+    if (xmlIsBlankNode (obj_node)) {
       obj_node = obj_node->next;
       continue;
     }
@@ -149,54 +159,59 @@ read_objects(xmlNodePtr objects,
 
       version = 0;
       if (versionstr != NULL) {
-	version = atoi(versionstr);
-	xmlFree(versionstr);
+        version = atoi (versionstr);
+        dia_clear_xml_string (&versionstr);
       }
 
-      type = object_get_type((char *)typestr);
+      type = object_get_type ((char *) typestr);
 
       if (!type) {
-	if (g_utf8_validate (typestr, -1, NULL) &&
-	    NULL == g_hash_table_lookup(unknown_objects_hash, typestr))
-	    g_hash_table_insert(unknown_objects_hash, g_strdup(typestr), 0);
-      }
-      else
-      {
-        obj = type->ops->load(obj_node, version, ctx);
-        list = g_list_append(list, obj);
+        if (g_utf8_validate (typestr, -1, NULL) &&
+            g_hash_table_lookup (unknown_objects_hash, typestr) == NULL) {
+          g_hash_table_insert (unknown_objects_hash, g_strdup (typestr), 0);
+        }
+      } else {
+        obj = type->ops->load (obj_node, version, ctx);
+        list = g_list_append (list, obj);
 
-        if (parent)
-        {
+        if (parent) {
           obj->parent = parent;
-          parent->children = g_list_append(parent->children, obj);
+          parent->children = g_list_append (parent->children, obj);
         }
 
-        g_hash_table_insert(objects_hash, g_strdup((char *)id), obj);
+        g_hash_table_insert (objects_hash, g_strdup ((char *) id), obj);
 
         child_node = obj_node->children;
 
-        while(child_node)
-        {
-          if (xmlStrcmp(child_node->name, (const xmlChar *)"children") == 0)
-          {
-	    GList *children_read = read_objects(child_node, objects_hash, ctx, obj, unknown_objects_hash);
-            list = g_list_concat(list, children_read);
+        while (child_node) {
+          if (xmlStrcmp (child_node->name, (const xmlChar *) "children") == 0) {
+            GList *children_read = read_objects (child_node,
+                                                 objects_hash,
+                                                 ctx,
+                                                 obj,
+                                                 unknown_objects_hash);
+            list = g_list_concat (list, children_read);
             break;
           }
           child_node = child_node->next;
         }
       }
-      if (typestr) xmlFree(typestr);
-      if (id) xmlFree (id);
-    } else if (xmlStrcmp(obj_node->name, (const xmlChar *)"group")==0
-               && obj_node->children) {
+
+      dia_clear_xml_string (&typestr);
+      dia_clear_xml_string (&id);
+    } else if (xmlStrcmp (obj_node->name, (const xmlChar *) "group") == 0 &&
+               obj_node->children) {
       /* don't create empty groups */
-      GList *inner_objects = read_objects(obj_node, objects_hash, ctx, NULL, unknown_objects_hash);
+      GList *inner_objects = read_objects (obj_node,
+                                           objects_hash,
+                                           ctx,
+                                           NULL,
+                                           unknown_objects_hash);
 
       if (inner_objects) {
-        obj = group_create(inner_objects);
-	object_load_props(obj, obj_node, ctx);
-	list = g_list_append(list, obj);
+        obj = group_create (inner_objects);
+        object_load_props (obj, obj_node, ctx);
+        list = g_list_append (list, obj);
       }
     } else {
       /* silently ignore other nodes */
@@ -204,8 +219,10 @@ read_objects(xmlNodePtr objects,
 
     obj_node = obj_node->next;
   }
+
   return list;
 }
+
 
 static void
 read_connections(GList *objects, xmlNodePtr layer_node,
@@ -297,7 +314,7 @@ read_connections(GList *objects, xmlNodePtr layer_node,
 	  connection = connection->next;
 	}
         /* Fix positions of the connection object for (de)generated files.
-         * Only done for the last point connected otherwise the intermediate posisitions
+         * Only done for the last point connected otherwise the intermediate positions
          * may screw the auto-routing algorithm.
          */
         if (!broken && obj && obj->ops->set_props && wants_update) {
@@ -336,13 +353,15 @@ read_connections(GList *objects, xmlNodePtr layer_node,
   }
 }
 
+
 static void
-hash_free_string(gpointer       key,
-		 gpointer       value,
-		 gpointer       user_data)
+hash_free_string (gpointer key,
+                  gpointer value,
+                  gpointer user_data)
 {
-  g_free(key);
+  g_free (key);
 }
+
 
 static xmlNodePtr
 find_node_named (xmlNodePtr p, const char *name)
@@ -367,8 +386,12 @@ _get_bool_prop (xmlNodePtr node, const char *name, gboolean preset)
   return ret;
 }
 
+
 static gboolean
-diagram_data_load(const gchar *filename, DiagramData *data, DiaContext *ctx, void* user_data)
+diagram_data_load (const char  *filename,
+                   DiagramData *data,
+                   DiaContext  *ctx,
+                   void        *user_data)
 {
   GHashTable *objects_hash;
   int fd;
@@ -376,32 +399,35 @@ diagram_data_load(const gchar *filename, DiagramData *data, DiaContext *ctx, voi
   xmlDocPtr doc;
   xmlNodePtr root;
   xmlNodePtr diagramdata;
-  xmlNodePtr paperinfo, gridinfo, guideinfo;
+  xmlNodePtr paperinfo, gridinfo;
   xmlNodePtr layer_node;
   AttributeNode attr;
-  Layer *layer;
+  DiaLayer *layer;
   xmlNsPtr namespace;
   gchar firstchar;
   Diagram *diagram = DIA_IS_DIAGRAM (data) ? DIA_DIAGRAM (data) : NULL;
-  Layer *active_layer = NULL;
+  DiaLayer *active_layer = NULL;
   GHashTable* unknown_objects_hash = g_hash_table_new(g_str_hash, g_str_equal);
   int num_layers_added = 0;
 
-  g_return_val_if_fail(data!=NULL, FALSE);
+  g_return_val_if_fail (data != NULL, FALSE);
 
   if (g_file_test (filename, G_FILE_TEST_IS_DIR)) {
-    dia_context_add_message(ctx, _("You must specify a file, not a directory."));
+    dia_context_add_message (ctx,
+                             _("You must specify a file, not a directory."));
     return FALSE;
   }
 
-  fd = g_open(filename, O_RDONLY, 0);
+  fd = g_open (filename, O_RDONLY, 0);
 
   if (fd==-1) {
-    dia_context_add_message(ctx, _("Couldn't open: '%s' for reading.\n"), filename);
+    dia_context_add_message (ctx,
+                             _("Couldn't open: '%s' for reading.\n"),
+                             filename);
     return FALSE;
   }
 
-  if (read(fd, &firstchar, 1)) {
+  if (read (fd, &firstchar, 1)) {
     data->is_compressed = (firstchar != '<');
   } else {
     /* Couldn't read a single char?  Set to default. */
@@ -409,39 +435,40 @@ diagram_data_load(const gchar *filename, DiagramData *data, DiaContext *ctx, voi
   }
 
   /* Note that this closing and opening means we can't read from a pipe */
-  close(fd);
+  close (fd);
 
   doc = diaXmlParseFile (filename, ctx, TRUE);
 
   if (doc == NULL){
     /* this was talking about unknown file type but it could as well be broken XML */
-    dia_context_add_message(ctx, _("Error loading diagram %s."), filename);
+    dia_context_add_message (ctx, _("Error loading diagram %s."), filename);
     return FALSE;
   }
 
   root = doc->xmlRootNode;
   /* skip comments */
-  while (root && (root->type != XML_ELEMENT_NODE))
+  while (root && (root->type != XML_ELEMENT_NODE)) {
     root = root->next;
+  }
+
   if (root == NULL) {
-    message_error(_("Error loading diagram %s.\nUnknown file type."),
-		  dia_message_filename(filename));
+    message_error (_("Error loading diagram %s.\nUnknown file type."),
+                   dia_message_filename (filename));
     xmlFreeDoc (doc);
     return FALSE;
   }
 
-  namespace = xmlSearchNs(doc, root, (const xmlChar *)"dia");
-  if (xmlStrcmp (root->name, (const xmlChar *)"diagram") || (namespace == NULL)){
-    message_error(_("Error loading diagram %s.\nNot a Dia file."),
-		  dia_message_filename(filename));
+  namespace = xmlSearchNs (doc, root, (const xmlChar *) "dia");
+  if (xmlStrcmp (root->name, (const xmlChar *) "diagram") || (namespace == NULL)) {
+    message_error (_("Error loading diagram %s.\nNot a Dia file."),
+                   dia_message_filename (filename));
     xmlFreeDoc (doc);
     return FALSE;
   }
 
   /* Destroy the default layer: */
-  if (layer_object_count(data->active_layer) == 0) {
-    g_ptr_array_remove(data->layers, data->active_layer);
-    layer_destroy(data->active_layer);
+  if (dia_layer_object_count (dia_diagram_data_get_active_layer (data)) == 0) {
+    data_remove_layer (data, dia_diagram_data_get_active_layer (data));
   }
 
   diagramdata =
@@ -449,80 +476,98 @@ diagram_data_load(const gchar *filename, DiagramData *data, DiaContext *ctx, voi
 
   /* Read in diagram data: */
   data->bg_color = prefs.new_diagram.bg_color;
-  attr = composite_find_attribute(diagramdata, "background");
-  if (attr != NULL)
-    data_color(attribute_first_data(attr), &data->bg_color, ctx);
+  attr = composite_find_attribute (diagramdata, "background");
+  if (attr != NULL) {
+    data_color (attribute_first_data (attr), &data->bg_color, ctx);
+  }
 
   if (diagram) {
     diagram->pagebreak_color = prefs.new_diagram.pagebreak_color;
-    attr = composite_find_attribute(diagramdata, "pagebreak");
-    if (attr != NULL)
-      data_color(attribute_first_data(attr), &diagram->pagebreak_color, ctx);
-  }
-  /* load paper information from diagramdata section */
-  attr = composite_find_attribute(diagramdata, "paper");
-  if (attr != NULL) {
-    paperinfo = attribute_first_data(attr);
-
-    attr = composite_find_attribute(paperinfo, "name");
+    attr = composite_find_attribute (diagramdata, "pagebreak");
     if (attr != NULL) {
-      g_free(data->paper.name);
-      data->paper.name = data_string(attribute_first_data(attr), ctx);
+      data_color (attribute_first_data (attr), &diagram->pagebreak_color, ctx);
     }
+  }
+
+  /* load paper information from diagramdata section */
+  attr = composite_find_attribute (diagramdata, "paper");
+  if (attr != NULL) {
+    paperinfo = attribute_first_data (attr);
+
+    attr = composite_find_attribute (paperinfo, "name");
+    if (attr != NULL) {
+      g_clear_pointer (&data->paper.name, g_free);
+      data->paper.name = data_string (attribute_first_data (attr), ctx);
+    }
+
     if (data->paper.name == NULL || data->paper.name[0] == '\0') {
-      data->paper.name = g_strdup(prefs.new_diagram.papertype);
+      data->paper.name = g_strdup (prefs.new_diagram.papertype);
     }
+
     /* set default margins for paper size ... */
-    dia_page_layout_get_default_margins(data->paper.name,
-					&data->paper.tmargin,
-					&data->paper.bmargin,
-					&data->paper.lmargin,
-					&data->paper.rmargin);
+    dia_page_layout_get_default_margins (data->paper.name,
+                                         &data->paper.tmargin,
+                                         &data->paper.bmargin,
+                                         &data->paper.lmargin,
+                                         &data->paper.rmargin);
 
-    attr = composite_find_attribute(paperinfo, "tmargin");
-    if (attr != NULL)
-      data->paper.tmargin = data_real(attribute_first_data(attr), ctx);
-    attr = composite_find_attribute(paperinfo, "bmargin");
-    if (attr != NULL)
-      data->paper.bmargin = data_real(attribute_first_data(attr), ctx);
-    attr = composite_find_attribute(paperinfo, "lmargin");
-    if (attr != NULL)
-      data->paper.lmargin = data_real(attribute_first_data(attr), ctx);
-    attr = composite_find_attribute(paperinfo, "rmargin");
-    if (attr != NULL)
-      data->paper.rmargin = data_real(attribute_first_data(attr), ctx);
+    attr = composite_find_attribute (paperinfo, "tmargin");
+    if (attr != NULL) {
+      data->paper.tmargin = data_real (attribute_first_data(attr), ctx);
+    }
 
-    attr = composite_find_attribute(paperinfo, "is_portrait");
+    attr = composite_find_attribute (paperinfo, "bmargin");
+    if (attr != NULL) {
+      data->paper.bmargin = data_real (attribute_first_data (attr), ctx);
+    }
+
+    attr = composite_find_attribute (paperinfo, "lmargin");
+    if (attr != NULL) {
+      data->paper.lmargin = data_real (attribute_first_data (attr), ctx);
+    }
+
+    attr = composite_find_attribute (paperinfo, "rmargin");
+    if (attr != NULL) {
+      data->paper.rmargin = data_real (attribute_first_data (attr), ctx);
+    }
+
+    attr = composite_find_attribute (paperinfo, "is_portrait");
     data->paper.is_portrait = TRUE;
-    if (attr != NULL)
-      data->paper.is_portrait = data_boolean(attribute_first_data(attr), ctx);
+    if (attr != NULL) {
+      data->paper.is_portrait = data_boolean (attribute_first_data (attr),
+                                              ctx);
+    }
 
-    attr = composite_find_attribute(paperinfo, "scaling");
+    attr = composite_find_attribute (paperinfo, "scaling");
     data->paper.scaling = 1.0;
-    if (attr != NULL)
-      data->paper.scaling = data_real(attribute_first_data(attr), ctx);
+    if (attr != NULL) {
+      data->paper.scaling = data_real (attribute_first_data (attr), ctx);
+    }
 
-    attr = composite_find_attribute(paperinfo, "fitto");
+    attr = composite_find_attribute (paperinfo, "fitto");
     data->paper.fitto = FALSE;
-    if (attr != NULL)
-      data->paper.fitto = data_boolean(attribute_first_data(attr), ctx);
+    if (attr != NULL) {
+      data->paper.fitto = data_boolean (attribute_first_data (attr), ctx);
+    }
 
-    attr = composite_find_attribute(paperinfo, "fitwidth");
+    attr = composite_find_attribute (paperinfo, "fitwidth");
     data->paper.fitwidth = 1;
-    if (attr != NULL)
-      data->paper.fitwidth = data_int(attribute_first_data(attr), ctx);
+    if (attr != NULL) {
+      data->paper.fitwidth = data_int (attribute_first_data (attr), ctx);
+    }
 
-    attr = composite_find_attribute(paperinfo, "fitheight");
+    attr = composite_find_attribute (paperinfo, "fitheight");
     data->paper.fitheight = 1;
-    if (attr != NULL)
-      data->paper.fitheight = data_int(attribute_first_data(attr), ctx);
+    if (attr != NULL) {
+      data->paper.fitheight = data_int (attribute_first_data (attr), ctx);
+    }
 
     /* calculate effective width/height */
-    dia_page_layout_get_paper_size(data->paper.name,
-				   &data->paper.width,
-				   &data->paper.height);
+    dia_page_layout_get_paper_size (data->paper.name,
+                                    &data->paper.width,
+                                    &data->paper.height);
     if (!data->paper.is_portrait) {
-      gfloat tmp = data->paper.width;
+      float tmp = data->paper.width;
 
       data->paper.width = data->paper.height;
       data->paper.height = tmp;
@@ -563,107 +608,146 @@ diagram_data_load(const gchar *filename, DiagramData *data, DiaContext *ctx, voi
         data_color(attribute_first_data(attr), &diagram->grid.colour, ctx);
     }
   }
+
   if (diagram) {
-    attr = composite_find_attribute(diagramdata, "guides");
+    attr = composite_find_attribute (diagramdata, "guides");
     if (attr != NULL) {
-      guint i;
-      DataNode guide;
+      DataNode guides_data;
 
-      guideinfo = attribute_first_data(attr);
+      /* Clear old guides. */
+      g_list_free (diagram->guides);
+      diagram->guides = NULL;
 
-      attr = composite_find_attribute(guideinfo, "hguides");
-      if (attr != NULL) {
-        diagram->guides.nhguides = attribute_num_data(attr);
-        g_free(diagram->guides.hguides);
-        diagram->guides.hguides = g_new(real, diagram->guides.nhguides);
+      /* Load new guides. */
+      guides_data = attribute_first_data (attr);
+      while (guides_data) {
+        real position = 0;
+        GtkOrientation orientation = GTK_ORIENTATION_HORIZONTAL;
 
-        guide = attribute_first_data(attr);
-        for (i = 0; i < diagram->guides.nhguides; i++, guide = data_next(guide))
-	  diagram->guides.hguides[i] = data_real(guide, ctx);
-      }
-      attr = composite_find_attribute(guideinfo, "vguides");
-      if (attr != NULL) {
-        diagram->guides.nvguides = attribute_num_data(attr);
-        g_free(diagram->guides.vguides);
-        diagram->guides.vguides = g_new(real, diagram->guides.nvguides);
+        attr = composite_find_attribute (guides_data, "position");
+        if(attr != NULL) {
+          position = data_real (attribute_first_data (attr), ctx);
+        }
 
-        guide = attribute_first_data(attr);
-        for (i = 0; i < diagram->guides.nvguides; i++, guide = data_next(guide))
-	  diagram->guides.vguides[i] = data_real(guide, ctx);
+        attr = composite_find_attribute (guides_data, "orientation");
+        if (attr != NULL) {
+          orientation = data_int (attribute_first_data (attr), ctx);
+        }
+
+        dia_diagram_add_guide (diagram, position, orientation, FALSE);
+
+        guides_data = data_next (guides_data);
       }
     }
+
+    /* Guide color. */
+    diagram->guide_color = prefs.new_diagram.guide_color;
+    attr = composite_find_attribute (diagramdata, "guide_color");
+    if (attr != NULL) {
+      data_color (attribute_first_data (attr), &diagram->guide_color, ctx);
+    }
   }
+
   /* parse some display settings */
   if (diagram) {
-    attr = composite_find_attribute(diagramdata, "display");
+    attr = composite_find_attribute (diagramdata, "display");
+
     if (attr != NULL) {
       DataNode dispinfo;
 
-      dispinfo = attribute_first_data(attr);
+      dispinfo = attribute_first_data (attr);
       /* using the diagramdata object as temporary storage is a bit hacky,
        * and also the magic numbers (keeping 0 as dont care) */
 
-      attr = composite_find_attribute(dispinfo, "antialiased");
-      if (attr != NULL)
-	g_object_set_data(G_OBJECT(diagram),
-	  "antialiased", GINT_TO_POINTER (data_boolean(attribute_first_data(attr), ctx) ? 1 : -1));
+      attr = composite_find_attribute (dispinfo, "antialiased");
+      if (attr != NULL) {
+        g_object_set_data (G_OBJECT (diagram),
+                           "antialiased",
+                           GINT_TO_POINTER (data_boolean (attribute_first_data (attr), ctx) ? 1 : -1));
+      }
 
-      attr = composite_find_attribute(dispinfo, "snap-to-grid");
-      if (attr != NULL)
-	g_object_set_data(G_OBJECT(diagram),
-	  "snap-to-grid", GINT_TO_POINTER (data_boolean(attribute_first_data(attr), ctx) ? 1 : -1));
+      attr = composite_find_attribute (dispinfo, "snap-to-grid");
+      if (attr != NULL) {
+        g_object_set_data (G_OBJECT (diagram),
+                           "snap-to-grid",
+                           GINT_TO_POINTER (data_boolean (attribute_first_data (attr), ctx) ? 1 : -1));
+      }
 
-      attr = composite_find_attribute(dispinfo, "snap-to-object");
-      if (attr != NULL)
-        g_object_set_data(G_OBJECT(diagram),
-	  "snap-to-object", GINT_TO_POINTER (data_boolean(attribute_first_data(attr), ctx) ? 1 : -1));
+      attr = composite_find_attribute (dispinfo, "snap-to-guides");
+      if (attr != NULL) {
+        g_object_set_data (G_OBJECT (diagram),
+                           "snap-to-guides",
+                           GINT_TO_POINTER (data_boolean (attribute_first_data (attr), ctx) ? 1 : -1));
+      }
 
-      attr = composite_find_attribute(dispinfo, "show-grid");
-      if (attr != NULL)
-        g_object_set_data(G_OBJECT(diagram),
-	  "show-grid", GINT_TO_POINTER (data_boolean(attribute_first_data(attr), ctx) ? 1 : -1));
+      attr = composite_find_attribute (dispinfo, "snap-to-object");
+      if (attr != NULL) {
+        g_object_set_data (G_OBJECT (diagram),
+                           "snap-to-object",
+                           GINT_TO_POINTER (data_boolean (attribute_first_data (attr), ctx) ? 1 : -1));
+      }
 
-      attr = composite_find_attribute(dispinfo, "show-connection-points");
-      if (attr != NULL)
-        g_object_set_data(G_OBJECT(diagram),
-	  "show-connection-points", GINT_TO_POINTER (data_boolean(attribute_first_data(attr), ctx) ? 1 : -1));
+      attr = composite_find_attribute (dispinfo, "show-grid");
+      if (attr != NULL) {
+        g_object_set_data (G_OBJECT (diagram),
+                           "show-grid",
+                           GINT_TO_POINTER (data_boolean (attribute_first_data (attr), ctx) ? 1 : -1));
+      }
+
+      attr = composite_find_attribute(dispinfo, "show-guides");
+      if (attr != NULL) {
+        g_object_set_data (G_OBJECT (diagram),
+                           "show-guides",
+                           GINT_TO_POINTER (data_boolean (attribute_first_data (attr), ctx) ? 1 : -1));
+      }
+
+      attr = composite_find_attribute (dispinfo, "show-connection-points");
+      if (attr != NULL) {
+        g_object_set_data (G_OBJECT (diagram),
+                           "show-connection-points",
+                           GINT_TO_POINTER (data_boolean (attribute_first_data(attr), ctx) ? 1 : -1));
+      }
     }
   }
   /* Read in all layers: */
   layer_node =
     find_node_named (root->xmlChildrenNode, "layer");
 
-  objects_hash = g_hash_table_new(g_str_hash, g_str_equal);
+  objects_hash = g_hash_table_new (g_str_hash, g_str_equal);
 
   while (layer_node != NULL) {
-    gchar *name;
-    gboolean active;
+    xmlChar *name;
 
-    if (xmlIsBlankNode(layer_node)) {
+    if (xmlIsBlankNode (layer_node)) {
       layer_node = layer_node->next;
       continue;
     }
 
     if (!layer_node) break;
 
-    name = (char *)xmlGetProp(layer_node, (const xmlChar *)"name");
+    name = xmlGetProp (layer_node, (const xmlChar *) "name");
     if (!name) break; /* name is mandatory */
 
-    layer = new_layer(g_strdup(name), data);
-    if (name) xmlFree(name);
+    layer = dia_layer_new ((char *) name, data);
+    dia_clear_xml_string (&name);
 
-    layer->visible = _get_bool_prop (layer_node, "visible", FALSE);
-    layer->connectable = _get_bool_prop (layer_node, "connectable", FALSE);
+    g_object_set (layer,
+                  "visible", _get_bool_prop (layer_node, "visible", FALSE),
+                  "connectable", _get_bool_prop (layer_node, "connectable", FALSE),
+                  NULL);
+
     /* Read in all objects: */
-    list = read_objects(layer_node, objects_hash, ctx, NULL, unknown_objects_hash);
-    layer_add_objects (layer, list);
+    list = read_objects (layer_node, objects_hash, ctx, NULL, unknown_objects_hash);
+    dia_layer_add_objects (layer, list);
 
-    data_add_layer(data, layer);
+    data_add_layer (data, layer);
     ++num_layers_added;
 
-    active = _get_bool_prop (layer_node, "active", FALSE);
-    if (active)
-      active_layer = layer;
+    if (_get_bool_prop (layer_node, "active", FALSE)) {
+      g_set_object (&active_layer, layer);
+    }
+
+    g_clear_object (&layer);
 
     layer_node = layer_node->next;
   }
@@ -673,48 +757,54 @@ diagram_data_load(const gchar *filename, DiagramData *data, DiaContext *ctx, voi
     int i = data_layer_count (data) - num_layers_added;
     layer_node = find_node_named (root->xmlChildrenNode, "layer");
     for (; i < data_layer_count (data); ++i) {
-      layer = (Layer *) g_ptr_array_index(data->layers, i);
+      layer = data_layer_get_nth (data, i);
+
       while (layer_node && xmlStrcmp (layer_node->name, (xmlChar *)"layer") != 0)
-	layer_node = layer_node->next;
+        layer_node = layer_node->next;
+
       if (!layer_node) {
-	dia_context_add_message (ctx, _("Error reading connections"));
-	break;
+        dia_context_add_message (ctx, _("Error reading connections"));
+        break;
       }
-      read_connections(layer->objects, layer_node, objects_hash);
+
+      read_connections (dia_layer_get_object_list (layer), layer_node, objects_hash);
       layer_node = layer_node->next;
     }
   }
 
-  if (!active_layer)
-    data->active_layer = (Layer *) g_ptr_array_index(data->layers, 0);
-  else
-    data_set_active_layer(data, active_layer);
+  if (!active_layer) {
+    data_set_active_layer (data, data_layer_get_nth (data, 0));
+  } else {
+    data_set_active_layer (data, active_layer);
+  }
 
-  xmlFreeDoc(doc);
+  g_clear_object (&active_layer);
+  xmlFreeDoc (doc);
 
-  g_hash_table_foreach(objects_hash, hash_free_string, NULL);
+  g_hash_table_foreach (objects_hash, hash_free_string, NULL);
 
-  g_hash_table_destroy(objects_hash);
+  g_hash_table_destroy (objects_hash);
 
-  if (data->layers->len < 1) {
+  if (data_layer_count (data) < 1) {
     message_error (_("Error loading diagram:\n%s.\n"
                      "A valid Dia file defines at least one layer."),
-		     dia_message_filename(filename));
+                   dia_message_filename(filename));
     return FALSE;
-  } else if (0 < g_hash_table_size(unknown_objects_hash)) {
-    GString*    unknown_str = g_string_new("Unknown types while reading diagram file");
+  } else if (0 < g_hash_table_size (unknown_objects_hash)) {
+    GString *unknown_str = g_string_new ("Unknown types while reading diagram file");
 
     /* show all the unknown types in one message */
-    g_hash_table_foreach(unknown_objects_hash,
-			 GHFuncUnknownObjects,
-			 unknown_str);
-    message_warning("%s", unknown_str->str);
-    g_string_free(unknown_str, TRUE);
+    g_hash_table_foreach (unknown_objects_hash,
+                          GHFuncUnknownObjects,
+                          unknown_str);
+    message_warning ("%s", unknown_str->str);
+    g_string_free (unknown_str, TRUE);
   }
-  g_hash_table_destroy(unknown_objects_hash);
+  g_hash_table_destroy (unknown_objects_hash);
 
   return TRUE;
 }
+
 
 static gboolean
 write_objects(GList *objects, xmlNodePtr objects_node,
@@ -870,8 +960,6 @@ diagram_data_write_doc(DiagramData *data, const char *filename, DiaContext *ctx)
   GHashTable *objects_hash;
   gboolean res;
   int obj_nr;
-  guint i;
-  Layer *layer;
   AttributeNode attr;
   xmlNs *name_space;
   Diagram *diagram = DIA_IS_DIAGRAM (data) ? DIA_DIAGRAM (data) : NULL;
@@ -922,6 +1010,7 @@ diagram_data_write_doc(DiagramData *data, const char *filename, DiaContext *ctx)
   }
 
   if (diagram) {
+    GList *list;
     attr = new_attribute((ObjectNode)tree, "grid");
     gridinfo = data_add_composite(attr, "grid", ctx);
     data_add_boolean(composite_add_attribute(gridinfo, "dynamic"),
@@ -938,16 +1027,26 @@ diagram_data_write_doc(DiagramData *data, const char *filename, DiaContext *ctx)
     data_add_composite(gridinfo, "color", ctx);
     data_add_color(attr, &diagram->grid.colour, ctx);
 
-    attr = new_attribute((ObjectNode)tree, "guides");
-    guideinfo = data_add_composite(attr, "guides", ctx);
-    attr = composite_add_attribute(guideinfo, "hguides");
-    for (i = 0; i < diagram->guides.nhguides; i++)
-      data_add_real(attr, diagram->guides.hguides[i], ctx);
-    attr = composite_add_attribute(guideinfo, "vguides");
-    for (i = 0; i < diagram->guides.nvguides; i++)
-      data_add_real(attr, diagram->guides.vguides[i], ctx);
+    /* Guides. */
+    attr = new_attribute ((ObjectNode) tree, "guides");
+    list = diagram->guides;
+    while (list) {
+      DiaGuide *guide = list->data;
 
-    if (g_slist_length(diagram->displays) == 1) {
+      guideinfo = data_add_composite (attr, "guide", ctx);
+
+      data_add_real (composite_add_attribute (guideinfo, "position"), guide->position, ctx);
+      data_add_int (composite_add_attribute (guideinfo, "orientation"), guide->orientation, ctx);
+
+      list = g_list_next (list);
+    }
+
+    if (diagram) {
+      attr = new_attribute ((ObjectNode) tree, "guide_color");
+      data_add_color (attr, &diagram->guide_color, ctx);
+    }
+
+    if (g_slist_length (diagram->displays) == 1) {
       xmlNodePtr dispinfo;
       /* store some display attributes */
       DDisplay *ddisp = diagram->displays->data;
@@ -958,10 +1057,14 @@ diagram_data_write_doc(DiagramData *data, const char *filename, DiaContext *ctx)
                        ddisp->aa_renderer, ctx);
       data_add_boolean(composite_add_attribute(dispinfo, "snap-to-grid"),
 		       ddisp->grid.snap, ctx);
+      data_add_boolean(composite_add_attribute(dispinfo, "snap-to-guides"),
+		       ddisp->guides_snap, ctx);
       data_add_boolean(composite_add_attribute(dispinfo, "snap-to-object"),
 		       ddisp->mainpoint_magnetism, ctx);
       data_add_boolean(composite_add_attribute(dispinfo, "show-grid"),
 		       ddisp->grid.visible, ctx);
+      data_add_boolean (composite_add_attribute (dispinfo, "show-guides"),
+                        ddisp->guides_visible, ctx);
       data_add_boolean(composite_add_attribute(dispinfo, "show-connection-points"),
 		       ddisp->show_cx_pts, ctx);
     }
@@ -971,51 +1074,71 @@ diagram_data_write_doc(DiagramData *data, const char *filename, DiaContext *ctx)
 
   obj_nr = 0;
 
-  for (i = 0; i < data->layers->len; i++) {
-    layer_node = xmlNewChild(doc->xmlRootNode, name_space, (const xmlChar *)"layer", NULL);
-    layer = (Layer *) g_ptr_array_index(data->layers, i);
-    xmlSetProp(layer_node, (const xmlChar *)"name", (xmlChar *)layer->name);
+  DIA_FOR_LAYER_IN_DIAGRAM (data, layer, i, {
+    layer_node = xmlNewChild (doc->xmlRootNode,
+                              name_space,
+                              (const xmlChar *) "layer", NULL);
+    xmlSetProp (layer_node,
+                (const xmlChar *) "name",
+                (xmlChar *) dia_layer_get_name (layer));
 
-    xmlSetProp(layer_node, (const xmlChar *)"visible",
-	       (const xmlChar *)(layer->visible ? "true" : "false"));
-    xmlSetProp(layer_node, (const xmlChar *)"connectable",
-	       (const xmlChar *)(layer->visible ? "true" : "false"));
+    xmlSetProp (layer_node,
+                (const xmlChar *) "visible",
+                (const xmlChar *) (dia_layer_is_visible (layer) ? "true" : "false"));
+    xmlSetProp (layer_node,
+                (const xmlChar *) "connectable",
+                (const xmlChar *) (dia_layer_is_connectable (layer) ? "true" : "false"));
 
-    if (layer == data->active_layer)
-      xmlSetProp(layer_node, (const xmlChar *)"active", (const xmlChar *)"true");
+    if (layer == dia_diagram_data_get_active_layer (data)) {
+      xmlSetProp (layer_node,
+                  (const xmlChar *) "active",
+                  (const xmlChar *) "true");
+    }
 
-    write_objects(layer->objects, layer_node,
-		  objects_hash, &obj_nr, filename, ctx);
-
-  }
+    write_objects (dia_layer_get_object_list (layer),
+                   layer_node,
+                   objects_hash,
+                   &obj_nr,
+                   filename,
+                   ctx);
+  });
   /* The connections are stored per layer in the file format, but connections are not any longer
    * restricted to objects on the same layer. So we iterate over all the layer (nodes) again to
    * 'know' all objects we might have to connect to
    */
   layer_node = doc->xmlRootNode->children;
-  for (i = 0; i < data->layers->len; i++) {
-    layer = (Layer *) g_ptr_array_index(data->layers, i);
-    while (layer_node && xmlStrcmp (layer_node->name, (xmlChar *)"layer") != 0)
+  DIA_FOR_LAYER_IN_DIAGRAM (data, layer, i, {
+    while (layer_node && xmlStrcmp (layer_node->name, (xmlChar *) "layer") != 0) {
       layer_node = layer_node->next;
+    }
     if (!layer_node) {
-      dia_context_add_message (ctx, _("Error saving connections to layer '%s'"), layer->name);
+      dia_context_add_message (ctx,
+                               _("Error saving connections to layer '%s'"),
+                               dia_layer_get_name (layer));
       break;
     }
-    res = write_connections(layer->objects, layer_node, objects_hash);
-    if (!res)
-      dia_context_add_message (ctx, _("Connection saving is incomplete for layer '%s'"), layer->name);
+    res = write_connections (dia_layer_get_object_list (layer),
+                             layer_node,
+                             objects_hash);
+    if (!res) {
+      dia_context_add_message (ctx,
+                               _("Connection saving is incomplete for layer '%s'"),
+                               dia_layer_get_name (layer));
+    }
     layer_node = layer_node->next;
+  });
+
+  g_hash_table_destroy (objects_hash);
+
+  if (data->is_compressed) {
+    xmlSetDocCompressMode (doc, 9);
+  } else {
+    xmlSetDocCompressMode (doc, 0);
   }
-
-  g_hash_table_destroy(objects_hash);
-
-  if (data->is_compressed)
-    xmlSetDocCompressMode(doc, 9);
-  else
-    xmlSetDocCompressMode(doc, 0);
 
   return doc;
 }
+
 
 /** This tries to save the diagram into a file, without any backup
  * Returns >= 0 on success.
@@ -1037,7 +1160,7 @@ diagram_data_raw_save(DiagramData *data, const char *filename, DiaContext *ctx)
 /** This saves the diagram, using a backup in case of failure.
  * @param data
  * @param filename
- * @returns TRUE on successfull save, FALSE otherwise.  If a failure is
+ * @returns TRUE on successful save, FALSE otherwise.  If a failure is
  * indicated, an error message will already have been given to the user.
  */
 static gboolean
@@ -1053,7 +1176,7 @@ diagram_data_save(DiagramData *data, DiaContext *ctx, const char *user_filename)
   /* Once we depend on GTK 2.8+, we can use these tests. */
 #if !defined G_OS_WIN32
   /* Check that we're allowed to write to the target file at all. */
-  /* not going to work with 'My Docments' - read-only but still useable, see bug #504469 */
+  /* not going to work with 'My Documents' - read-only but still useable, see bug #504469 */
   if (   g_file_test(filename, G_FILE_TEST_EXISTS)
       && g_access(filename, W_OK) != 0) {
     dia_context_add_message (ctx, _("Not allowed to write to output file %s\n"),
@@ -1067,7 +1190,7 @@ diagram_data_save(DiagramData *data, DiaContext *ctx, const char *user_filename)
     filename = g_file_read_link(user_filename, &error);
     if (!filename) {
       dia_context_add_message (ctx, "%s", error->message);
-      g_error_free(error);
+      g_clear_error (&error);
       goto CLEANUP;
     }
   }
@@ -1078,7 +1201,7 @@ diagram_data_save(DiagramData *data, DiaContext *ctx, const char *user_filename)
   if (p) {
     *(p+1) = 0;
   } else {
-    g_free(dirname);
+    g_clear_pointer (&dirname, g_free);
     dirname = g_strdup("." G_DIR_SEPARATOR_S);
   }
   tmpname = g_strconcat(dirname,"__diaXXXXXX",NULL);
@@ -1137,12 +1260,14 @@ diagram_data_save(DiagramData *data, DiaContext *ctx, const char *user_filename)
 				       dia_message_filename(tmpname),
 				       dia_context_get_filename(ctx));
   }
+  else /* remove backup file if new file is in place */
+    g_unlink(bakname);
 CLEANUP:
   if (filename != user_filename)
-    g_free(filename);
-  g_free(tmpname);
-  g_free(dirname);
-  g_free(bakname);
+    g_clear_pointer (&filename, g_free);
+  g_clear_pointer (&tmpname, g_free);
+  g_clear_pointer (&dirname, g_free);
+  g_clear_pointer (&bakname, g_free);
   return (ret?FALSE:TRUE);
 }
 
@@ -1164,26 +1289,29 @@ diagram_save(Diagram *dia, const char *filename, DiaContext *ctx)
   return res;
 }
 
+
 /* Autosave stuff.  Needs to use low-level save to avoid setting and resetting flags */
 void
-diagram_cleanup_autosave(Diagram *dia)
+diagram_cleanup_autosave (Diagram *dia)
 {
-  gchar *savefile;
-  struct stat statbuf;
+  char *savefile;
 
   savefile = dia->autosavefilename;
   if (savefile == NULL) return;
 #ifdef TRACES
-  g_print("Cleaning up autosave %s for %s\n",
-          savefile, dia->filename ? dia->filename : "<no name>");
+  g_printerr ("Cleaning up autosave %s for %s\n",
+              savefile,
+              dia->filename ? dia->filename : "<no name>");
 #endif
-  if (g_stat(savefile, &statbuf) == 0) { /* Success */
-    g_unlink(savefile);
+  if (g_file_test (savefile, G_FILE_TEST_EXISTS)) {
+    /* Success */
+    g_unlink (savefile);
   }
-  g_free(savefile);
+  g_clear_pointer (&savefile, g_free);
   dia->autosavefilename = NULL;
   dia->autosaved = FALSE;
 }
+
 
 typedef struct {
   DiagramData *clone;
@@ -1199,7 +1327,7 @@ typedef struct {
  *    - e.g. all (message_*) to vanish (or make it use thread local storage?)
  *    - no use of static data (no write access)
  *    - ...
- *  - the editing could continue after the synchronuous copying, which should be vastly faster
+ *  - the editing could continue after the synchronous copying, which should be vastly faster
  *    than the in memory XML creation (diagram_data_write_doc) and the writing to a possibly
  *    slow storage (xmlDiaSaveFile)
  */
@@ -1209,25 +1337,31 @@ _autosave_in_thread (gpointer data)
   AutoSaveInfo *asi = (AutoSaveInfo *)data;
 
   diagram_data_raw_save(asi->clone, asi->filename, asi->ctx);
-  g_object_unref (asi->clone);
-  g_free (asi->filename);
+  g_clear_object (&asi->clone);
+  g_clear_pointer (&asi->filename, g_free);
   /* FIXME: this is throwing away potential messages ... */
   dia_context_reset (asi->ctx);
   /* ... to avoid creating a message_box within this thread */
   dia_context_release (asi->ctx);
-  g_free (asi);
+  g_clear_pointer (&asi, g_free);
 
   return NULL;
 }
 
-/** Absolutely autosave a diagram.
+
+/**
+ * diagram_autosave:
+ * @dia: the #Diagram
+ *
+ * Absolutely autosave a diagram.
  * Called (in the GUI thread) after a periodic check at the first idleness.
  *
+ * Since: dawn-of-time
  */
 void
-diagram_autosave(Diagram *dia)
+diagram_autosave (Diagram *dia)
 {
-  gchar *save_filename;
+  char *save_filename;
 
   /* Must check if the diagram is still valid, or Death Ensues! */
   GList *diagrams = dia_open_diagrams();
@@ -1239,12 +1373,11 @@ diagram_autosave(Diagram *dia)
         !diagram->autosaved) {
       save_filename = g_strdup_printf ("%s.autosave", dia->filename);
 
-      if (dia->autosavefilename != NULL)
-        g_free(dia->autosavefilename);
+      g_clear_pointer (&dia->autosavefilename, g_free);
 
       dia->autosavefilename = save_filename;
 #ifdef G_THREADS_ENABLED
-      if (g_thread_supported ()) {
+      {
         AutoSaveInfo *asi = g_new (AutoSaveInfo, 1);
         GError *error = NULL;
 
@@ -1254,17 +1387,10 @@ diagram_autosave(Diagram *dia)
 
         if (!g_thread_try_new ("Autosave", _autosave_in_thread, asi, &error)) {
           message_error ("%s", error->message);
-          g_error_free (error);
+          g_clear_error (&error);
         }
         /* FIXME: need better synchronization */
         dia->autosaved = TRUE;
-      } else {
-        /* no extra threads supported, stay in this one */
-        DiaContext *ctx = dia_context_new (_("Auto save"));
-        dia_context_set_filename (ctx, save_filename);
-        diagram_data_raw_save (dia->data, save_filename, ctx);
-        dia->autosaved = TRUE;
-        dia_context_release (ctx);
       }
 #else
       {

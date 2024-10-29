@@ -25,13 +25,13 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "diarenderer.h"
@@ -52,8 +52,6 @@ struct _Requirement {
   ConnectionPoint connections[NUM_CONNECTIONS];
 
   Text *text;
-
-  int init;
 };
 
 
@@ -69,10 +67,10 @@ struct _Requirement {
 static real req_distance_from(Requirement *req, Point *point);
 static void req_select(Requirement *req, Point *clicked_point,
 			   DiaRenderer *interactive_renderer);
-static ObjectChange* req_move_handle(Requirement *req, Handle *handle,
+static DiaObjectChange* req_move_handle(Requirement *req, Handle *handle,
 				Point *to, ConnectionPoint *cp,
 				HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* req_move(Requirement *req, Point *to);
+static DiaObjectChange* req_move(Requirement *req, Point *to);
 static void req_draw(Requirement *req, DiaRenderer *renderer);
 static DiaObject *req_create(Point *startpoint,
 			      void *user_data,
@@ -155,8 +153,6 @@ req_get_props(Requirement * req, GPtrArray *props)
 static void
 req_set_props(Requirement *req, GPtrArray *props)
 {
-  if (req->init==-1) { req->init++; return; }   /* workaround init bug */
-
   object_set_props_from_offsets(&req->element.object,
                                 req_offsets,props);
   req_update_data(req);
@@ -184,20 +180,26 @@ req_select(Requirement *req, Point *clicked_point,
   element_update_handles(&req->element);
 }
 
-static ObjectChange*
-req_move_handle(Requirement *req, Handle *handle,
-                Point *to, ConnectionPoint *cp,
-		HandleMoveReason reason, ModifierKeys modifiers)
-{
-  assert(req!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
 
-  assert(handle->id < 8);
+static DiaObjectChange *
+req_move_handle (Requirement      *req,
+                 Handle           *handle,
+                 Point            *to,
+                 ConnectionPoint  *cp,
+                 HandleMoveReason  reason,
+                 ModifierKeys      modifiers)
+{
+  g_return_val_if_fail (req != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
+
+  g_return_val_if_fail (handle->id < 8, NULL);
+
   return NULL;
 }
 
-static ObjectChange*
+
+static DiaObjectChange*
 req_move(Requirement *req, Point *to)
 {
   real h;
@@ -217,15 +219,14 @@ req_move(Requirement *req, Point *to)
 
 /** draw is here */
 static void
-req_draw(Requirement *req, DiaRenderer *renderer)
+req_draw (Requirement *req, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Element *elem;
   real x, y, w, h;
   Point c;
 
-  assert(req != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (req != NULL);
+  g_return_if_fail (renderer != NULL);
 
   elem = &req->element;
 
@@ -237,14 +238,14 @@ req_draw(Requirement *req, DiaRenderer *renderer)
   c.x = x + w/2.0;
   c.y = y + h/2.0;
 
-  renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
-  renderer_ops->set_linewidth(renderer, REQ_LINEWIDTH);
+  dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+  dia_renderer_set_linewidth (renderer, REQ_LINEWIDTH);
 
-  renderer_ops->set_linestyle(renderer, LINESTYLE_DASHED, REQ_DASHLEN);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_DASHED, REQ_DASHLEN);
 
-  renderer_ops->draw_ellipse(renderer, &c, w, h, &color_white, &color_black);
+  dia_renderer_draw_ellipse (renderer, &c, w, h, &color_white, &color_black);
 
-  text_draw(req->text, renderer);
+  text_draw (req->text, renderer);
 }
 
 
@@ -325,7 +326,7 @@ req_update_data(Requirement *req)
 
   /* Boundingbox calculation including the line width */
   {
-    Rectangle bbox;
+    DiaRectangle bbox;
 
     ellipse_bbox (&c, elem->width, elem->height, &elem->extra_spacing, &bbox);
     rectangle_union(&obj->bounding_box, &bbox);
@@ -346,7 +347,7 @@ req_create(Point *startpoint,
   DiaFont *font;
   int i;
 
-  req = g_malloc0(sizeof(Requirement));
+  req = g_new0 (Requirement, 1);
   elem = &req->element;
   obj = &elem->object;
 
@@ -362,9 +363,9 @@ req_create(Point *startpoint,
   p.x += REQ_WIDTH/2.0;
   p.y += REQ_HEIGHT/2.0;
 
-  req->text = new_text("", font, REQ_FONT, &p, &color_black, ALIGN_CENTER);
-  dia_font_unref(font);
-  element_init(elem, 8, NUM_CONNECTIONS);
+  req->text = new_text ("", font, REQ_FONT, &p, &color_black, DIA_ALIGN_CENTRE);
+  g_clear_object (&font);
+  element_init (elem, 8, NUM_CONNECTIONS);
 
   for (i=0;i<NUM_CONNECTIONS;i++) {
     obj->connections[i] = &req->connections[i];
@@ -392,8 +393,6 @@ req_create(Point *startpoint,
 
   *handle1 = NULL;
   *handle2 = NULL;
-
-  if (GPOINTER_TO_INT(user_data)!=0) req->init=-1; else req->init=0;
 
   return &req->element.object;
 }

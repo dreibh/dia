@@ -26,6 +26,10 @@
  * Opens a dialog for export options
  */
 
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
+
 #include "xslt.h"
 #include <stdio.h>
 
@@ -81,14 +85,14 @@ xslt_dialog_create (void)
   dialog = gtk_dialog_new_with_buttons (_("Export through XSLT"),
                                         NULL, 0,
                                         _("_Cancel"), GTK_RESPONSE_CANCEL,
-                                        _("_Okay"), GTK_RESPONSE_OK,
+                                        _("_OK"), GTK_RESPONSE_OK,
                                         NULL);
 
   gtk_dialog_set_default_response (GTK_DIALOG (dialog), GTK_RESPONSE_OK);
 
   box = gtk_dialog_get_content_area (GTK_DIALOG (dialog));
 
-  vbox = gtk_vbox_new (FALSE, 5);
+  vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 5);
   gtk_container_set_border_width (GTK_CONTAINER (vbox), 5);
   gtk_container_set_border_width (GTK_CONTAINER (box), 10);
 
@@ -118,7 +122,7 @@ xslt_dialog_create (void)
 
   gtk_box_pack_start (GTK_BOX (box), vbox, FALSE, TRUE, 0);
 
-  vbox = gtk_vbox_new (FALSE, 5);
+  vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 5);
   gtk_container_set_border_width (GTK_CONTAINER (vbox), 5);
   gtk_container_set_border_width (GTK_CONTAINER (box), 10);
 

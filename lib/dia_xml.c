@@ -16,7 +16,10 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 /** \file dia_xml.c  Helper function to convert Dia's basic to and from XML */
-#include <config.h>
+
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,50 +40,15 @@
 
 #include <zlib.h>
 
-#include "intl.h"
-#include "utils.h"
 #include "dia_xml_libxml.h"
 #include "dia_xml.h"
-#include "geometry.h"		/* For isinf() on Solaris */
 #include "message.h"
 
 #ifdef G_OS_WIN32
 #include <io.h> /* write, close */
 #endif
 
-#ifdef G_OS_WIN32 /* apparently _MSC_VER and mingw */
-#include <float.h>
-# ifndef isinf
-# define isinf(a) (!_finite(a))
-# endif
-#endif
-
 #define BUFLEN 1024
-
-/*
- * redefinition of isnan and isinf, for portability, as explained in :
- * http://www.gnu.org/software/autoconf/manual/html_node/Function-Portability.html
- */
-
-#ifndef isnan
-# define isnan(x) \
-     (sizeof (x) == sizeof (long double) ? isnan_ld (x) \
-     : sizeof (x) == sizeof (double) ? isnan_d (x) \
-     : isnan_f (x))
-static inline int isnan_f  (float       x) { return x != x; }
-static inline int isnan_d  (double      x) { return x != x; }
-static inline int isnan_ld (long double x) { return x != x; }
-#endif
-          
-#ifndef isinf
-# define isinf(x) \
-    (sizeof (x) == sizeof (long double) ? isinf_ld (x) \
-     : sizeof (x) == sizeof (double) ? isinf_d (x) \
-     : isinf_f (x))
-static inline int isinf_f  (float       x) { return isnan (x - x); }
-static inline int isinf_d  (double      x) { return isnan (x - x); }
-static inline int isinf_ld (long double x) { return isnan (x - x); }
-#endif
 
 /*!
  * \defgroup DiagramXmlOut Converting data to XML
@@ -96,13 +64,13 @@ static inline int isinf_ld (long double x) { return isnan (x - x); }
 /*!
  * \brief Fallback implementation for not well-formed diagram files
  *
- * If all files produced by dia were good XML files, we wouldn't have to do 
- *  this little gymnastic. Alas, during the libxml1 days, we were outputting 
+ * If all files produced by dia were good XML files, we wouldn't have to do
+ *  this little gymnastic. Alas, during the libxml1 days, we were outputting
  *  files with no encoding specification (which means UTF-8 if we're in an
  *  asciish encoding) and strings encoded in local charset (so, we wrote
- *  broken files). 
+ *  broken files).
  *
- *  The following logic finds if we have a broken file, and attempts to fix 
+ *  The following logic finds if we have a broken file, and attempts to fix
  *  it if it's possible. If the file is correct or is unrecognisable, we pass
  *  it untouched to libxml2.
  * @param filename The name of the file to check.
@@ -117,137 +85,166 @@ static inline int isinf_ld (long double x) { return isnan (x - x); }
  *       better than this. I dont. --hb
  * \ingroup DiagramXmlIo
  */
-static const gchar *
-xml_file_check_encoding(const gchar *filename, const gchar *default_enc, DiaContext *ctx)
+static char *
+xml_file_check_encoding (const char *filename,
+                         const char *default_enc,
+                         DiaContext *ctx)
 {
   int fd = g_open (filename, O_RDONLY, 0);
   /* If the next call exits the program (without any message) check if
    * you are loading an incompatible version of zlib*.dll, e.g. one
    * built against a newer version of msvcrt*.dll
    */
-  gzFile zf = gzdopen(fd,"rb");  
-  gchar *buf;
-  gchar *p,*pmax;
+  gzFile zf = gzdopen (fd, "rb");
+  char *buf;
+  char *p,*pmax;
   int len;
-  gchar *tmp,*res;
   int uf;
   gboolean well_formed_utf8;
   int write_ok;
+  char *res = g_strdup (filename);
+  GError *error = NULL;
 
-  static char magic_xml[] = 
+  static char magic_xml[] =
   {0x3c,0x3f,0x78,0x6d,0x6c,0x00}; /* "<?xml" in ASCII */
 
   if (!zf) {
-    dia_log_message("%s can not be opened for encoding check (%s)", filename, fd > 0 ? "gzdopen" : "g_open");
+    dia_log_message ("%s can not be opened for encoding check (%s)",
+                     filename,
+                     fd > 0 ? "gzdopen" : "g_open");
     /* XXX perhaps we can just chicken out to libxml ? -- CC */
-    return filename;
+    return res;
   }
-  p = buf = g_malloc0(BUFLEN);  
-  len = gzread(zf,buf,BUFLEN);
+
+  p = buf = g_new0 (char, BUFLEN);
+  len = gzread (zf, buf, BUFLEN);
   pmax = p + len;
 
   /* first, we expect the magic <?xml string */
-  if ((0 != strncmp(p,magic_xml,5)) || (len < 5)) {
-    gzclose(zf);
-    g_free(buf);
-    return filename; /* let libxml figure out what this is. */
+  if ((0 != strncmp (p, magic_xml, 5)) || (len < 5)) {
+    gzclose (zf);
+    g_clear_pointer (&buf, g_free);
+    return res; /* let libxml figure out what this is. */
   }
+
   /* now, we're sure we have some asciish XML file. */
   p += 5;
-  while (((*p == 0x20)||(*p == 0x09)||(*p == 0x0d)||(*p == 0x0a))
-         && (p<pmax)) p++;
-  if (p>=pmax) { /* whoops ? */
-    gzclose(zf);
-    g_free(buf);
-    return filename;
+  while (((*p == 0x20) || (*p == 0x09) || (*p == 0x0d) || (*p == 0x0a))
+         && (p < pmax)) {
+    p++;
   }
-  if (0 != strncmp(p,"version=\"",9)) {
-    gzclose(zf); /* chicken out. */
-    g_free(buf);
-    return filename;
+
+  if (p >= pmax) { /* whoops ? */
+    gzclose (zf);
+    g_clear_pointer (&buf, g_free);
+    return res;
+  }
+
+  if (0 != strncmp (p, "version=\"", 9)) {
+    gzclose (zf); /* chicken out. */
+    g_clear_pointer (&buf, g_free);
+    return res;
   }
   p += 9;
+
   /* The header is rather well formed. */
   if (p>=pmax) { /* whoops ? */
     gzclose(zf);
-    g_free(buf);
-    return filename;
+    g_clear_pointer (&buf, g_free);
+    return res;
   }
-  while ((*p != '"') && (p < pmax)) p++;
+
+  while ((*p != '"') && (p < pmax)) {
+    p++;
+  }
   p++;
+
   while (((*p == 0x20)||(*p == 0x09)||(*p == 0x0d)||(*p == 0x0a))
-         && (p<pmax)) p++;
-  if (p>=pmax) { /* whoops ? */
-    gzclose(zf);
-    g_free(buf);
-    return filename;
+         && (p<pmax)) {
+    p++;
   }
-  if (0 == strncmp(p,"encoding=\"",10)) {
+
+  if (p >= pmax) { /* whoops ? */
+    gzclose (zf);
+    g_clear_pointer (&buf, g_free);
+    return res;
+  }
+
+  if (0 == strncmp (p, "encoding=\"", 10)) {
     gzclose(zf); /* this file has an encoding string. Good. */
-    g_free(buf);
-    return filename;
+    g_clear_pointer (&buf, g_free);
+    return res;
   }
+
   /* now let's read the whole file, to see if there are offending bits.
    * We can call it well formed UTF-8 if the highest isn't used
    */
   well_formed_utf8 = TRUE;
   do {
     int i;
-    for (i = 0; i < len; i++)
-      if (buf[i] & 0x80 || buf[i] == '&')
+    for (i = 0; i < len; i++) {
+      if (buf[i] & 0x80 || buf[i] == '&') {
         well_formed_utf8 = FALSE;
-    len = gzread(zf,buf,BUFLEN);
+      }
+    }
+    len = gzread (zf, buf, BUFLEN);
   } while (len > 0 && well_formed_utf8);
+
   if (well_formed_utf8) {
-    gzclose(zf); /* this file is utf-8 compatible  */
-    g_free(buf);
-    return filename;
+    gzclose (zf); /* this file is utf-8 compatible  */
+    g_clear_pointer (&buf, g_free);
+    return res;
   } else {
-    gzclose(zf); /* poor man's fseek */
+    gzclose (zf); /* poor man's fseek */
     fd = g_open (filename, O_RDONLY, 0);
-    zf = gzdopen(fd,"rb"); 
-    len = gzread(zf,buf,BUFLEN);
+    zf = gzdopen (fd,"rb");
+    len = gzread (zf, buf, BUFLEN);
   }
 
-  if (0 != strcmp(default_enc,"UTF-8")) {
-    dia_context_add_message (ctx, 
+  if (0 != strcmp (default_enc, "UTF-8")) {
+    dia_context_add_message (ctx,
                              _("The file %s has no encoding specification;\n"
-			     "assuming it is encoded in %s"),
-			     dia_context_get_filename(ctx), default_enc);
+                               "assuming it is encoded in %s"),
+                             dia_context_get_filename (ctx),
+                             default_enc);
   } else {
-    gzclose(zf); /* we apply the standard here. */
-    g_free(buf);
-    return filename;
+    gzclose (zf); /* we apply the standard here. */
+    g_clear_pointer (&buf, g_free);
+    return res;
   }
 
-  tmp = getenv("TMP"); 
-  if (!tmp) tmp = getenv("TEMP");
-  if (!tmp) tmp = "/tmp";
+  uf = g_file_open_tmp ("dia-xml-fix-encodingXXXXXX", &res, &error);
 
-  res = g_strconcat(tmp,G_DIR_SEPARATOR_S,"dia-xml-fix-encodingXXXXXX",NULL);
-  uf = g_mkstemp(res);
+  if (error) {
+    g_warning ("%s", error->message);
+  }
+
   write_ok = (uf > 0);
-  write_ok = write_ok && (write(uf,buf,p-buf) > 0);
-  write_ok = write_ok && (write(uf," encoding=\"",11) > 0);
-  write_ok = write_ok && (write(uf,default_enc,strlen(default_enc)) > 0);
-  write_ok = write_ok && (write(uf,"\" ",2) > 0);
-  write_ok = write_ok && (write(uf,p,pmax - p) > 0);
+  write_ok = write_ok && (write (uf, buf, p - buf) > 0);
+  write_ok = write_ok && (write (uf, " encoding=\"", 11) > 0);
+  write_ok = write_ok && (write (uf, default_enc, strlen (default_enc)) > 0);
+  write_ok = write_ok && (write (uf, "\" ", 2) > 0);
+  write_ok = write_ok && (write (uf, p, pmax - p) > 0);
 
   while (write_ok) {
-    len = gzread(zf,buf,BUFLEN);
-    if (len <= 0) break;
-    write_ok = write_ok && (write(uf,buf,len) > 0);
+    len = gzread (zf, buf, BUFLEN);
+    if (len <= 0) {
+      break;
+    }
+    write_ok = write_ok && (write (uf, buf, len) > 0);
   }
-  gzclose(zf);
-  if (uf > 0)
-    close(uf);
-  g_free(buf);
-  if (!write_ok) {
-    g_free(res);
-    res = NULL;
+
+  gzclose (zf);
+
+  if (uf > 0) {
+    close (uf);
   }
+
+  g_clear_pointer (&buf, g_free);
+
   return res; /* caller frees the name and unlinks the file. */
 }
+
 
 /*!
  * \brief Parse a given file into XML, handling old broken files correctly.
@@ -258,44 +255,47 @@ xml_file_check_encoding(const gchar *filename, const gchar *default_enc, DiaCont
  * \ingroup DiagramXmlIo
  */
 static xmlDocPtr
-xmlDiaParseFile(const char *filename, DiaContext *ctx)
+xmlDiaParseFile (const char *filename, DiaContext *ctx)
 {
   const char *local_charset = NULL;
-  xmlErrorPtr error_xml = NULL;
+  const xmlError *error_xml = NULL;
   xmlDocPtr ret = NULL;
 
-  if (   !g_get_charset(&local_charset)
+  if (   !g_get_charset (&local_charset)
       && local_charset) {
-    /* we're not in an UTF-8 environment. */ 
-    const gchar *fname = xml_file_check_encoding(filename,local_charset, ctx);
+    /* we're not in an UTF-8 environment. */
+    char *fname = xml_file_check_encoding(filename, local_charset, ctx);
     if (fname != filename) {
       /* We've got a corrected file to parse. */
-      ret = xmlDoParseFile(fname, &error_xml);
-      unlink(fname);
+      ret = xmlDoParseFile (fname, &error_xml);
+      unlink (fname);
       /* printf("has read %s instead of %s\n",fname,filename); */
-      g_free((void *)fname);
     } else {
       /* the XML file is good. libxml is "old enough" to handle it correctly.
        */
-      ret = xmlDoParseFile(filename, &error_xml);
+      ret = xmlDoParseFile (filename, &error_xml);
     }
+    g_clear_pointer (&fname, g_free);
   } else {
-    ret = xmlDoParseFile(filename, &error_xml);
+    ret = xmlDoParseFile (filename, &error_xml);
   }
-  if (error_xml)
+
+  if (error_xml) {
     dia_context_add_message (ctx, "%s", error_xml->message);
+  }
+
   return ret;
 }
 
 /*!
- * \brief Parse an xml file from a filename given in Dia's/GLib's filename encoding 
+ * \brief Parse an xml file from a filename given in Dia's/GLib's filename encoding
  * @param filename A file to parse. On win32 the filename encoding is utf-8 since GLib 2.6
  * @param error Optional error return form underlying library.
  * @return An XML document.
  * \ingroup DiagramXmlIo
  */
 xmlDocPtr
-xmlDoParseFile(const char *filename, xmlErrorPtr *error)
+xmlDoParseFile(const char *filename, const xmlError **error)
 {
   xmlDocPtr doc;
 
@@ -307,7 +307,7 @@ xmlDoParseFile(const char *filename, xmlErrorPtr *error)
 }
 
 /*!
- * \brief Parse an xml file from a filename given in Dia's/GLib's filename encoding 
+ * \brief Parse an xml file from a filename given in Dia's/GLib's filename encoding
  *
  * @param filename A file to parse. On win32 the filename encoding is utf-8 since GLib 2.6
  * @param ctx If something goes wrong during parsing ctx will include according messages
@@ -316,12 +316,12 @@ xmlDoParseFile(const char *filename, xmlErrorPtr *error)
  *
  * \ingroup DiagramXmlIo
  */
-xmlDocPtr 
+xmlDocPtr
 diaXmlParseFile(const char *filename, DiaContext *ctx, gboolean try_harder)
 {
   xmlDocPtr doc;
-  xmlErrorPtr err;
-  
+  const xmlError *err;
+
   doc = xmlParseFile(filename);
   if (!doc) {
     err = xmlGetLastError ();
@@ -351,7 +351,7 @@ object_find_attribute(ObjectNode obj_node,
   AttributeNode attr;
   xmlChar *name;
 
-  while (obj_node && xmlIsBlankNode(obj_node)) 
+  while (obj_node && xmlIsBlankNode(obj_node))
     obj_node = obj_node->next;
   if (!obj_node) return NULL;
 
@@ -368,7 +368,7 @@ object_find_attribute(ObjectNode obj_node,
       return attr;
     }
     if (name) xmlFree(name);
-    
+
     attr = attr->next;
   }
   return NULL;
@@ -388,7 +388,7 @@ composite_find_attribute(DataNode composite_node,
   AttributeNode attr;
   xmlChar *name;
 
-  while (composite_node && xmlIsBlankNode(composite_node)) 
+  while (composite_node && xmlIsBlankNode(composite_node))
     composite_node = composite_node->next;
   if (!composite_node) return NULL;
 
@@ -405,7 +405,7 @@ composite_find_attribute(DataNode composite_node,
       return attr;
     }
     if (name) xmlFree(name);
-    
+
     attr = attr->next;
   }
   return NULL;
@@ -458,8 +458,8 @@ attribute_first_data(AttributeNode attribute)
 DataNode
 data_next(DataNode data)
 {
-  
-  if (data) { 
+
+  if (data) {
     data = data->next;
     while (data && xmlIsBlankNode(data)) data = data->next;
   }
@@ -526,7 +526,7 @@ data_int(DataNode data, DiaContext *ctx)
 {
   xmlChar *val;
   int res;
-  
+
   if (data_type(data, ctx)!=DATATYPE_INT) {
     dia_context_add_message (ctx, _("Taking int value of non-int node."));
     return 0;
@@ -535,7 +535,7 @@ data_int(DataNode data, DiaContext *ctx)
   val = xmlGetProp(data, (const xmlChar *)"val");
   res = atoi((char *) val);
   if (val) xmlFree(val);
-  
+
   return res;
 }
 
@@ -552,7 +552,7 @@ data_enum(DataNode data, DiaContext *ctx)
 {
   xmlChar *val;
   int res;
-  
+
   if (data_type(data, ctx)!=DATATYPE_ENUM) {
     dia_context_add_message (ctx, "Taking enum value of non-enum node.");
     return 0;
@@ -561,7 +561,7 @@ data_enum(DataNode data, DiaContext *ctx)
   val = xmlGetProp(data, (const xmlChar *)"val");
   res = atoi((char *) val);
   if (val) xmlFree(val);
-  
+
   return res;
 }
 
@@ -587,7 +587,7 @@ data_real(DataNode data, DiaContext *ctx)
   val = xmlGetProp(data, (const xmlChar *)"val");
   res = g_ascii_strtod((char *) val, NULL);
   if (val) xmlFree(val);
-  
+
   return res;
 }
 
@@ -604,7 +604,7 @@ data_boolean(DataNode data, DiaContext *ctx)
 {
   xmlChar *val;
   int res;
-  
+
   if (data_type(data, ctx)!=DATATYPE_BOOLEAN) {
     dia_context_add_message (ctx, "Taking boolean value of non-boolean node.");
     return 0;
@@ -614,7 +614,7 @@ data_boolean(DataNode data, DiaContext *ctx)
 
   if ((val) && (strcmp((char *) val, "true")==0))
     res =  TRUE;
-  else 
+  else
     res = FALSE;
 
   if (val) xmlFree(val);
@@ -657,7 +657,7 @@ data_color(DataNode data, Color *col, DiaContext *ctx)
 {
   xmlChar *val;
   int r=0, g=0, b=0, a=0;
-  
+
   if (data_type(data, ctx)!=DATATYPE_COLOR) {
     dia_context_add_message (ctx, "Taking color value of non-color node.");
     return;
@@ -680,7 +680,7 @@ data_color(DataNode data, Color *col, DiaContext *ctx)
   }
 
   if (val) xmlFree(val);
-  
+
   col->red = (float)(r/255.0);
   col->green = (float)(g/255.0);
   col->blue = (float)(b/255.0);
@@ -707,14 +707,14 @@ data_point(DataNode data, Point *point, DiaContext *ctx)
     dia_context_add_message (ctx, _("Taking point value of non-point node."));
     return;
   }
-  
+
   val = xmlGetProp(data, (const xmlChar *)"val");
   point->x = g_ascii_strtod((char *)val, &str);
   ax = fabs(point->x);
   if ((ax > 1e9) || ((ax < 1e-9) && (ax != 0.0)) || isnan(ax) || isinf(ax)) {
-    /* there is no provision to keep values larger when saving, 
+    /* there is no provision to keep values larger when saving,
      * so do this 'reduction' silent */
-    if (!(ax < 1e-9)) 
+    if (!(ax < 1e-9))
       g_warning(_("Incorrect x Point value \"%s\" %f; discarding it."),val,point->x);
     point->x = 0.0;
   }
@@ -744,7 +744,7 @@ data_point(DataNode data, Point *point, DiaContext *ctx)
  * @param ctx The context in which this function is called
  * \ingroup DiagramXmlIn
  */
-void 
+void
 data_bezpoint(DataNode data, BezPoint *point, DiaContext *ctx)
 {
   xmlChar *val;
@@ -817,20 +817,20 @@ data_bezpoint(DataNode data, BezPoint *point, DiaContext *ctx)
  * \ingroup DiagramXmlIn
  */
 void
-data_rectangle(DataNode data, Rectangle *rect, DiaContext *ctx)
+data_rectangle(DataNode data, DiaRectangle *rect, DiaContext *ctx)
 {
   xmlChar *val;
   gchar *str;
-  
+
   if (data_type(data, ctx)!=DATATYPE_RECTANGLE) {
     dia_context_add_message (ctx, _("Taking rectangle value of non-rectangle node."));
     return;
   }
-  
+
   val = xmlGetProp(data, (const xmlChar *)"val");
-  
+
   rect->left = g_ascii_strtod((char *)val, &str);
-  
+
   while ((*str != ',') && (*str!=0))
     str++;
 
@@ -839,7 +839,7 @@ data_rectangle(DataNode data, Rectangle *rect, DiaContext *ctx)
     xmlFree(val);
     return;
   }
-    
+
   rect->top = g_ascii_strtod(str+1, &str);
 
   while ((*str != ';') && (*str!=0))
@@ -863,7 +863,7 @@ data_rectangle(DataNode data, Rectangle *rect, DiaContext *ctx)
   }
 
   rect->bottom = g_ascii_strtod(str+1, NULL);
-  
+
   xmlFree(val);
 }
 
@@ -883,36 +883,38 @@ data_string(DataNode data, DiaContext *ctx)
   xmlChar *val;
   gchar *str, *p,*str2;
   int len;
-  
+
   if (data_type(data, ctx)!=DATATYPE_STRING) {
     dia_context_add_message (ctx, _("Taking string value of non-string node."));
     return NULL;
   }
 
   val = xmlGetProp(data, (const xmlChar *)"val");
-  if (val != NULL) { /* Old kind of string. Left for backwards compatibility */
-    str  = g_malloc(4 * (sizeof(char)*(xmlStrlen(val)+1))); /* extra room 
-                                                            for UTF8 */
+  if (val != NULL) {
+    /* Old kind of string. Left for backwards compatibility */
+    /* TODO: This "extra room" feels like nonsense, especially when introduced
+     * when this was already legacy */
+    str  = g_new0 (char, 4 * (xmlStrlen (val) + 1)); /* extra room for UTF8 */
     p = str;
     while (*val) {
       if (*val == '\\') {
-	val++;
-	switch (*val) {
-	case '0':
-	  /* Just skip this. \0 means nothing */
-	  break;
-	case 'n':
-	  *p++ = '\n';
-	  break;
-	case 't':
-	  *p++ = '\t';
-	  break;
-	case '\\':
-	  *p++ = '\\';
-	  break;
-	default:
-	  dia_context_add_message (ctx, _("Error in string tag."));
-	}
+        val++;
+        switch (*val) {
+          case '0':
+            /* Just skip this. \0 means nothing */
+            break;
+          case 'n':
+            *p++ = '\n';
+            break;
+          case 't':
+            *p++ = '\t';
+            break;
+          case '\\':
+            *p++ = '\\';
+            break;
+          default:
+            dia_context_add_message (ctx, _("Error in string tag."));
+        }
       } else {
 	*p++ = *val;
       }
@@ -921,19 +923,19 @@ data_string(DataNode data, DiaContext *ctx)
     *p = 0;
     xmlFree(val);
     str2 = g_strdup(str);  /* to remove the extra space */
-    g_free(str);
+    g_clear_pointer (&str, g_free);
     return str2;
   }
 
   if (data->xmlChildrenNode!=NULL) {
     p = (char *)xmlNodeListGetString(data->doc, data->xmlChildrenNode, TRUE);
-    
+
     if (*p!='#')
       dia_context_add_message (ctx, _("Error in file, string not starting with #"));
-    
+
     len = strlen(p)-1; /* Ignore first '#' */
-      
-    str = g_malloc(len+1);
+
+    str = g_new0 (char, len + 1);
 
     strncpy(str, p+1, len);
     str[len]=0; /* For safety */
@@ -942,9 +944,10 @@ data_string(DataNode data, DiaContext *ctx)
     xmlFree(p);
     return str;
   }
-    
+
   return NULL;
 }
+
 
 /*!
  * \brief Return the value of a filename-type data node.
@@ -964,53 +967,60 @@ data_filename(DataNode data, DiaContext *ctx)
 
   if (utf8) {
     GError *error = NULL;
-    if ((filename = g_filename_from_utf8(utf8, -1, NULL, NULL, &error)) == NULL) {
+    if ((filename = g_filename_from_utf8 (utf8, -1, NULL, NULL, &error)) == NULL) {
       dia_context_add_message (ctx, "%s", error->message);
-      g_error_free (error);
+      g_clear_error (&error);
     }
-    g_free(utf8);
+    g_clear_pointer (&utf8, g_free);
   }
+
   return filename;
 }
 
-/*!
- * \brief Return the value of a font-type data node.
+
+/**
+ * data_font:
+ * @data: The data node to read from.
+ * @ctx: The context in which this function is called
  *
- * This handles both the current format (family and style) and the old format (name).
- * @param data The data node to read from.
- * @param ctx The context in which this function is called
- * @return The font value found in the node.  If the node is not a
- *  font node, an error message is registered and NULL is returned.  The
- *  resulting value should be freed after use.
- * \ingroup DiagramXmlIn
+ * This handles both the current format (family and style) and the old
+ * format (name).
+ *
+ * Returns: The font value found in the node. If the node is not a font node,
+ *          an error message is registered and %NULL is returned. The resulting
+ *          value should be freed after use.
  */
 DiaFont *
-data_font(DataNode data, DiaContext *ctx)
+data_font (DataNode data, DiaContext *ctx)
 {
   xmlChar *family;
   DiaFont *font;
-  
-  if (data_type(data, ctx)!=DATATYPE_FONT) {
+
+  if (data_type (data, ctx) != DATATYPE_FONT) {
     dia_context_add_message (ctx, _("Taking font value of non-font node."));
     return NULL;
   }
 
-  family = xmlGetProp(data, (const xmlChar *)"family");
+  family = xmlGetProp (data, (const xmlChar *) "family");
   /* always prefer the new format */
   if (family) {
     DiaFontStyle style;
-    char* style_name = (char *) xmlGetProp(data, (const xmlChar *)"style");
-    style = style_name ? atoi(style_name) : 0;
+    char *style_name = (char *) xmlGetProp (data, (const xmlChar *) "style");
+    style = style_name ? atoi (style_name) : 0;
 
-    font = dia_font_new ((char *)family, style, 1.0);
-    if (family) free(family);
-    if (style_name) xmlFree(style_name);
+    font = dia_font_new ((char *) family, style, 1.0);
+
+    dia_clear_xml_string (&family);
+    dia_clear_xml_string (&style_name);
   } else {
     /* Legacy format support */
-    char *name = (char *)xmlGetProp(data, (const xmlChar *)"name");
-    font = dia_font_new_from_legacy_name(name);
-    free(name);
+    char *name = (char *) xmlGetProp (data, (const xmlChar *) "name");
+
+    font = dia_font_new_from_legacy_name (name);
+
+    dia_clear_xml_string (&name);
   }
+
   return font;
 }
 
@@ -1066,7 +1076,7 @@ data_add_int(AttributeNode attr, int data, DiaContext *ctx)
   char buffer[20+1]; /* Enought for 64bit int + zero */
 
   g_snprintf(buffer, 20, "%d", data);
-  
+
   data_node = xmlNewChild(attr, NULL, (const xmlChar *)"int", NULL);
   xmlSetProp(data_node, (const xmlChar *)"val", (xmlChar *)buffer);
 }
@@ -1085,7 +1095,7 @@ data_add_enum(AttributeNode attr, int data, DiaContext *ctx)
   char buffer[20+1]; /* Enought for 64bit int + zero */
 
   g_snprintf(buffer, 20, "%d", data);
-  
+
   data_node = xmlNewChild(attr, NULL, (const xmlChar *)"enum", NULL);
   xmlSetProp(data_node, (const xmlChar *)"val", (xmlChar *)buffer);
 }
@@ -1104,7 +1114,7 @@ data_add_real(AttributeNode attr, real data, DiaContext *ctx)
   char buffer[G_ASCII_DTOSTR_BUF_SIZE]; /* Large enought */
 
   g_ascii_dtostr(buffer, G_ASCII_DTOSTR_BUF_SIZE, data);
-  
+
   data_node = xmlNewChild(attr, NULL, (const xmlChar *)"real", NULL);
   xmlSetProp(data_node, (const xmlChar *)"val", (xmlChar *)buffer);
 }
@@ -1184,11 +1194,11 @@ _str_point (const Point *point)
   gchar *buffer;
   gchar px_buf[G_ASCII_DTOSTR_BUF_SIZE];
   gchar py_buf[G_ASCII_DTOSTR_BUF_SIZE];
-  
+
   g_ascii_formatd(px_buf, sizeof(px_buf), "%g", point->x);
   g_ascii_formatd(py_buf, sizeof(py_buf), "%g", point->y);
   buffer = g_strconcat(px_buf, ",", py_buf, NULL);
-  
+
   return buffer;
 }
 
@@ -1204,10 +1214,10 @@ data_add_point(AttributeNode attr, const Point *point, DiaContext *ctx)
 {
   DataNode data_node;
   gchar *buffer = _str_point (point);
-  
+
   data_node = xmlNewChild(attr, NULL, (const xmlChar *)"point", NULL);
   xmlSetProp(data_node, (const xmlChar *)"val", (xmlChar *)buffer);
-  g_free(buffer);
+  g_clear_pointer (&buffer, g_free);
 }
 
 /*!
@@ -1219,7 +1229,7 @@ data_add_bezpoint(AttributeNode attr, const BezPoint *point, DiaContext *ctx)
 {
   DataNode data_node;
   gchar *buffer;
-  
+
   data_node = xmlNewChild(attr, NULL, (const xmlChar *)"bezpoint", NULL);
   switch (point->type) {
   case BEZ_MOVE_TO :
@@ -1234,17 +1244,17 @@ data_add_bezpoint(AttributeNode attr, const BezPoint *point, DiaContext *ctx)
   default :
     g_assert_not_reached();
   }
-  
+
   buffer = _str_point (&point->p1);
   xmlSetProp(data_node, (const xmlChar *)"p1", (xmlChar *)buffer);
-  g_free (buffer);
+  g_clear_pointer (&buffer, g_free);
   if (point->type == BEZ_CURVE_TO) {
     buffer = _str_point (&point->p2);
     xmlSetProp(data_node, (const xmlChar *)"p2", (xmlChar *)buffer);
-    g_free (buffer);
+    g_clear_pointer (&buffer, g_free);
     buffer = _str_point (&point->p3);
     xmlSetProp(data_node, (const xmlChar *)"p3", (xmlChar *)buffer);
-    g_free (buffer);
+    g_clear_pointer (&buffer, g_free);
   }
 }
 
@@ -1256,7 +1266,7 @@ data_add_bezpoint(AttributeNode attr, const BezPoint *point, DiaContext *ctx)
  * \ingroup DiagramXmlOut
  */
 void
-data_add_rectangle(AttributeNode attr, const Rectangle *rect, DiaContext *ctx)
+data_add_rectangle(AttributeNode attr, const DiaRectangle *rect, DiaContext *ctx)
 {
   DataNode data_node;
   gchar *buffer;
@@ -1271,11 +1281,11 @@ data_add_rectangle(AttributeNode attr, const Rectangle *rect, DiaContext *ctx)
   g_ascii_formatd(rb_buf, sizeof(rb_buf), "%g", rect->bottom);
 
   buffer = g_strconcat(rl_buf, ",", rt_buf, ";", rr_buf, ",", rb_buf, NULL);
-  
+
   data_node = xmlNewChild(attr, NULL, (const xmlChar *)"rectangle", NULL);
   xmlSetProp(data_node, (const xmlChar *)"val", (xmlChar *)buffer);
 
-  g_free(buffer);
+  g_clear_pointer (&buffer, g_free);
 }
 
 /*!
@@ -1294,17 +1304,17 @@ data_add_string(AttributeNode attr, const char *str, DiaContext *ctx)
     if (str==NULL) {
         (void)xmlNewChild(attr, NULL, (const xmlChar *)"string", (const xmlChar *)"##");
         return;
-    } 
+    }
 
     escaped_str = xmlEncodeEntitiesReentrant(attr->doc, (xmlChar *) str);
-    
+
     sharped_str = (xmlChar *) g_strconcat("#", (char *) escaped_str, "#", NULL);
 
     xmlFree(escaped_str);
-    
+
     (void)xmlNewChild(attr, NULL, (const xmlChar *)"string", (xmlChar *) sharped_str);
-  
-    g_free(sharped_str);
+
+    g_clear_pointer (&sharped_str, g_free);
 }
 
 /*!
@@ -1322,7 +1332,7 @@ data_add_filename(DataNode data, const char *str, DiaContext *ctx)
 
   data_add_string(data, utf8, ctx);
 
-  g_free(utf8);
+  g_clear_pointer (&utf8, g_free);
 }
 
 /*!
@@ -1333,7 +1343,7 @@ data_add_filename(DataNode data, const char *str, DiaContext *ctx)
  * \ingroup DiagramXmlOut
  */
 void
-data_add_font(AttributeNode attr, const DiaFont *font, DiaContext *ctx)
+data_add_font(AttributeNode attr, DiaFont *font, DiaContext *ctx)
 {
   DataNode data_node;
   char buffer[20+1]; /* Enought for 64bit int + zero */
@@ -1341,7 +1351,7 @@ data_add_font(AttributeNode attr, const DiaFont *font, DiaContext *ctx)
   data_node = xmlNewChild(attr, NULL, (const xmlChar *)"font", NULL);
   xmlSetProp(data_node, (const xmlChar *)"family", (xmlChar *) dia_font_get_family(font));
   g_snprintf(buffer, 20, "%d", dia_font_get_style(font));
- 
+
   xmlSetProp(data_node, (const xmlChar *)"style", (xmlChar *) buffer);
   /* Legacy support: don't crash older Dia on missing 'name' attribute */
   xmlSetProp(data_node, (const xmlChar *)"name", (xmlChar *) dia_font_get_legacy_name(font));
@@ -1356,13 +1366,13 @@ data_add_font(AttributeNode attr, const DiaFont *font, DiaContext *ctx)
  * \ingroup DiagramXmlOut
  */
 DataNode
-data_add_composite(AttributeNode attr, const char *type, DiaContext *ctx) 
+data_add_composite(AttributeNode attr, const char *type, DiaContext *ctx)
 {
   /* type can be NULL */
   DataNode data_node;
- 
+
   data_node = xmlNewChild(attr, NULL, (const xmlChar *)"composite", NULL);
-  if (type != NULL) 
+  if (type != NULL)
     xmlSetProp(data_node, (const xmlChar *)"type", (xmlChar *)type);
 
   return data_node;

@@ -26,14 +26,14 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 #include <glib.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "connectionpoint.h"
@@ -77,21 +77,25 @@ typedef struct _Other {
   ConnPointLine *north,*south,*east,*west;
 
   Text *text;
-  real padding;
+  double padding;
   OtherType type;
-
-  int init;
 
   ConnectionPoint center_cp;
 } Other;
 
-static real other_distance_from(Other *other, Point *point);
-static void other_select(Other *other, Point *clicked_point,
-		       DiaRenderer *interactive_renderer);
-static ObjectChange* other_move_handle(Other *other, Handle *handle,
-			    Point *to, ConnectionPoint *cp,
-			    HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* other_move(Other *other, Point *to);
+
+static double           other_distance_from            (Other            *other,
+                                                        Point            *point);
+static void             other_select                   (Other            *other,
+                                                        Point            *clicked_point,
+                                                        DiaRenderer      *interactive_renderer);
+static DiaObjectChange* other_move_handle              (Other            *other,
+                                                        Handle           *handle,
+                                                        Point            *to,
+                                                        ConnectionPoint  *cp,
+                                                        HandleMoveReason  reason,
+                                                        ModifierKeys      modifiers);
+static DiaObjectChange* other_move(Other *other, Point *to);
 static void other_draw(Other *other, DiaRenderer *renderer);
 static void other_update_data(Other *other, AnchorShape horix, AnchorShape vert);
 static DiaObject *other_create(Point *startpoint,
@@ -188,186 +192,222 @@ other_get_props(Other *other, GPtrArray *props)
 static void
 other_set_props(Other *other, GPtrArray *props)
 {
-  if (other->init==-1) { other->init++; return; }    /* workaround init bug */
-
   object_set_props_from_offsets(&other->element.object,
                                 other_offsets,props);
   other_update_data(other, ANCHOR_MIDDLE, ANCHOR_MIDDLE);
 }
 
+
 static real
-other_distance_from(Other *other, Point *point)
+other_distance_from (Other *other, Point *point)
 {
   Element *elem = &other->element;
-  Rectangle rect;
+  DiaRectangle rect;
 
   rect.left = elem->corner.x - OTHER_LINE_SIMPLE_WIDTH/2;
   rect.right = elem->corner.x + elem->width + OTHER_LINE_SIMPLE_WIDTH/2;
   rect.top = elem->corner.y - OTHER_LINE_SIMPLE_WIDTH/2;
   rect.bottom = elem->corner.y + elem->height + OTHER_LINE_SIMPLE_WIDTH/2;
-  return distance_rectangle_point(&rect, point);
+  return distance_rectangle_point (&rect, point);
 }
+
 
 static void
-other_select(Other *other, Point *clicked_point,
-	   DiaRenderer *interactive_renderer)
+other_select (Other       *other,
+              Point       *clicked_point,
+              DiaRenderer *interactive_renderer)
 {
-  text_set_cursor(other->text, clicked_point, interactive_renderer);
-  text_grab_focus(other->text, &other->element.object);
-  element_update_handles(&other->element);
+  text_set_cursor (other->text, clicked_point, interactive_renderer);
+  text_grab_focus (other->text, &other->element.object);
+  element_update_handles (&other->element);
 }
 
-static ObjectChange*
-other_move_handle(Other *other, Handle *handle,
-		Point *to, ConnectionPoint *cp,
-		HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+other_move_handle (Other            *other,
+                   Handle           *handle,
+                   Point            *to,
+                   ConnectionPoint  *cp,
+                   HandleMoveReason  reason,
+                   ModifierKeys      modifiers)
 {
   AnchorShape horiz = ANCHOR_MIDDLE, vert = ANCHOR_MIDDLE;
 
-  assert(other!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+  g_return_val_if_fail (other != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
-  element_move_handle(&other->element, handle->id, to, cp, reason, modifiers);
+  element_move_handle (&other->element,
+                       handle->id, to, cp, reason, modifiers);
 
   switch (handle->id) {
-  case HANDLE_RESIZE_NW:
-    horiz = ANCHOR_END; vert = ANCHOR_END; break;
-  case HANDLE_RESIZE_N:
-    vert = ANCHOR_END; break;
-  case HANDLE_RESIZE_NE:
-    horiz = ANCHOR_START; vert = ANCHOR_END; break;
-  case HANDLE_RESIZE_E:
-    horiz = ANCHOR_START; break;
-  case HANDLE_RESIZE_SE:
-    horiz = ANCHOR_START; vert = ANCHOR_START; break;
-  case HANDLE_RESIZE_S:
-    vert = ANCHOR_START; break;
-  case HANDLE_RESIZE_SW:
-    horiz = ANCHOR_END; vert = ANCHOR_START; break;
-  case HANDLE_RESIZE_W:
-    horiz = ANCHOR_END; break;
-  default:
-    break;
+    case HANDLE_RESIZE_NW:
+      horiz = ANCHOR_END;
+      vert = ANCHOR_END;
+      break;
+    case HANDLE_RESIZE_N:
+      vert = ANCHOR_END;
+      break;
+    case HANDLE_RESIZE_NE:
+      horiz = ANCHOR_START;
+      vert = ANCHOR_END;
+      break;
+    case HANDLE_RESIZE_E:
+      horiz = ANCHOR_START;
+      break;
+    case HANDLE_RESIZE_SE:
+      horiz = ANCHOR_START;
+      vert = ANCHOR_START;
+      break;
+    case HANDLE_RESIZE_S:
+      vert = ANCHOR_START;
+      break;
+    case HANDLE_RESIZE_SW:
+      horiz = ANCHOR_END;
+      vert = ANCHOR_START;
+      break;
+    case HANDLE_RESIZE_W:
+      horiz = ANCHOR_END;
+      break;
+    case HANDLE_MOVE_STARTPOINT:
+    case HANDLE_MOVE_ENDPOINT:
+    case HANDLE_CUSTOM1:
+    case HANDLE_CUSTOM2:
+    case HANDLE_CUSTOM3:
+    case HANDLE_CUSTOM4:
+    case HANDLE_CUSTOM5:
+    case HANDLE_CUSTOM6:
+    case HANDLE_CUSTOM7:
+    case HANDLE_CUSTOM8:
+    case HANDLE_CUSTOM9:
+    default:
+      break;
   }
-  other_update_data(other, horiz, vert);
+
+  other_update_data (other, horiz, vert);
+
   return NULL;
 }
 
-static ObjectChange*
-other_move(Other *other, Point *to)
+
+static DiaObjectChange *
+other_move (Other *other, Point *to)
 {
   other->element.corner = *to;
 
-  other_update_data(other, ANCHOR_MIDDLE, ANCHOR_MIDDLE);
+  other_update_data (other, ANCHOR_MIDDLE, ANCHOR_MIDDLE);
+
   return NULL;
 }
 
-static void compute_agent(Other *other, Point *pl) {
-     double rx,ry,w,h,h2;
-     Element *elem;
-
-     elem=&other->element;
-     w=elem->width;
-     h=elem->height;
-     rx=elem->corner.x;
-     ry=elem->corner.y;
-     h2=h/2;
-
-     pl[0].x=rx;
-     pl[0].y=ry+h2;
-     pl[1].x=rx+h2;
-     pl[1].y=ry;
-     pl[2].x=rx+w-h2;
-     pl[2].y=ry;
-     pl[3].x=rx+w;
-     pl[3].y=ry+h2;
-     pl[4].x=rx+w-h2;
-     pl[4].y=ry+h;
-     pl[5].x=rx+h2;
-     pl[5].y=ry+h;
-}
 
 static void
-draw_agent_icon(Other *other, DiaRenderer *renderer)
+compute_agent (Other *other, Point *pl)
 {
-     DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
-     double rx,ry,h;
-     Point c,p1,p2;
-     Element *elem;
+  double rx,ry,w,h,h2;
+  Element *elem;
 
-     elem=&other->element;
-     h=elem->height;
-     rx=elem->corner.x+h/2;
-     ry=elem->corner.y+3*h/10;
+  elem=&other->element;
+  w=elem->width;
+  h=elem->height;
+  rx=elem->corner.x;
+  ry=elem->corner.y;
+  h2=h/2;
 
-     /* head */
-     c.x=rx;
-     c.y=ry;
-     renderer_ops->draw_ellipse(renderer,&c,h/5,h/5,&OTHER_FG_COLOR, NULL);
+  pl[0].x=rx;
+  pl[0].y=ry+h2;
+  pl[1].x=rx+h2;
+  pl[1].y=ry;
+  pl[2].x=rx+w-h2;
+  pl[2].y=ry;
+  pl[3].x=rx+w;
+  pl[3].y=ry+h2;
+  pl[4].x=rx+w-h2;
+  pl[4].y=ry+h;
+  pl[5].x=rx+h2;
+  pl[5].y=ry+h;
+}
 
-     /* body */
-     p1.x=rx;
-     p1.y=ry;
-     p2.x=p1.x;
-     p2.y=p1.y+3.5*h/10;
-     renderer_ops->draw_line(renderer,&p1,&p2,&OTHER_FG_COLOR);
 
-     /* arms */
-     p1.x=rx-1.5*h/10;
-     p1.y=ry+2.2*h/10;
-     p2.x=rx+1.5*h/10;
-     p2.y=p1.y;
-     renderer_ops->draw_line(renderer,&p1,&p2,&OTHER_FG_COLOR);
+static void
+draw_agent_icon (Other *other, DiaRenderer *renderer)
+{
+  double rx,ry,h;
+  Point c,p1,p2;
+  Element *elem;
 
-     /* left leg */
-     p1.x=rx;
-     p1.y=ry+3.5*h/10;
-     p2.x=p1.x-h/10;
-     p2.y=p1.y+2*h/10;
-     renderer_ops->draw_line(renderer,&p1,&p2,&OTHER_FG_COLOR);
+  elem=&other->element;
+  h=elem->height;
+  rx=elem->corner.x+h/2;
+  ry=elem->corner.y+3*h/10;
 
-     /* right leg */
-     p1.x=rx;
-     p1.y=ry+3.5*h/10;
-     p2.x=p1.x+h/10;
-     p2.y=p1.y+2*h/10;
-     renderer_ops->draw_line(renderer,&p1,&p2,&OTHER_FG_COLOR);
+  /* head */
+  c.x=rx;
+  c.y=ry;
+  dia_renderer_draw_ellipse (renderer, &c, h/5, h/5, &OTHER_FG_COLOR, NULL);
+
+  /* body */
+  p1.x=rx;
+  p1.y=ry;
+  p2.x=p1.x;
+  p2.y=p1.y+3.5*h/10;
+  dia_renderer_draw_line (renderer, &p1, &p2, &OTHER_FG_COLOR);
+
+  /* arms */
+  p1.x=rx-1.5*h/10;
+  p1.y=ry+2.2*h/10;
+  p2.x=rx+1.5*h/10;
+  p2.y=p1.y;
+  dia_renderer_draw_line (renderer, &p1, &p2, &OTHER_FG_COLOR);
+
+  /* left leg */
+  p1.x=rx;
+  p1.y=ry+3.5*h/10;
+  p2.x=p1.x-h/10;
+  p2.y=p1.y+2*h/10;
+  dia_renderer_draw_line (renderer, &p1, &p2, &OTHER_FG_COLOR);
+
+  /* right leg */
+  p1.x=rx;
+  p1.y=ry+3.5*h/10;
+  p2.x=p1.x+h/10;
+  p2.y=p1.y+2*h/10;
+  dia_renderer_draw_line (renderer, &p1, &p2, &OTHER_FG_COLOR);
 }
 
 /* drawing stuff */
 static void
-other_draw(Other *other, DiaRenderer *renderer)
+other_draw (Other *other, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point pl[6];
 
   /* some asserts */
-  assert(other != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (other != NULL);
+  g_return_if_fail (renderer != NULL);
 
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0);
-  renderer_ops->set_linejoin(renderer, LINEJOIN_MITER);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0);
+  dia_renderer_set_linejoin (renderer, DIA_LINE_JOIN_MITER);
 
   if (other->type==AGENT) {
-    compute_agent(other,pl);
-    renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
-    renderer_ops->set_linewidth(renderer, OTHER_LINE_SIMPLE_WIDTH);
-    renderer_ops->draw_polygon(renderer,
-			   pl,
-			   6,
-			   &OTHER_BG_COLOR,
-			   &OTHER_FG_COLOR);
+    compute_agent (other,pl);
+    dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+    dia_renderer_set_linewidth (renderer, OTHER_LINE_SIMPLE_WIDTH);
+    dia_renderer_draw_polygon (renderer,
+                               pl,
+                               6,
+                               &OTHER_BG_COLOR,
+                               &OTHER_FG_COLOR);
 
-    draw_agent_icon(other,renderer);
+    draw_agent_icon (other,renderer);
   }
 
   /* drawing text */
-  text_draw(other->text, renderer);
+  text_draw (other->text, renderer);
 }
 
+
 static void
-other_update_data(Other *other, AnchorShape horiz, AnchorShape vert)
+other_update_data (Other *other, AnchorShape horiz, AnchorShape vert)
 {
   Element *elem = &other->element;
   ElementBBExtras *extra = &elem->extra_spacing;
@@ -384,52 +424,70 @@ other_update_data(Other *other, AnchorShape horiz, AnchorShape vert)
   center.y += elem->height/2;
   bottom_right.y += elem->height;
 
-  text_calc_boundingbox(other->text, NULL);
+  text_calc_boundingbox (other->text, NULL);
   width = other->text->max_width + other->padding*2;
   /* reserve some place for agent icon */
-  if (other->type==AGENT) width+=AGENT_LEFT;
+  if (other->type==AGENT) {
+    width += AGENT_LEFT;
+  }
   height = other->text->height * other->text->numlines + other->padding*2;
 
   /* autoscale here */
-  if (width > elem->width) elem->width = width;
-  if (height > elem->height) elem->height = height;
+  if (width > elem->width) {
+    elem->width = width;
+  }
+
+  if (height > elem->height) {
+    elem->height = height;
+  }
+
   /* some personal touch for agent */
-  if ((other->type==AGENT) && (elem->width<elem->height)) elem->width=elem->height;
+  if ((other->type==AGENT) && (elem->width<elem->height)) {
+    elem->width = elem->height;
+  }
 
   /* move shape if necessary ... */
   switch (horiz) {
-  case ANCHOR_MIDDLE:
-    elem->corner.x = center.x - elem->width/2; break;
-  case ANCHOR_END:
-    elem->corner.x = bottom_right.x - elem->width; break;
-  default:
-    break;
+    case ANCHOR_MIDDLE:
+      elem->corner.x = center.x - elem->width/2;
+      break;
+    case ANCHOR_END:
+      elem->corner.x = bottom_right.x - elem->width;
+      break;
+    case ANCHOR_START:
+    default:
+      break;
   }
+
   switch (vert) {
-  case ANCHOR_MIDDLE:
-    elem->corner.y = center.y - elem->height/2; break;
-  case ANCHOR_END:
-    elem->corner.y = bottom_right.y - elem->height; break;
-  default:
-    break;
+    case ANCHOR_MIDDLE:
+      elem->corner.y = center.y - elem->height/2;
+      break;
+    case ANCHOR_END:
+      elem->corner.y = bottom_right.y - elem->height;
+      break;
+    case ANCHOR_START:
+    default:
+      break;
   }
 
   p = elem->corner;
-  if (other->type==AGENT)
+  if (other->type == AGENT) {
     p.x += (AGENT_LEFT+elem->width) / 2.0;
-  else
+  } else {
     p.x += elem->width / 2.0;
+  }
 
   p.y += elem->height / 2.0 - other->text->height * other->text->numlines / 2 +
     other->text->ascent;
-  text_set_position(other->text, &p);
+  text_set_position (other->text, &p);
 
   extra->border_trans = OTHER_LINE_DOUBLE_WIDTH / 2.0;
-  element_update_boundingbox(elem);
+  element_update_boundingbox (elem);
 
   obj->position = elem->corner;
 
-  element_update_handles(elem);
+  element_update_handles (elem);
 
   /* Update connections: */
   nw = elem->corner;
@@ -439,76 +497,103 @@ other_update_data(Other *other, AnchorShape horiz, AnchorShape vert)
   sw.y = se.y;
   sw.x = nw.x;
 
-  connpointline_update(other->north);
-  connpointline_putonaline(other->north,&ne,&nw,DIR_NORTH);
-  connpointline_update(other->west);
-  connpointline_putonaline(other->west,&nw,&sw,DIR_WEST);
-  connpointline_update(other->south);
-  connpointline_putonaline(other->south,&sw,&se,DIR_SOUTH);
-  connpointline_update(other->east);
-  connpointline_putonaline(other->east,&se,&ne,DIR_EAST);
+  connpointline_update (other->north);
+  connpointline_putonaline(other->north, &ne, &nw, DIR_NORTH);
+  connpointline_update (other->west);
+  connpointline_putonaline (other->west, &nw, &sw, DIR_WEST);
+  connpointline_update (other->south);
+  connpointline_putonaline (other->south, &sw, &se, DIR_SOUTH);
+  connpointline_update (other->east);
+  connpointline_putonaline (other->east, &se, &ne, DIR_EAST);
 
   other->center_cp.pos.x = (nw.x + se.x) / 2;
   other->center_cp.pos.y = (nw.y + se.y) / 2;
 }
 
+
 static ConnPointLine *
-other_get_clicked_border(Other *other, Point *clicked)
+other_get_clicked_border (Other *other, Point *clicked)
 {
   ConnPointLine *cpl;
   real dist,dist2;
 
   cpl = other->north;
-  dist = distance_line_point(&other->north->start,&other->north->end,0,clicked);
+  dist = distance_line_point (&other->north->start,
+                              &other->north->end,
+                              0,
+                              clicked);
 
-  dist2 = distance_line_point(&other->west->start,&other->west->end,0,clicked);
+  dist2 = distance_line_point (&other->west->start,
+                               &other->west->end,
+                               0,
+                               clicked);
+
   if (dist2 < dist) {
     cpl = other->west;
     dist = dist2;
   }
-  dist2 = distance_line_point(&other->south->start,&other->south->end,0,clicked);
+
+  dist2 = distance_line_point (&other->south->start,
+                               &other->south->end,
+                               0,
+                               clicked);
+
   if (dist2 < dist) {
     cpl = other->south;
     dist = dist2;
   }
-  dist2 = distance_line_point(&other->east->start,&other->east->end,0,clicked);
+
+  dist2 = distance_line_point (&other->east->start,
+                               &other->east->end,
+                               0,
+                               clicked);
+
   if (dist2 < dist) {
     cpl = other->east;
     /*dist = dist2;*/
   }
+
   return cpl;
 }
 
-inline static ObjectChange *
-other_create_change(Other *other, ObjectChange *inner, ConnPointLine *cpl) {
-  return (ObjectChange *)inner;
-}
 
-static ObjectChange *
-other_add_connpoint_callback(DiaObject *obj, Point *clicked, gpointer data)
+inline static DiaObjectChange *
+other_create_change (Other           *other,
+                     DiaObjectChange *inner,
+                     ConnPointLine   *cpl)
 {
-  ObjectChange *change;
-  ConnPointLine *cpl;
-  Other *other = (Other *)obj;
-
-  cpl = other_get_clicked_border(other,clicked);
-  change = connpointline_add_point(cpl, clicked);
-  other_update_data((Other *)obj,ANCHOR_MIDDLE, ANCHOR_MIDDLE);
-  return other_create_change(other,change,cpl);
+  return (DiaObjectChange *) inner;
 }
 
-static ObjectChange *
-other_remove_connpoint_callback(DiaObject *obj, Point *clicked, gpointer data)
+
+static DiaObjectChange *
+other_add_connpoint_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
-  ObjectChange *change;
+  DiaObjectChange *change;
   ConnPointLine *cpl;
-  Other *other = (Other *)obj;
+  Other *other = (Other *) obj;
 
-  cpl = other_get_clicked_border(other,clicked);
-  change = connpointline_remove_point(cpl, clicked);
-  other_update_data((Other *)obj,ANCHOR_MIDDLE, ANCHOR_MIDDLE);
-  return other_create_change(other,change,cpl);
+  cpl = other_get_clicked_border (other,clicked);
+  change = connpointline_add_point (cpl, clicked);
+  other_update_data ((Other *) obj, ANCHOR_MIDDLE, ANCHOR_MIDDLE);
+
+  return other_create_change (other, change, cpl);
 }
+
+
+static DiaObjectChange *
+other_remove_connpoint_callback (DiaObject *obj, Point *clicked, gpointer data)
+{
+  DiaObjectChange *change;
+  ConnPointLine *cpl;
+  Other *other = (Other *) obj;
+
+  cpl = other_get_clicked_border (other, clicked);
+  change = connpointline_remove_point (cpl, clicked);
+  other_update_data((Other *) obj, ANCHOR_MIDDLE, ANCHOR_MIDDLE);
+  return other_create_change (other, change, cpl);
+}
+
 
 static DiaMenuItem object_menu_items[] = {
   { N_("Add connection point"), other_add_connpoint_callback, NULL, 1 },
@@ -548,7 +633,7 @@ other_create(Point *startpoint,
   Point p;
   DiaFont* font;
 
-  other = g_malloc0(sizeof(Other));
+  other = g_new0 (Other, 1);
   elem = &other->element;
   obj = &elem->object;
 
@@ -568,11 +653,13 @@ other_create(Point *startpoint,
 
   font = dia_font_new_from_style( DIA_FONT_SANS , DEFAULT_FONT);
 
-  other->text = new_text("", font,
-                       DEFAULT_FONT, &p,
-                       &color_black,
-                       ALIGN_CENTER);
-  dia_font_unref(font);
+  other->text = new_text ("",
+                          font,
+                          DEFAULT_FONT,
+                          &p,
+                          &color_black,
+                          DIA_ALIGN_CENTRE);
+  g_clear_object (&font);
 
   element_init(elem, 8, 1);
 
@@ -597,8 +684,6 @@ other_create(Point *startpoint,
     case 1:  other->type=AGENT; break;
     default: other->type=AGENT; break;
   }
-
-  if (GPOINTER_TO_INT(user_data)!=0) other->init=-1; else other->init=0;
 
   return &other->element.object;
 }

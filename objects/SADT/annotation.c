@@ -21,14 +21,14 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
 
-#include "intl.h"
 #include "object.h"
 #include "connection.h"
 #include "diarenderer.h"
@@ -57,10 +57,10 @@ typedef struct _Annotation {
 
 #define HANDLE_MOVE_TEXT (HANDLE_CUSTOM1)
 
-static ObjectChange* annotation_move_handle(Annotation *annotation, Handle *handle,
+static DiaObjectChange* annotation_move_handle(Annotation *annotation, Handle *handle,
 					    Point *to, ConnectionPoint *cp,
 					    HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* annotation_move(Annotation *annotation, Point *to);
+static DiaObjectChange* annotation_move(Annotation *annotation, Point *to);
 static void annotation_select(Annotation *annotation, Point *clicked_point,
 			      DiaRenderer *interactive_renderer);
 static void annotation_draw(Annotation *annotation, DiaRenderer *renderer);
@@ -190,7 +190,7 @@ static real
 annotation_distance_from(Annotation *annotation, Point *point)
 {
   Point *endpoints;
-  Rectangle bbox;
+  DiaRectangle bbox;
   endpoints = &annotation->connection.endpoints[0];
 
   text_calc_boundingbox(annotation->text,&bbox);
@@ -209,7 +209,7 @@ annotation_select(Annotation *annotation, Point *clicked_point,
   connection_update_handles(&annotation->connection);
 }
 
-static ObjectChange*
+static DiaObjectChange*
 annotation_move_handle(Annotation *annotation, Handle *handle,
 		       Point *to, ConnectionPoint *cp,
 		       HandleMoveReason reason, ModifierKeys modifiers)
@@ -249,7 +249,7 @@ annotation_move_handle(Annotation *annotation, Handle *handle,
   return NULL;
 }
 
-static ObjectChange*
+static DiaObjectChange*
 annotation_move(Annotation *annotation, Point *to)
 {
   Point start_to_end;
@@ -273,50 +273,50 @@ annotation_move(Annotation *annotation, Point *to)
 }
 
 static void
-annotation_draw(Annotation *annotation, DiaRenderer *renderer)
+annotation_draw (Annotation *annotation, DiaRenderer *renderer)
 {
   Point vect,rvect,v1,v2;
   Point pts[4];
   real vlen;
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
 
-  assert(annotation != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (annotation != NULL);
+  g_return_if_fail (renderer != NULL);
 
-  renderer_ops->set_linewidth(renderer, ANNOTATION_LINE_WIDTH);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
-  renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
+  dia_renderer_set_linewidth (renderer, ANNOTATION_LINE_WIDTH);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
 
   vect = annotation->connection.endpoints[1];
-  point_sub(&vect,&annotation->connection.endpoints[0]);
-  vlen = distance_point_point(&annotation->connection.endpoints[0],
-			      &annotation->connection.endpoints[1]);
+  point_sub (&vect,&annotation->connection.endpoints[0]);
+  vlen = distance_point_point (&annotation->connection.endpoints[0],
+                               &annotation->connection.endpoints[1]);
   if (vlen > 0.0) {
     /* draw the squiggle */
-    point_scale(&vect,1/vlen);
+    point_scale (&vect,1/vlen);
     rvect.y = vect.x;
     rvect.x = -vect.y;
 
     pts[0] = annotation->connection.endpoints[0];
     pts[1] = annotation->connection.endpoints[0];
     v1 = vect;
-    point_scale(&v1,.5*vlen);
-    point_add(&pts[1],&v1);
+    point_scale (&v1,.5*vlen);
+    point_add (&pts[1],&v1);
     pts[2] = pts[1];
     /* pts[1] and pts[2] are currently both at the middle of (pts[0],pts[3]) */
     v1 = vect;
-    point_scale(&v1,ANNOTATION_ZLEN);
+    point_scale (&v1,ANNOTATION_ZLEN);
     v2 = rvect;
-    point_scale(&v2,ANNOTATION_ZLEN);
-    point_sub(&v1,&v2);
-    point_add(&pts[1],&v1);
-    point_sub(&pts[2],&v1);
+    point_scale (&v2,ANNOTATION_ZLEN);
+    point_sub (&v1,&v2);
+    point_add (&pts[1],&v1);
+    point_sub (&pts[2],&v1);
     pts[3] = annotation->connection.endpoints[1];
-    renderer_ops->draw_polyline(renderer,
-			     pts, sizeof(pts) / sizeof(pts[0]),
-			     &annotation->line_color);
+    dia_renderer_draw_polyline (renderer,
+                                pts,
+                                sizeof(pts) / sizeof(pts[0]),
+                                &annotation->line_color);
   }
-  text_draw(annotation->text,renderer);
+  text_draw (annotation->text,renderer);
 }
 
 static DiaObject *
@@ -333,7 +333,7 @@ annotation_create(Point *startpoint,
   Point defaultlen = { 1.0, 1.0 };
   DiaFont* font;
 
-  annotation = g_malloc0(sizeof(Annotation));
+  annotation = g_new0 (Annotation, 1);
 
   conn = &annotation->connection;
   conn->endpoints[0] = *startpoint;
@@ -350,13 +350,14 @@ annotation_create(Point *startpoint,
 
   annotation->line_color = color_black;
 
-  font = dia_font_new_from_style(DIA_FONT_SANS,ANNOTATION_FONTHEIGHT);
-  annotation->text = new_text("", font,
-                              ANNOTATION_FONTHEIGHT,
-                              &conn->endpoints[1],
-                              &color_black,
-                              ALIGN_CENTER);
-  dia_font_unref(font);
+  font = dia_font_new_from_style (DIA_FONT_SANS, ANNOTATION_FONTHEIGHT);
+  annotation->text = new_text ("",
+                               font,
+                               ANNOTATION_FONTHEIGHT,
+                               &conn->endpoints[1],
+                               &color_black,
+                               DIA_ALIGN_CENTRE);
+  g_clear_object (&font);
 
   offs.x = .3 * ANNOTATION_FONTHEIGHT;
   if (conn->endpoints[1].y < conn->endpoints[0].y)
@@ -396,7 +397,7 @@ annotation_update_data(Annotation *annotation)
 {
   Connection *conn = &annotation->connection;
   DiaObject *obj = &conn->object;
-  Rectangle textrect;
+  DiaRectangle textrect;
 
   if (connpoint_is_autogap(conn->endpoint_handles[0].connected_to) ||
       connpoint_is_autogap(conn->endpoint_handles[1].connected_to)) {

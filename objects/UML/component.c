@@ -16,13 +16,13 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "diarenderer.h"
@@ -60,10 +60,10 @@ struct _Component {
 static real component_distance_from(Component *cmp, Point *point);
 static void component_select(Component *cmp, Point *clicked_point,
 				DiaRenderer *interactive_renderer);
-static ObjectChange* component_move_handle(Component *cmp, Handle *handle,
+static DiaObjectChange* component_move_handle(Component *cmp, Handle *handle,
 					   Point *to, ConnectionPoint *cp,
 					   HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* component_move(Component *cmp, Point *to);
+static DiaObjectChange* component_move(Component *cmp, Point *to);
 static void component_draw(Component *cmp, DiaRenderer *renderer);
 static DiaObject *component_create(Point *startpoint,
 				   void *user_data,
@@ -166,8 +166,7 @@ component_set_props(Component *component, GPtrArray *props)
 {
   object_set_props_from_offsets(&component->element.object,
                                 component_offsets, props);
-  g_free(component->st_stereotype);
-  component->st_stereotype = NULL;
+  g_clear_pointer (&component->st_stereotype, g_free);
   component_update_data(component);
 }
 
@@ -179,9 +178,9 @@ component_distance_from(Component *cmp, Point *point)
   real y = elem->corner.y;
   real cw2 = COMPONENT_CWIDTH/2.0;
   real h2 = elem->height / 2.0;
-  Rectangle r1 = { x + cw2, y, x + elem->width - cw2, y + elem->height };
-  Rectangle r2 = { x, y + h2 - COMPONENT_CHEIGHT * 1.5, x + cw2, y + h2 - COMPONENT_CHEIGHT * 0.5 };
-  Rectangle r3 = { x, y + h2 + COMPONENT_CHEIGHT * 0.5, x + cw2, y + h2 + COMPONENT_CHEIGHT * 1.5 };
+  DiaRectangle r1 = { x + cw2, y, x + elem->width - cw2, y + elem->height };
+  DiaRectangle r2 = { x, y + h2 - COMPONENT_CHEIGHT * 1.5, x + cw2, y + h2 - COMPONENT_CHEIGHT * 0.5 };
+  DiaRectangle r3 = { x, y + h2 + COMPONENT_CHEIGHT * 0.5, x + cw2, y + h2 + COMPONENT_CHEIGHT * 1.5 };
   real d1 = distance_rectangle_point(&r1, point);
   real d2 = distance_rectangle_point(&r2, point);
   real d3 = distance_rectangle_point(&r3, point);
@@ -197,21 +196,25 @@ component_select(Component *cmp, Point *clicked_point,
   element_update_handles(&cmp->element);
 }
 
-static ObjectChange*
-component_move_handle(Component *cmp, Handle *handle,
-		      Point *to, ConnectionPoint *cp,
-		      HandleMoveReason reason, ModifierKeys modifiers)
-{
-  assert(cmp!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
 
-  assert(handle->id < 8);
+static DiaObjectChange *
+component_move_handle (Component        *cmp,
+                       Handle           *handle,
+                       Point            *to,
+                       ConnectionPoint  *cp,
+                       HandleMoveReason  reason,
+                       ModifierKeys      modifiers)
+{
+  g_return_val_if_fail (cmp != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
+
+  g_return_val_if_fail (handle->id < 8, NULL);
 
   return NULL;
 }
 
-static ObjectChange*
+static DiaObjectChange*
 component_move(Component *cmp, Point *to)
 {
   cmp->element.corner = *to;
@@ -221,16 +224,16 @@ component_move(Component *cmp, Point *to)
   return NULL;
 }
 
+
 static void
-component_draw(Component *cmp, DiaRenderer *renderer)
+component_draw (Component *cmp, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Element *elem;
-  real x, y, w, h;
+  double x, y, w, h;
   Point p1, p2;
 
-  assert(cmp != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (cmp != NULL);
+  g_return_if_fail (renderer != NULL);
 
   elem = &cmp->element;
 
@@ -239,44 +242,50 @@ component_draw(Component *cmp, DiaRenderer *renderer)
   w = elem->width;
   h = elem->height;
 
-  renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
-  renderer_ops->set_linewidth(renderer, COMPONENT_BORDERWIDTH);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
+  dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+  dia_renderer_set_linewidth (renderer, COMPONENT_BORDERWIDTH);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
 
   p1.x = x + COMPONENT_CWIDTH/2; p1.y = y;
   p2.x = x+w; p2.y = y+h;
 
-  renderer_ops->draw_rect(renderer,
-			   &p1, &p2,
-			   &cmp->fill_color,
-			   &cmp->line_color);
+  dia_renderer_draw_rect (renderer,
+                          &p1,
+                          &p2,
+                          &cmp->fill_color,
+                          &cmp->line_color);
 
   p1.x= x; p1.y = y +(h - 3*COMPONENT_CHEIGHT)/2.0;
   p2.x = x+COMPONENT_CWIDTH; p2.y = p1.y + COMPONENT_CHEIGHT;
 
-  renderer_ops->draw_rect(renderer,
-			   &p1, &p2,
-			   &cmp->fill_color,
-			   &cmp->line_color);
+  dia_renderer_draw_rect (renderer,
+                          &p1,
+                          &p2,
+                          &cmp->fill_color,
+                          &cmp->line_color);
 
   p1.y = p2.y + COMPONENT_CHEIGHT;
   p2.y = p1.y + COMPONENT_CHEIGHT;
 
-  renderer_ops->draw_rect(renderer,
-			   &p1, &p2,
-			   &cmp->fill_color,
-			   &cmp->line_color);
+  dia_renderer_draw_rect (renderer,
+                          &p1,
+                          &p2,
+                          &cmp->fill_color,
+                          &cmp->line_color);
 
   if (cmp->st_stereotype != NULL &&
       cmp->st_stereotype[0] != '\0') {
     p1 = cmp->text->position;
     p1.y -= cmp->text->height;
-    renderer_ops->set_font(renderer, cmp->text->font, cmp->text->height);
-    renderer_ops->draw_string(renderer, cmp->st_stereotype, &p1,
-			       ALIGN_LEFT, &cmp->text->color);
+    dia_renderer_set_font (renderer, cmp->text->font, cmp->text->height);
+    dia_renderer_draw_string (renderer,
+                              cmp->st_stereotype,
+                              &p1,
+                              DIA_ALIGN_LEFT,
+                              &cmp->text->color);
   }
 
-  text_draw(cmp->text, renderer);
+  text_draw (cmp->text, renderer);
 }
 
 static void
@@ -387,7 +396,7 @@ component_create(Point *startpoint,
   DiaFont *font;
   int i;
 
-  cmp = g_malloc0(sizeof(Component));
+  cmp = g_new0 (Component, 1);
   elem = &cmp->element;
   obj = &elem->object;
 
@@ -404,11 +413,11 @@ component_create(Point *startpoint,
   p.x += COMPONENT_CWIDTH + COMPONENT_MARGIN_X;
   p.y += 2*COMPONENT_CHEIGHT;
 
-  cmp->text = new_text("", font, 0.8, &p, &color_black, ALIGN_LEFT);
+  cmp->text = new_text ("", font, 0.8, &p, &color_black, DIA_ALIGN_LEFT);
 
-  dia_font_unref(font);
+  g_clear_object (&font);
 
-  element_init(elem, 8, NUM_CONNECTIONS);
+  element_init (elem, 8, NUM_CONNECTIONS);
 
   for (i=0;i<NUM_CONNECTIONS;i++) {
     obj->connections[i] = &cmp->connections[i];
@@ -434,8 +443,8 @@ static void
 component_destroy(Component *cmp)
 {
   text_destroy(cmp->text);
-  g_free(cmp->stereotype);
-  g_free(cmp->st_stereotype);
+  g_clear_pointer (&cmp->stereotype, g_free);
+  g_clear_pointer (&cmp->st_stereotype, g_free);
   element_destroy(&cmp->element);
 }
 

@@ -16,11 +16,12 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-/** @file object.h -- definitions for Dia objects, in particular the 'virtual'
+/*
+ * Definitions for Dia objects, in particular the 'virtual'
  * functions and the object and type structures.
  */
-#ifndef DIA_OBJECT_H
-#define DIA_OBJECT_H
+
+#pragma once
 
 #include "diatypes.h"
 #include <gtk/gtk.h>
@@ -29,23 +30,46 @@
 #include "connectionpoint.h"
 #include "handle.h"
 #include "diamenu.h"
-#include "objchange.h"
 #include "dia_xml.h"
 #include "text.h"
 #include "diacontext.h"
+#include "diarenderer.h"
+#include "dia-object-change.h"
+#include "properties.h"
+#include "widgets.h"
 
 G_BEGIN_DECLS
 
-/** Flags for DiaObject */
+#define DIA_TYPE_EXCHANGE_OBJECT_CHANGE dia_exchange_object_change_get_type ()
+G_DECLARE_FINAL_TYPE (DiaExchangeObjectChange,
+                      dia_exchange_object_change,
+                      DIA, EXCHANGE_OBJECT_CHANGE,
+                      DiaObjectChange)
+
+
+/**
+ * DiaObjectFlags:
+ *
+ * Flags for DiaObject
+ */
 typedef enum {
-  /** Set this if the DiaObject can 'contain' other objects that move with
-   *  it, a.k.a. be a parent.  A parent moves its children along and
-   *  constricts its children to live inside its borders.
+  /* Set this if the DiaObject can 'contain' other objects that move with
+   * it, a.k.a. be a parent.  A parent moves its children along and
+   * constricts its children to live inside its borders.
    */
-  DIA_OBJECT_CAN_PARENT = 1
+  DIA_OBJECT_CAN_PARENT = 1,
+  /* Set this if the DiaObject uses its user_data to store a 'variant', a
+   * unique style represented by an integer (like which logic gate or border
+   * style to use).
+   */
+  DIA_OBJECT_HAS_VARIANTS = 2,
 } DiaObjectFlags;
 
-/** This enumeration gives a bitset of modifier keys currently held down.
+
+/**
+ * ModifierKeys:
+ *
+ * This enumeration gives a bitset of modifier keys currently held down.
  */
 typedef enum {
   MODIFIER_NONE,
@@ -143,7 +167,7 @@ typedef void (*SaveFunc) (DiaObject* obj, ObjectNode obj_node,
  *
  * \public \memberof _DiaObjectType
  */
-typedef GtkWidget *(*GetDefaultsFunc) ();
+typedef GtkWidget *(*GetDefaultsFunc) (void);
 
 /*!
  * \brief Apply the defaults from the default object dialog (deprecated)
@@ -153,7 +177,7 @@ typedef GtkWidget *(*GetDefaultsFunc) ();
  *
  * \public \memberof _DiaObjectType
  */
-typedef void *(*ApplyDefaultsFunc) ();
+typedef void *(*ApplyDefaultsFunc) (void);
 
 /*** Object operations ***/
 
@@ -171,254 +195,38 @@ typedef void *(*ApplyDefaultsFunc) ();
  */
 typedef void (*DestroyFunc) (DiaObject* obj);
 
+// TODO: Actually check the cast with GType
+#define DIA_OBJECT(object) ((DiaObject *) object)
 
-/*!
- * \brief Function responsible for drawing the object.
- *
- * Every drawing must be done through the use of the Renderer, so that we
- * can render the picture on screen, in an eps file, ...
- *
- * @param The object to draw.
- * @param The renderer object to draw with.
- *
- * \public \memberof _DiaObject
- */
 typedef void (*DrawFunc) (DiaObject* obj, DiaRenderer* ddisp);
-
-
-/*!
- * \brief Calculate the distance between the _DiaObject and the Point.
- *
- * Several functions are provided in geometry.h to facilitate this calculus.
- *
- * @param obj The object.
- * @param point A point to give the distance to.
- * @return The distance from the point to the nearest part of the object.
- *         If the point is inside a closed object, return 0.0.
- * \public \memberof _DiaObject
- */
-typedef real (*DistanceFunc) (DiaObject* obj, Point* point);
-
-
-/*!
- * \brief Activate the selected state of the _DiaObject
- *
- *  Function called once the object has been selected.
- *  Basically, this function should update the object (position of the
- *  handles,...)
- *  This function should not redraw the object.
- *
- * @param obj An object that is being selected.
- * @param clicked_point is the point on the screen where the user has clicked
- * @param interactive_renderer is a renderer that has some extra functions
- *                        most notably the possibility to get EXACT
- *			 measures of strings. Used to place cursors
- *			 and other interactive stuff.
- *			 (Don't draw to the renderer)
- * \public \memberof _DiaObject
- */
+typedef double (*DistanceFunc) (DiaObject* obj, Point* point);
 typedef void (*SelectFunc) (DiaObject*   obj,
 			    Point*    clicked_point,
 			    DiaRenderer* interactive_renderer);
-
-/*!
- * \brief Copy constructor of _DiaObject.
- *
- *  This must be an depth-copy (pointers must be duplicated and so on)
- *  as the initial object can be deleted any time.
- *
- * @param obj An object to make a copy of.
- * @return A newly allocated object copied from `obj', but without any
- *         connections to other objects.
- * \public \memberof _DiaObject
- */
 typedef DiaObject* (*CopyFunc) (DiaObject* obj);
-
-/*!
- * \brief Function called to move the entire object.
- *
- * @param obj The object being moved.
- * @param pos Where the object is being moved to.
- *  Its exact definition depends on the object. It is the point on the
- *  object that 'snaps' to the grid if that is enabled. (generally it
- *  is the upper left corner)
- * @return An ObjectChange* with additional undo information, or
- * (in most cases) NULL.  Undo for moving the object itself is handled
- * elsewhere.
- * \public \memberof _DiaObject
- */
-typedef ObjectChange* (*MoveFunc) (DiaObject* obj, Point * pos);
-
-/*!
- * \brief Function called to move one of the handles associated with the object.
- *
- * @param obj The object whose handle is being moved.
- * @param handle The handle being moved.
- * @param pos The position it has been moved to (corrected for
- *   vertical/horizontal only movement).
- * @param cp If non-NULL, the connectionpoint found at this position.
- *   If @a cp is NULL, there may or may not be a connectionpoint.
- * @param The reason the handle was moved.
- *     - HANDLE_MOVE_USER means the user is dragging the point.
- *     - HANDLE_MOVE_USER_FINAL means the user let go of the point.
- *     - HANDLE_MOVE_CONNECTED means it was moved because something
- *       it was connected to moved.
- *     - HANDLE_MOVE_CREATE_FINAL: is given for resizing during creation
- *   None of the given reasons is a reason to decline movement, typical
- *   object implementations can safely ignore this parameter.
- * @param modifiers gives a bitset of modifier keys currently held down
- *     - MODIFIER_SHIFT is either shift key
- *     - MODIFIER_ALT is either alt key
- *     - MODIFIER_CONTROL is either control key
- *	    Each has MODIFIER_LEFT_* and MODIFIER_RIGHT_* variants
- * @return An @a ObjectChange* with additional undo information, or
- *  (in most cases) NULL.  Undo for moving the handle itself is handled
- *  elsewhere.
- * \public \memberof _DiaObject
- */
-typedef ObjectChange* (*MoveHandleFunc) (DiaObject*          obj,
-					 Handle*          handle,
-					 Point*           pos,
-					 ConnectionPoint* cp,
-					 HandleMoveReason reason,
-					 ModifierKeys     modifiers);
-
-/*!
- * \brief Function called when the user has double clicked on an DiaObject.
- *
- * @param obj An obj that this dialog is being made for.
- * @param is_default If true, this dialog is for object defaults, and
- * the toolbox options should not be shown.
- * @return A dialog to edit the properties of the object.
- * When this function is called and the dialog already is created,
- * make sure to update the values in the widgets so that it
- * accurately describes the current state of the object.
- * Remember to destroy this dialog when the object is destroyed!
-
- * Note that if you want to use the same dialog multiple times,
- * you should ref it first.  Just run the following on the widget
- * when you create it:
- *   g_object_ref_sink(widget);
- * If you don't do this, the widget will be destroyed when the
- * properties dialog is closed.
- * \public \memberof _DiaObject
- */
-typedef GtkWidget *(*GetPropertiesFunc) (DiaObject* obj, gboolean is_default);
-
-/*!
- * \brief Function is called when the user clicks on the "Apply" button.
- *
- *  The widget parameter is the one created by
- *  the get_properties function.
- *
- * @param obj The object whose dialog has had its Apply button clicked.
- * @param widget The properties dialog being applied.
- * @return a Change that can be used for undo/redo.
- * The returned change is already applied.
- * \public \memberof _DiaObject
- */
-typedef ObjectChange *(*ApplyPropertiesDialogFunc) (DiaObject* obj, GtkWidget *widget);
-
-/*!
- * \brief Function used to apply a list of properties to the object.
- *
- *  It is typically called by ApplyPropertiesDialogFunc. This
- *  is different from SetPropsFunc since this is used to implement
- *  undo/redo.
- *
- * @param obj The object to which properties are to be applied
- * @param props The list of properties that are to be applied
- * @return a Change for undo/redo
- * \public \memberof _DiaObject
- */
- typedef ObjectChange *(*ApplyPropertiesListFunc) (DiaObject* obj, GPtrArray* props);
-
-/*!
- * \brief Describe the properties that this object supports.
- *
- * @param obj The object whose properties we want described.
- * @return a NULL-terminated array of property descriptions.
- * As the const return implies the returned data is not owned by the
- * caller. If this function returns a dynamically created description,
- * then DestroyFunc must free the description.
- * \public \memberof _DiaObject
- */
-typedef const PropDescription *(* DescribePropsFunc) (DiaObject *obj);
-
-/*!
- * \brief Get the actual values of the properties given.
- *
- * Note that the props array need not contain all the properties
- * defined for the object, nor do all the properties in the array need be
- * defined for the object.  All properties in the props array that are
- * actually set will be set.
- *
- * @param obj An object that delivers the values.
- * @param props A list of Property objects whose values are to be set based
- *              on the objects internal data.  The types for the objects are
- *              also being set as a side-effect.
- * \public \memberof _DiaObject
- */
+typedef DiaObjectChange       *(*MoveFunc)                  (DiaObject        *obj,
+                                                             Point            *pos);
+typedef DiaObjectChange       *(*MoveHandleFunc)            (DiaObject        *obj,
+                                                             Handle           *handle,
+                                                             Point            *pos,
+                                                             ConnectionPoint  *cp,
+                                                             HandleMoveReason  reason,
+                                                             ModifierKeys      modifiers);
+typedef GtkWidget             *(*GetPropertiesFunc)         (DiaObject        *obj,
+                                                             gboolean          is_default);
+typedef DiaObjectChange       *(*ApplyPropertiesDialogFunc) (DiaObject        *obj,
+                                                             GtkWidget        *widget);
+typedef DiaObjectChange       *(*ApplyPropertiesListFunc)   (DiaObject        *obj,
+                                                             GPtrArray        *props);
+typedef const PropDescription *(*DescribePropsFunc)         (DiaObject        *obj);
 typedef void (* GetPropsFunc) (DiaObject *obj, GPtrArray *props);
-
-/*!
- * \brief Set the object to have the values defined in the properties list.
- *
- * Note that the props array may contain more or fewer properties than the
- * object defines, but only and all the ones defined for the object will
- * be applied to the object.
- *
- * @param obj An object to update values on.
- * @param props An array of Property objects whose values are to be set on
- *              the object.
- * \public \memberof _DiaObject
- */
 typedef void (* SetPropsFunc) (DiaObject *obj, GPtrArray *props);
-
-/*!
- * \brief Return an object-specific menu with toggles etc. properly set.
- *
- * @param obj The object that is selected when the object menu is asked for.
- * @param position Where the user clicked.  This can be used to place whatever
- * the menu point may create, such as new segment corners.
- * @return A menu description with values set appropriately for this object.
- * The description object must not be freed by the caller.
- * \public \memberof _DiaObject
- */
 typedef DiaMenu *(*ObjectMenuFunc) (DiaObject* obj, Point *position);
-
-/*!
- * \brief Update the text part of an object
- *
- * This function, if not null, will be called every time the text is changed
- * or editing starts or stops.
- *
- * @param obj The self object
- * @param text The text entry being edited
- * @param state The state of the editing, either TEXT_EDIT_START,
- * TEXT_EDIT_INSERT, TEXT_EDIT_DELETE, or TEXT_EDIT_END.
- * @param textchange For TEXT_EDIT_INSERT, the text about to be inserted.
- * For TEXT_EDIT_DELETE, the text about to be deleted.
- * @return For TEXT_EDIT_INSERT and TEXT_EDIT_DELETE, TRUE this change
- * will be allowed, FALSE otherwise.  For TEXT_EDIT_START and TEXT_EDIT_END,
- * the return value is ignored.
- * \public \memberof _DiaObject
- */
 typedef gboolean (*TextEditFunc) (DiaObject *obj, Text *text, TextEditState state, gchar *textchange);
-
-/*!
- * \brief Transform the object with the given matrix
- *
- * This function - if not null - will apply the transformation matrix to the
- * object. It should be implemented for every standard object, because it's
- * main use-case is the support of transformations from SVG.
- *
- * @param obj Explicit this pointer
- * @param m The transformation matrix
- * @returns TRUE if the matrix can be applied to the object, FALSE otherwise.
- * \public \memberof _DiaObject
- */
 typedef gboolean (*TransformFunc) (DiaObject *obj, const DiaMatrix *m);
+
+
+
 
 /*************************************
  **  The functions provided in object.c
@@ -432,12 +240,16 @@ void object_copy(DiaObject *from, DiaObject *to);
 void object_save(DiaObject *obj, ObjectNode obj_node, DiaContext *ctx);
 void object_load(DiaObject *obj, ObjectNode obj_node, DiaContext *ctx);
 
-GList *object_copy_list(GList *list);
-ObjectChange* object_list_move_delta_r(GList *objects, Point *delta, gboolean affected);
-ObjectChange* object_list_move_delta(GList *objects, Point *delta);
-ObjectChange *object_substitute (DiaObject *obj, DiaObject *subst);
+GList *object_copy_list (GList *list_orig );
+DiaObjectChange *object_list_move_delta_r (GList     *objects,
+                                           Point     *delta,
+                                           gboolean   affected);
+DiaObjectChange *object_list_move_delta   (GList     *objects,
+                                           Point     *delta);
+DiaObjectChange *object_substitute        (DiaObject *obj,
+                                           DiaObject *subst);
 
-void destroy_object_list(GList *list);
+void destroy_object_list (GList *list_to_be_destroyed);
 void object_add_handle(DiaObject *obj, Handle *handle);
 void object_add_handle_at(DiaObject *obj, Handle *handle, int pos);
 void object_remove_handle(DiaObject *obj, Handle *handle);
@@ -479,25 +291,43 @@ DiaObject *object_copy_using_properties(DiaObject *obj);
 */
 struct _ObjectOps {
   DestroyFunc         destroy;
-  DrawFunc            draw;
-  DistanceFunc        distance_from;
-  SelectFunc          selectf;
-  CopyFunc            copy;
-  MoveFunc            move;
-  MoveHandleFunc      move_handle;
-  GetPropertiesFunc   get_properties;
-  ApplyPropertiesDialogFunc  apply_properties_from_dialog;
-  ObjectMenuFunc      get_object_menu;
 
-  DescribePropsFunc   describe_props;
-  GetPropsFunc        get_props;
-  SetPropsFunc        set_props;
+  void                   (*draw)                         (DiaObject        *obj,
+                                                          DiaRenderer      *ddisp);
+  double                 (*distance_from)                (DiaObject        *obj,
+                                                          Point            *point);
+  void                   (*selectf)                      (DiaObject        *obj,
+                                                          Point            *clicked_point,
+                                                          DiaRenderer      *interactive_renderer);
+  DiaObject             *(*copy)                         (DiaObject        *obj);
+  DiaObjectChange       *(*move)                         (DiaObject        *obj,
+                                                          Point            *pos);
+  DiaObjectChange       *(*move_handle)                  (DiaObject        *obj,
+                                                          Handle           *handle,
+                                                          Point            *pos,
+                                                          ConnectionPoint  *cp,
+                                                          HandleMoveReason  reason,
+                                                          ModifierKeys      modifiers);
+  GtkWidget             *(*get_properties)               (DiaObject        *obj,
+                                                          gboolean          is_default);
+  DiaObjectChange       *(*apply_properties_from_dialog) (DiaObject        *obj,
+                                                          GtkWidget        *widget);
+  DiaMenu               *(*get_object_menu)              (DiaObject        *obj,
+                                                          Point            *position);
+  const PropDescription *(*describe_props)               (DiaObject        *obj);
+  void                   (*get_props)                    (DiaObject        *obj,
+                                                          GPtrArray        *props);
+  void                   (*set_props)                    (DiaObject        *obj,
+                                                          GPtrArray        *props);
+  gboolean               (*edit_text)                    (DiaObject        *obj,
+                                                          Text             *text,
+                                                          TextEditState     state,
+                                                          gchar            *textchange);
+  DiaObjectChange       *(*apply_properties_list)        (DiaObject        *obj,
+                                                          GPtrArray        *props);
+  gboolean               (*transform)                    (DiaObject        *obj,
+                                                          const DiaMatrix  *m);
 
-  TextEditFunc        edit_text;
-
-  ApplyPropertiesListFunc apply_properties_list;
-  /*! check for NULL before calling */
-  TransformFunc       transform;
   /*!
     Unused places (for extension).
     These should be NULL for now. In the future they might be used.
@@ -506,6 +336,12 @@ struct _ObjectOps {
   */
   void      (*unused[3])(DiaObject *obj,...);
 };
+
+// #ifdef _DIA_OBJECT_BUILD
+# define _DIA_OBJECT_FIELD(type,name)      type name
+// #else
+// # define _DIA_OBJECT_FIELD(type,name)      type __graphene_private_##name
+// #endif
 
 /*!
   \brief Base class for all of Dia's objects, i.e. diagram building blocks
@@ -523,7 +359,7 @@ struct _DiaObject {
   DiaObjectType    *type; /*!< pointer to the registered type */
   Point             position; /*!<  often but not necessarily the upper left corner of the object */
   /*!
-   * \brief Rectangle containing the whole object
+   * \brief DiaRectangle containing the whole object
    *
    * The area that contains all parts of the 'real' object, i.e. the parts
    *  that would be printed, exported to pixmaps etc.  This is also used to
@@ -534,7 +370,7 @@ struct _DiaObject {
    *
    * \protected Use dia_object_get_bounding_box()
    */
-  Rectangle         bounding_box;
+  DiaRectangle      bounding_box;
   /*! Number of Handle(s) of this object */
   int               num_handles;
   /*! Array of handles of this object with fixed index */
@@ -544,32 +380,42 @@ struct _DiaObject {
   /*! Array of ConnectionPoint* - indexing fixed by meaning */
   ConnectionPoint **connections;
 
-  ObjectOps *ops; /* pointer to the vtable */
+  _DIA_OBJECT_FIELD (ObjectOps *, ops); /* pointer to the vtable */
 
-  Layer *parent_layer; /*!< Back-pointer to the owning layer.
+  DiaLayer *parent_layer; /*!< Back-pointer to the owning layer.
 			   This may only be set by functions internal to
 			   the layer, and accessed via
 			   dia_object_get_parent_layer() */
   DiaObject *parent; /*!< Back-pointer to DiaObject which is parenting this object. Can be NULL */
   GList *children; /*!< In case this object is a parent of other object the children are listed here */
 
-  /** The area that contains all parts rendered interactively, so includes
-   *  handles, bezier controllers etc.  Despite historical difference, this
-   *  should not be accessed directly, but through dia_object_get_bounding_box().
-   *  Note that handles and connection points are not included by this, but
-   *  added by that which needs it.
-   *  Internal:  If this is set to a NULL, returns bounding_box.  That is for
-   *  those objects that don't actually calculate it, but can just use the BB.
-   *  Since handles and CPs are not in the BB, that will be the case for most
-   *  objects.
+  /* The area that contains all parts rendered interactively, so includes
+   * handles, bezier controllers etc.  Despite historical difference, this
+   * should not be accessed directly, but through dia_object_get_bounding_box().
+   * Note that handles and connection points are not included by this, but
+   * added by that which needs it.
+   * Internal:  If this is set to a NULL, returns bounding_box.  That is for
+   * those objects that don't actually calculate it, but can just use the BB.
+   * Since handles and CPs are not in the BB, that will be the case for most
+   * objects.
    */
-  Rectangle        *enclosing_box;
+  DiaRectangle     *enclosing_box;
   /*! Metainfo of the object, should not be manipulated directly. Use dia_object_set_meta() */
   GHashTable       *meta;
 };
 
-/*
- * \brief Vtable for _DiaObjectType
+
+/**
+ * DiaObjectType:
+ * @create: the #CreateFunc
+ * @load: the #LoadFunc
+ * @save: the #SaveFunc
+ * @get_defaults: the #GetDefaultsFunc
+ * @apply_defaults: the #ApplyDefaultsFunc
+ *
+ * Vtable for _DiaObjectType
+ *
+ * Since: dawn-of-time
  */
 struct _ObjectTypeOps {
   CreateFunc        create;
@@ -577,14 +423,18 @@ struct _ObjectTypeOps {
   SaveFunc          save;
   GetDefaultsFunc   get_defaults;
   ApplyDefaultsFunc apply_defaults;
+
+  /*< private >*/
+
   /*
     Unused places (for extension).
-    These should be NULL for now. In the future they might be used.
+    These should be %NULL for now. In the future they might be used.
     Then an older object will be binary compatible, because all new code
-    checks if new ops are supported (!= NULL)
+    checks if new ops are supported (!= %NULL)
   */
   void      (*unused[10])(DiaObject *obj,...);
 };
+
 
 /*!
    \brief _DiaObject factory
@@ -592,22 +442,35 @@ struct _ObjectTypeOps {
    Structure so that the ObjectFactory can create objects
    of unknown type. (Read in from a shared lib.)
  */
+
+/**
+ * DiaObjectType:
+ * @name: The type name should follow a pattern of '\<module\> - \<class\>'
+ *        like "UML - Class"
+ * @version: #DiaObject s must be backward compatible, i.e. support possibly
+ *           older versions formats
+ * @pixmap: Also put a pixmap in the sheet_object. This one is used if not
+ *          in sheet but in toolbar. Stored in xpm format.
+ * @ops: Pointer to the vtable
+ * @pixmap_file: fallback if pixmap is %NULL
+ * @default_user_data: use this if no user data is specified in
+ *                     the .sheet file
+ * @prop_descs: Property descriptions
+ * @prop_offsets: #DiaObject struct offsets
+ * @flags: Various flags that can be set for this object, see defines above
+ *
+ * Since: dawn-of-time
+ */
 struct _DiaObjectType {
-
-  char *name; /*!< The type name should follow a pattern of '\<module\> - \<class\>' like "UML - Class" */
-  int version; /*!< DiaObjects must be backward compatible, i.e. support possibly older versions formats */
-
-  const char **pixmap; /*!< Also put a pixmap in the sheet_object.
-		        This one is used if not in sheet but in toolbar.
-		        Stored in xpm format */
-
-  ObjectTypeOps *ops; /* pointer to the vtable */
-
-  char *pixmap_file; /*!< fallback if pixmap is NULL */
-  void *default_user_data; /*!< use this if no user data is specified in the .sheet file */
-  const PropDescription *prop_descs; /*!< property descriptions */
-  const PropOffset *prop_offsets; /*!< DiaObject struct offsets */
-  gint flags; /*!< Various flags that can be set for this object, see defines above */
+  char                  *name;
+  int                    version;
+  const char           **pixmap;
+  ObjectTypeOps         *ops;
+  char                  *pixmap_file;
+  void                  *default_user_data;
+  const PropDescription *prop_descs;
+  const PropOffset      *prop_offsets;
+  int                    flags;
 };
 
 /* base property stuff ... */
@@ -628,6 +491,56 @@ struct _DiaObjectType {
   { "meta", PROP_TYPE_DICT, offsetof(DiaObject, meta) }
 
 
+void                   dia_object_draw                (DiaObject              *self,
+                                                       DiaRenderer            *renderer);
+double                 dia_object_distance_from       (DiaObject              *self,
+                                                       Point                  *point);
+// TODO: Probably shouldn't pass renderer here
+void                   dia_object_select              (DiaObject              *self,
+                                                       Point                  *point,
+                                                       DiaRenderer            *renderer);
+// Note: wraps copy
+DiaObject             *dia_object_clone               (DiaObject              *self);
+DiaObjectChange       *dia_object_move                (DiaObject              *self,
+                                                       Point                  *to);
+DiaObjectChange       *dia_object_move_handle         (DiaObject              *self,
+                                                       Handle                 *handle,
+                                                       Point                  *to,
+                                                       ConnectionPoint        *cp,
+                                                       HandleMoveReason        reason,
+                                                       ModifierKeys            modifiers);
+// Note: Wraps get_properties
+GtkWidget             *dia_object_get_editor          (DiaObject              *self,
+                                                       gboolean                is_default);
+DiaObjectChange       *dia_object_apply_editor        (DiaObject              *self,
+                                                       GtkWidget              *editor);
+DiaMenu               *dia_object_get_menu            (DiaObject              *self,
+                                                       Point                  *at);
+const PropDescription *dia_object_describe_properties (DiaObject              *self);
+void                   dia_object_get_properties      (DiaObject              *self,
+                                                       GPtrArray              *list);
+void                   dia_object_set_properties      (DiaObject              *self,
+                                                       GPtrArray              *list);
+DiaObjectChange       *dia_object_apply_properties    (DiaObject              *self,
+                                                       GPtrArray              *list);
+gboolean               dia_object_edit_text           (DiaObject              *self,
+                                                       Text                   *text,
+                                                       TextEditState           state,
+                                                       gchar                  *textchange);
+gboolean               dia_object_transform           (DiaObject              *self,
+                                                       const DiaMatrix        *m);
+void                   dia_object_add_handle           (DiaObject               *self,
+                                                        Handle                  *handle,
+                                                        int                      index,
+                                                        HandleId                 id,
+                                                        HandleType               type,
+                                                        HandleConnectType        connect_type);
+void                   dia_object_add_connection_point (DiaObject               *self,
+                                                        ConnectionPoint         *cp,
+                                                        int                      index,
+                                                        ConnectionPointFlags     flags);
+
+
 gboolean       dia_object_defaults_load (const gchar *filename,
                                          gboolean create_lazy,
 					 DiaContext *ctx);
@@ -638,10 +551,10 @@ DiaObject  *dia_object_default_create (const DiaObjectType *type,
                                     Handle **handle1,
                                     Handle **handle2);
 gboolean         dia_object_defaults_save (const gchar *filename, DiaContext *ctx);
-Layer           *dia_object_get_parent_layer(DiaObject *obj);
+DiaLayer        *dia_object_get_parent_layer(DiaObject *obj);
 gboolean         dia_object_is_selected (const DiaObject *obj);
-const Rectangle *dia_object_get_bounding_box(const DiaObject *obj);
-const Rectangle *dia_object_get_enclosing_box(const DiaObject *obj);
+const DiaRectangle *dia_object_get_bounding_box(const DiaObject *obj);
+const DiaRectangle *dia_object_get_enclosing_box(const DiaObject *obj);
 DiaObject       *dia_object_get_parent_with_flags(DiaObject *obj, guint flags);
 gboolean         dia_object_is_selectable(DiaObject *obj);
 /* The below is for debugging purposes only. */
@@ -666,5 +579,3 @@ void          object_copy_style(DiaObject *dest, const DiaObject *src);
 GdkPixbuf    *dia_object_type_get_icon (const DiaObjectType *type);
 
 G_END_DECLS
-
-#endif /* DIA_OBJECT_H */

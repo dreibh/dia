@@ -16,15 +16,16 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 
-#include "intl.h"
 #include "object.h"
 #include "connectionpoint.h"
 #include "diarenderer.h"
+#include "diainteractiverenderer.h"
 #include "font.h"
 #include "text.h"
 #include "attributes.h"
@@ -32,6 +33,7 @@
 #include "diamenu.h"
 #include "create.h"
 #include "message.h" /* just dia_log_message */
+#include "dia-object-change-list.h"
 
 #define HANDLE_TEXT HANDLE_CUSTOM1
 
@@ -68,17 +70,21 @@ struct _Textobj {
 };
 
 static struct _TextobjProperties {
-  Alignment alignment;
+  DiaAlignment alignment;
   Valign vert_align;
-} default_properties = { ALIGN_LEFT, VALIGN_FIRST_LINE } ;
+} default_properties = { DIA_ALIGN_LEFT, VALIGN_FIRST_LINE };
 
 static real textobj_distance_from(Textobj *textobj, Point *point);
 static void textobj_select(Textobj *textobj, Point *clicked_point,
 			   DiaRenderer *interactive_renderer);
-static ObjectChange* textobj_move_handle(Textobj *textobj, Handle *handle,
-					 Point *to, ConnectionPoint *cp,
-					 HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* textobj_move(Textobj *textobj, Point *to);
+static DiaObjectChange *textobj_move_handle (Textobj          *textobj,
+                                             Handle           *handle,
+                                             Point            *to,
+                                             ConnectionPoint  *cp,
+                                             HandleMoveReason  reason,
+                                             ModifierKeys      modifiers);
+static DiaObjectChange *textobj_move        (Textobj          *textobj,
+                                             Point            *to);
 static void textobj_draw(Textobj *textobj, DiaRenderer *renderer);
 static void textobj_update_data(Textobj *textobj);
 static DiaObject *textobj_create(Point *startpoint,
@@ -205,7 +211,7 @@ _textobj_get_poly (const Textobj *textobj, Point poly[4])
 {
   Point ul, lr;
   Point pt = textobj->text_handle.pos;
-  Rectangle box;
+  DiaRectangle box;
   DiaMatrix m = { 1, 0, 0, 1, pt.x, pt.y };
   DiaMatrix t = { 1, 0, 0, 1, -pt.x, -pt.y };
   int i;
@@ -254,14 +260,18 @@ textobj_select(Textobj *textobj, Point *clicked_point,
   text_grab_focus(textobj->text, &textobj->object);
 }
 
-static ObjectChange*
-textobj_move_handle(Textobj *textobj, Handle *handle,
-		    Point *to, ConnectionPoint *cp,
-		    HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+textobj_move_handle (Textobj          *textobj,
+                     Handle           *handle,
+                     Point            *to,
+                     ConnectionPoint  *cp,
+                     HandleMoveReason  reason,
+                     ModifierKeys      modifiers)
 {
-  assert(textobj!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+  g_return_val_if_fail (textobj != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
   if (handle->id == HANDLE_TEXT) {
     textobj_move(textobj, to);
@@ -270,24 +280,26 @@ textobj_move_handle(Textobj *textobj, Handle *handle,
   return NULL;
 }
 
-static ObjectChange*
-textobj_move(Textobj *textobj, Point *to)
+
+static DiaObjectChange *
+textobj_move (Textobj *textobj, Point *to)
 {
   textobj->object.position = *to;
 
-  textobj_update_data(textobj);
+  textobj_update_data (textobj);
 
   return NULL;
 }
 
+
 static void
-textobj_draw(Textobj *textobj, DiaRenderer *renderer)
+textobj_draw (Textobj *textobj, DiaRenderer *renderer)
 {
-  assert(textobj != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (textobj != NULL);
+  g_return_if_fail (renderer != NULL);
 
   if (textobj->show_background) {
-    Rectangle box;
+    DiaRectangle box;
     Point ul, lr;
     text_calc_boundingbox (textobj->text, &box);
     ul.x = box.left - textobj->margin;
@@ -295,58 +307,65 @@ textobj_draw(Textobj *textobj, DiaRenderer *renderer)
     lr.x = box.right + textobj->margin;
     lr.y = box.bottom + textobj->margin;
     if (textobj->text_angle == 0) {
-      DIA_RENDERER_GET_CLASS (renderer)->draw_rect (renderer, &ul, &lr, &textobj->fill_color, NULL);
+      dia_renderer_draw_rect (renderer, &ul, &lr, &textobj->fill_color, NULL);
     } else {
       Point poly[4];
 
       _textobj_get_poly (textobj, poly);
-      DIA_RENDERER_GET_CLASS (renderer)->draw_polygon (renderer, poly, 4, &textobj->fill_color, NULL);
+      dia_renderer_draw_polygon (renderer, poly, 4, &textobj->fill_color, NULL);
     }
   }
   if (textobj->text_angle == 0) {
-    text_draw(textobj->text, renderer);
+    text_draw (textobj->text, renderer);
   } else {
-    DIA_RENDERER_GET_CLASS (renderer)->draw_rotated_text (renderer, textobj->text,
-							  &textobj->text_handle.pos, textobj->text_angle);
+    dia_renderer_draw_rotated_text (renderer,
+                                    textobj->text,
+                                    &textobj->text_handle.pos,
+                                    textobj->text_angle);
     /* XXX: interactive case not working correctly */
-    if (renderer->is_interactive &&
-        dia_object_is_selected(&textobj->object) &&
-	textobj->text->focus.has_focus) {
+    if (DIA_IS_INTERACTIVE_RENDERER (renderer) &&
+        dia_object_is_selected (&textobj->object) &&
+        textobj->text->focus.has_focus) {
       /* editing is not rotated */
-      text_draw(textobj->text, renderer);
+      text_draw (textobj->text, renderer);
     }
-
   }
 }
 
+
 static void
-textobj_valign_point(Textobj *textobj, Point* p)
+textobj_valign_point (Textobj *textobj, Point* p)
 {
-  Rectangle *bb  = &(textobj->object.bounding_box);
+  DiaRectangle *bb  = &(textobj->object.bounding_box);
   real offset;
+
   switch (textobj->vert_align){
-  case VALIGN_BOTTOM:
-    offset = bb->bottom - textobj->object.position.y;
-    p->y -= offset;
-    break;
-  case VALIGN_TOP:
-    offset = bb->top - textobj->object.position.y;
-    p->y -= offset;
-    break;
-  case VALIGN_CENTER:
-    offset = (bb->bottom + bb->top)/2 - textobj->object.position.y;
-    p->y -= offset;
-    break;
-  case VALIGN_FIRST_LINE:
-    break;
+    case VALIGN_BOTTOM:
+      offset = bb->bottom - textobj->object.position.y;
+      p->y -= offset;
+      break;
+    case VALIGN_TOP:
+      offset = bb->top - textobj->object.position.y;
+      p->y -= offset;
+      break;
+    case VALIGN_CENTER:
+      offset = (bb->bottom + bb->top)/2 - textobj->object.position.y;
+      p->y -= offset;
+      break;
+    case VALIGN_FIRST_LINE:
+      break;
+    default:
+      g_return_if_reached ();
   }
 }
+
+
 static void
-textobj_update_data(Textobj *textobj)
+textobj_update_data (Textobj *textobj)
 {
   Point to2;
   DiaObject *obj = &textobj->object;
-  Rectangle tx_bb;
+  DiaRectangle tx_bb;
 
   text_set_position(textobj->text, &obj->position);
   text_calc_boundingbox(textobj->text, &obj->bounding_box);
@@ -358,11 +377,13 @@ textobj_update_data(Textobj *textobj)
     to2.y += textobj->margin; /* down */
   else if (VALIGN_BOTTOM == textobj->vert_align)
     to2.y -= textobj->margin; /* up */
-  if (ALIGN_LEFT == textobj->text->alignment)
+
+  if (DIA_ALIGN_LEFT == textobj->text->alignment) {
     to2.x += textobj->margin; /* right */
-  else if (ALIGN_RIGHT == textobj->text->alignment)
+  } else if (DIA_ALIGN_RIGHT == textobj->text->alignment) {
     to2.x -= textobj->margin; /* left */
-  text_set_position(textobj->text, &to2);
+  }
+  text_set_position (textobj->text, &to2);
 
   /* always use the unrotated box ... */
   text_calc_boundingbox(textobj->text, &tx_bb);
@@ -409,9 +430,9 @@ textobj_create(Point *startpoint,
   DiaFont *font = NULL;
   real font_height;
 
-  textobj = g_malloc0(sizeof(Textobj));
+  textobj = g_new0 (Textobj, 1);
   obj = &textobj->object;
-  obj->enclosing_box = g_new0 (Rectangle, 1);
+  obj->enclosing_box = g_new0 (DiaRectangle, 1);
 
   obj->type = &textobj_type;
 
@@ -424,7 +445,7 @@ textobj_create(Point *startpoint,
   /* need to initialize to object.position as well, it is used update data */
   obj->position = *startpoint;
 
-  dia_font_unref(font);
+  g_clear_object (&font);
   textobj->vert_align = default_properties.vert_align;
 
   /* default visibility must be off to keep compatibility */
@@ -452,7 +473,7 @@ static DiaObject *
 textobj_copy(Textobj *textobj)
 {
   Textobj *copied = (Textobj *)object_copy_using_properties(&textobj->object);
-  copied->object.enclosing_box = g_new (Rectangle, 1);
+  copied->object.enclosing_box = g_new (DiaRectangle, 1);
   *copied->object.enclosing_box = *textobj->object.enclosing_box;
   return &copied->object;
 }
@@ -461,8 +482,7 @@ static void
 textobj_destroy(Textobj *textobj)
 {
   text_destroy(textobj->text);
-  g_free (textobj->object.enclosing_box);
-  textobj->object.enclosing_box = NULL;
+  g_clear_pointer (&textobj->object.enclosing_box, g_free);
   object_destroy(&textobj->object);
 }
 
@@ -494,23 +514,27 @@ textobj_load(ObjectNode obj_node, int version, DiaContext *ctx)
   AttributeNode attr;
   Point startpoint = {0.0, 0.0};
 
-  textobj = g_malloc0(sizeof(Textobj));
+  textobj = g_new0 (Textobj, 1);
   obj = &textobj->object;
-  obj->enclosing_box = g_new0(Rectangle,1);
+  obj->enclosing_box = g_new0 (DiaRectangle, 1);
 
   obj->type = &textobj_type;
   obj->ops = &textobj_ops;
 
   object_load(obj, obj_node, ctx);
 
-  attr = object_find_attribute(obj_node, "text");
+  attr = object_find_attribute (obj_node, "text");
   if (attr != NULL) {
-    textobj->text = data_text(attribute_first_data(attr), ctx);
+    textobj->text = data_text (attribute_first_data (attr), ctx);
   } else {
-    DiaFont* font = dia_font_new_from_style(DIA_FONT_MONOSPACE,1.0);
-    textobj->text = new_text("", font, 1.0,
-			     &startpoint, &color_black, ALIGN_CENTER);
-    dia_font_unref(font);
+    DiaFont *font = dia_font_new_from_style (DIA_FONT_MONOSPACE, 1.0);
+    textobj->text = new_text ("",
+                              font,
+                              1.0,
+                              &startpoint,
+                              &color_black,
+                              DIA_ALIGN_CENTRE);
+    g_clear_object (&font);
   }
 
   attr = object_find_attribute(obj_node, "valign");
@@ -550,7 +574,8 @@ textobj_load(ObjectNode obj_node, int version, DiaContext *ctx)
   return &textobj->object;
 }
 
-static ObjectChange *
+
+static DiaObjectChange *
 _textobj_convert_to_path_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
   Textobj *textobj = (Textobj *)obj;
@@ -561,7 +586,7 @@ _textobj_convert_to_path_callback (DiaObject *obj, Point *clicked, gpointer data
     path = create_standard_path_from_text (text);
 
   if (path) {
-    ObjectChange *change;
+    DiaObjectChange *change;
     Color bg = textobj->fill_color;
 
     /* FIXME: otherwise object_substitue() will tint the text with bg */
@@ -572,12 +597,16 @@ _textobj_convert_to_path_callback (DiaObject *obj, Point *clicked, gpointer data
 
     return change;
   }
+
   /* silently fail */
-  return change_list_create ();
+  return dia_object_change_list_new ();
 }
+
+
 static DiaMenuItem textobj_menu_items[] = {
   { N_("Convert to Path"), _textobj_convert_to_path_callback, NULL, DIAMENU_ACTIVE }
 };
+
 
 static DiaMenu textobj_menu = {
   "Text",

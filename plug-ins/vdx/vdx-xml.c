@@ -22,23 +22,25 @@
 /* Generated Wed Jan 24 17:00:55 2007 */
 /* From: All.vdx animation_tests.vdx Arrows-2.vdx Arrow & Text samples.vdx BasicShapes.vdx basic_tests.vdx Beispiel 1.vdx Beispiel 2.vdx Beispiel 3.vdx cable loom EL axis.vdx Circle1.vdx Circle2.vdx circle with angles.vdx curve_tests.vdx Drawing2.vdx Electrical system SatMax.vdx Embedded-Pics-1.vdx emf_dump_test2.orig.vdx emf_dump_test2.vdx Entreprise_etat_desire.vdx IMU-DD Ver2.vdx ISAD_page1.vdx ISAD_page2.vdx Line1.vdx Line2.vdx Line3.vdx Line4.vdx Line5.vdx Line6.vdx LombardiWireframe.vdx London-Citibank-Network-detail-02-15-2006.vdx London-Citibank-Network Detail-11-07-2005.vdx London-Citibank-racks-11-04-2005.vdx London-colo-move.vdx London-Colo-Network-detail-11-01-2005.vdx London-Colo-Racks-11-03-2005.vdx Network DiagramV2.vdx pattern_tests.vdx Processflow.vdx Rectangle1.vdx Rectangle2.vdx Rectangle3.vdx Rectangle4.vdx render-test.vdx sample1.vdx Sample2.vdx samp_vdx.vdx Satmax RF path.vdx seq_test.vdx Servo block diagram V2.vdx Servo block diagram V3.vdx Servo block diagram.vdx Sigma-function.vdx SmithWireframe.vdx states.vdx Text1.vdx Text2.vdx Text3.vdx text_tests.vdx Tracking Array -  Level.vdx Tracking Array -  Phase.vdx Wayzata-WAN-Detail.vdx Wayzata-WAN-Overview.vdx WDS Cabling.vdx */
 
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <glib.h>
 #include <string.h>
 #include <libxml/tree.h>
-#include "intl.h"
 #include "geometry.h"
 #include "filter.h"
 #include "object.h"
 #include "properties.h"
 #include "propinternals.h"
 #include "dia_xml_libxml.h"
-#include "intl.h"
 #include "create.h"
 #include "group.h"
 #include "font.h"
 #include "vdx.h"
 #include "visio-types.h"
+#include "dia-layer.h"
 
 /** Parses an XML object into internal representation
  * @param cur the current XML node
@@ -3363,7 +3365,7 @@ vdx_write_object(FILE *file, unsigned int depth, const void *p)
     const struct vdx_ColorEntry *ColorEntry;
     const struct vdx_Colors *Colors;
     const struct vdx_Connect *Connect;
-    const struct vdx_Connection *Connection;
+    const struct vdx_Connection *vdxConnection;
     const struct vdx_Connects *Connects;
     const struct vdx_Control *Control;
     const struct vdx_CustomProp *CustomProp;
@@ -3386,7 +3388,7 @@ vdx_write_object(FILE *file, unsigned int depth, const void *p)
     const struct vdx_Foreign *Foreign;
     const struct vdx_ForeignData *ForeignData;
     const struct vdx_Geom *Geom;
-    const struct vdx_Group *Group;
+    const struct vdx_Group *vdxGroup;
     const struct vdx_HeaderFooter *HeaderFooter;
     const struct vdx_HeaderFooterFont *HeaderFooterFont;
     const struct vdx_Help *Help;
@@ -3417,14 +3419,14 @@ vdx_write_object(FILE *file, unsigned int depth, const void *p)
     const struct vdx_RulerGrid *RulerGrid;
     const struct vdx_Scratch *Scratch;
     const struct vdx_Shape *Shape;
-    const struct vdx_Shapes *Shapes;
+    const struct vdx_Shapes *vdxShapes;
     const struct vdx_SplineKnot *SplineKnot;
     const struct vdx_SplineStart *SplineStart;
     const struct vdx_StyleProp *StyleProp;
     const struct vdx_StyleSheet *StyleSheet;
     const struct vdx_Tab *Tab;
     const struct vdx_Tabs *Tabs;
-    const struct vdx_Text *Text;
+    const struct vdx_Text *vdxText;
     const struct vdx_TextBlock *TextBlock;
     const struct vdx_TextXForm *TextXForm;
     const struct vdx_User *User;
@@ -3628,26 +3630,26 @@ vdx_write_object(FILE *file, unsigned int depth, const void *p)
         break;
 
     case vdx_types_Connection:
-        Connection = (const struct vdx_Connection *)(p);
-        fprintf(file, "%s<Connection ID='%u' IX='%u'", pad, Connection->ID, Connection->IX);
-        if (Connection->NameU)
+        vdxConnection = (const struct vdx_Connection *)(p);
+        fprintf(file, "%s<Connection ID='%u' IX='%u'", pad, vdxConnection->ID, vdxConnection->IX);
+        if (vdxConnection->NameU)
             fprintf(file, " NameU='%s'",
-                    vdx_convert_xml_string(Connection->NameU));
+                    vdx_convert_xml_string(vdxConnection->NameU));
         fprintf(file, ">\n");
         fprintf(file, "%s  <AutoGen>%u</AutoGen>\n", pad,
-                Connection->AutoGen);
+                vdxConnection->AutoGen);
         fprintf(file, "%s  <DirX>%f</DirX>\n", pad,
-                Connection->DirX);
+                vdxConnection->DirX);
         fprintf(file, "%s  <DirY>%f</DirY>\n", pad,
-                Connection->DirY);
+                vdxConnection->DirY);
         fprintf(file, "%s  <Prompt>%s</Prompt>\n", pad,
-                vdx_convert_xml_string(Connection->Prompt));
+                vdx_convert_xml_string(vdxConnection->Prompt));
         fprintf(file, "%s  <Type>%u</Type>\n", pad,
-                Connection->Type);
+                vdxConnection->Type);
         fprintf(file, "%s  <X>%f</X>\n", pad,
-                Connection->X);
+                vdxConnection->X);
         fprintf(file, "%s  <Y>%f</Y>\n", pad,
-                Connection->Y);
+                vdxConnection->Y);
         break;
 
     case vdx_types_Connects:
@@ -4072,20 +4074,20 @@ vdx_write_object(FILE *file, unsigned int depth, const void *p)
         break;
 
     case vdx_types_Group:
-        Group = (const struct vdx_Group *)(p);
+        vdxGroup = (const struct vdx_Group *)(p);
         fprintf(file, "%s<Group>\n", pad);
         fprintf(file, "%s  <DisplayMode>%u</DisplayMode>\n", pad,
-                Group->DisplayMode);
+                vdxGroup->DisplayMode);
         fprintf(file, "%s  <DontMoveChildren>%u</DontMoveChildren>\n", pad,
-                Group->DontMoveChildren);
+                vdxGroup->DontMoveChildren);
         fprintf(file, "%s  <IsDropTarget>%u</IsDropTarget>\n", pad,
-                Group->IsDropTarget);
+                vdxGroup->IsDropTarget);
         fprintf(file, "%s  <IsSnapTarget>%u</IsSnapTarget>\n", pad,
-                Group->IsSnapTarget);
+                vdxGroup->IsSnapTarget);
         fprintf(file, "%s  <IsTextEditTarget>%u</IsTextEditTarget>\n", pad,
-                Group->IsTextEditTarget);
+                vdxGroup->IsTextEditTarget);
         fprintf(file, "%s  <SelectMode>%u</SelectMode>\n", pad,
-                Group->SelectMode);
+                vdxGroup->SelectMode);
         break;
 
     case vdx_types_HeaderFooter:
@@ -4850,7 +4852,7 @@ vdx_write_object(FILE *file, unsigned int depth, const void *p)
         break;
 
     case vdx_types_Shapes:
-        Shapes = (const struct vdx_Shapes *)(p);
+        vdxShapes = (const struct vdx_Shapes *)(p);
         fprintf(file, "%s<Shapes", pad);
         if (!child)
         {
@@ -4948,7 +4950,7 @@ vdx_write_object(FILE *file, unsigned int depth, const void *p)
         break;
 
     case vdx_types_Text:
-        Text = (const struct vdx_Text *)(p);
+        vdxText = (const struct vdx_Text *)(p);
         fprintf(file, "%s<Text>", pad);
         *pad = 0;
         break;

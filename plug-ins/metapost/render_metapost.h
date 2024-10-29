@@ -43,15 +43,14 @@ GType metapost_renderer_get_type (void) G_GNUC_CONST;
 typedef struct _MetapostRenderer MetapostRenderer;
 typedef struct _MetapostRendererClass MetapostRendererClass;
 
-struct _MetapostRenderer
-{
+struct _MetapostRenderer {
   DiaRenderer parent_instance;
 
   FILE *file;
-    
-  LineStyle saved_line_style;
-  LineCaps  saved_line_cap;
-  LineJoin  saved_line_join;
+
+  DiaLineStyle saved_line_style;
+  DiaLineCaps  saved_line_cap;
+  DiaLineJoin  saved_line_join;
 
   Color color;
 
@@ -63,6 +62,9 @@ struct _MetapostRenderer
   char *mp_weight;
   char *mp_slant;
   real mp_font_height;
+
+  DiaFont *font;
+  double font_height;
 
   DiaContext *ctx;
 };

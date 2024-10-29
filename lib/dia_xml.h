@@ -78,7 +78,7 @@ int data_boolean(DataNode data, DiaContext *ctx);
 void data_color(DataNode data, Color *col, DiaContext *ctx);
 void data_point(DataNode data, Point *point, DiaContext *ctx);
 void data_bezpoint(DataNode data, BezPoint *point, DiaContext *ctx);
-void data_rectangle(DataNode data, Rectangle *rect, DiaContext *ctx);
+void data_rectangle(DataNode data, DiaRectangle *rect, DiaContext *ctx);
 char *data_string(DataNode data, DiaContext *ctx);
 char *data_filename(DataNode data, DiaContext *ctx);
 DiaFont *data_font(DataNode data, DiaContext *ctx);
@@ -93,11 +93,11 @@ void data_add_boolean(AttributeNode attr, int data, DiaContext *ctx);
 void data_add_color(AttributeNode attr, const Color *col, DiaContext *ctx);
 void data_add_point(AttributeNode attr, const Point *point, DiaContext *ctx);
 void data_add_bezpoint(AttributeNode attr, const BezPoint *point, DiaContext *ctx);
-void data_add_rectangle(AttributeNode attr, const Rectangle *rect, DiaContext *ctx);
+void data_add_rectangle(AttributeNode attr, const DiaRectangle *rect, DiaContext *ctx);
 void data_add_string(AttributeNode attr, const char *str, DiaContext *ctx);
 void data_add_filename(AttributeNode attr, const char *str, DiaContext *ctx);
-void data_add_font(AttributeNode attr, const DiaFont *font, DiaContext *ctx);
-DataNode data_add_composite(AttributeNode attr, 
+void data_add_font(AttributeNode attr, DiaFont *font, DiaContext *ctx);
+DataNode data_add_composite(AttributeNode attr,
 			    const char *type, /* can be NULL */
 			    DiaContext *ctx);
 
@@ -114,6 +114,9 @@ DiaPattern *data_pattern(DataNode data, DiaContext *ctx);
 void data_add_pattern(AttributeNode attr, DiaPattern *pat, DiaContext *ctx);
 
 xmlDocPtr diaXmlParseFile(const char *filename, DiaContext *ctx, gboolean try_harder);
+
+#define dia_clear_xml_string(pointer) g_clear_pointer(pointer, xmlFree)
+
 
 #endif /* DIA_XML_H */
 

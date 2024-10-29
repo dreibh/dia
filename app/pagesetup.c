@@ -19,15 +19,16 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <gtk/gtk.h>
 
 #include <math.h>
 
 #include "pagesetup.h"
-#include "intl.h"
-#include "diapagelayout.h"
+#include "dia-page-layout.h"
 #include "display.h"
 
 typedef struct _PageSetup PageSetup;
@@ -41,26 +42,29 @@ struct _PageSetup {
 static void pagesetup_changed  (GtkWidget *wid, PageSetup *ps);
 static void pagesetup_apply    (GtkWidget *wid, PageSetup *ps);
 
-static gint
-pagesetup_respond(GtkWidget *widget,
-                   gint       response_id,
+
+static int
+pagesetup_respond (GtkWidget *widget,
+                   int        response_id,
                    gpointer   data)
 {
   PageSetup *ps = (PageSetup *)data;
 
   if (   response_id == GTK_RESPONSE_APPLY
       || response_id == GTK_RESPONSE_OK) {
-    if (ps->changed)
-      pagesetup_apply(widget, ps);
+    if (ps->changed) {
+      pagesetup_apply (widget, ps);
+    }
   }
 
   if (response_id != GTK_RESPONSE_APPLY) {
-    g_object_unref(ps->dia);
+    g_clear_object (&ps->dia);
     gtk_widget_destroy(ps->window);
   }
 
   return 0;
 }
+
 
 void
 create_page_setup_dlg(Diagram *dia)
@@ -68,20 +72,18 @@ create_page_setup_dlg(Diagram *dia)
   PageSetup *ps;
   GtkWidget *vbox;
 
-  ps = g_new(PageSetup, 1);
-  ps->dia = dia;
-  g_object_ref(ps->dia);
-  ps->window = gtk_dialog_new_with_buttons(
-			_("Page Setup"),
-			GTK_WINDOW (ddisplay_active()->shell),
-			GTK_DIALOG_DESTROY_WITH_PARENT,
-			GTK_STOCK_CLOSE, GTK_RESPONSE_CLOSE,
-			GTK_STOCK_APPLY, GTK_RESPONSE_APPLY,
-			GTK_STOCK_OK, GTK_RESPONSE_OK,
-			NULL);
+  ps = g_new (PageSetup, 1);
+  ps->dia = g_object_ref (dia);
+  ps->window = gtk_dialog_new_with_buttons (_("Page Setup"),
+                                            GTK_WINDOW (ddisplay_active()->shell),
+                                            GTK_DIALOG_DESTROY_WITH_PARENT,
+                                            _("_Close"), GTK_RESPONSE_CLOSE,
+                                            _("_Apply"), GTK_RESPONSE_APPLY,
+                                            _("_OK"), GTK_RESPONSE_OK,
+                                            NULL);
   gtk_dialog_set_default_response (GTK_DIALOG(ps->window), GTK_RESPONSE_OK);
-  vbox = gtk_dialog_get_content_area(GTK_DIALOG(ps->window));
-  gtk_dialog_set_response_sensitive(GTK_DIALOG(ps->window), GTK_RESPONSE_APPLY, FALSE);
+  vbox = gtk_dialog_get_content_area (GTK_DIALOG(ps->window));
+  gtk_dialog_set_response_sensitive (GTK_DIALOG(ps->window), GTK_RESPONSE_APPLY, FALSE);
   ps->changed = FALSE;
 
   g_signal_connect(G_OBJECT (ps->window), "response",
@@ -118,17 +120,20 @@ create_page_setup_dlg(Diagram *dia)
   gtk_widget_show(ps->window);
 }
 
+
 static void
-pagesetup_changed(GtkWidget *wid, PageSetup *ps)
+pagesetup_changed (GtkWidget *wid, PageSetup *ps)
 {
-  gfloat dwidth, dheight;
-  gfloat pwidth, pheight;
-  gfloat xscale, yscale;
-  gint fitw = 0, fith = 0;
-  gfloat cur_scaling;
+  double dwidth, dheight;
+  double pwidth, pheight;
+  double xscale, yscale;
+  int fitw = 0, fith = 0;
+  double cur_scaling;
 
   /* set sensitivity on apply button */
-  gtk_dialog_set_response_sensitive(GTK_DIALOG(ps->window), GTK_RESPONSE_APPLY, TRUE);
+  gtk_dialog_set_response_sensitive (GTK_DIALOG (ps->window),
+                                     GTK_RESPONSE_APPLY,
+                                     TRUE);
   ps->changed = TRUE;
 
   dwidth  = ps->dia->data->extents.right - ps->dia->data->extents.left;
@@ -137,25 +142,25 @@ pagesetup_changed(GtkWidget *wid, PageSetup *ps)
   if (dwidth <= 0.0 || dheight <= 0.0)
     return;
 
-  dia_page_layout_set_changed (DIA_PAGE_LAYOUT(ps->paper), TRUE);
+  dia_page_layout_set_changed (DIA_PAGE_LAYOUT (ps->paper), TRUE);
 
-  cur_scaling = dia_page_layout_get_scaling(DIA_PAGE_LAYOUT(ps->paper));
-  dia_page_layout_get_effective_area(DIA_PAGE_LAYOUT(ps->paper),
-				     &pwidth, &pheight);
+  cur_scaling = dia_page_layout_get_scaling (DIA_PAGE_LAYOUT (ps->paper));
+  dia_page_layout_get_effective_area (DIA_PAGE_LAYOUT (ps->paper),
+                                      &pwidth, &pheight);
   g_return_if_fail (pwidth > 0.0 && pheight > 0.0);
   pwidth *= cur_scaling;
   pheight *= cur_scaling;
 
-  if (dia_page_layout_get_fitto(DIA_PAGE_LAYOUT(ps->paper))) {
-    dia_page_layout_get_fit_dims(DIA_PAGE_LAYOUT(ps->paper), &fitw, &fith);
+  if (dia_page_layout_get_fitto (DIA_PAGE_LAYOUT (ps->paper))) {
+    dia_page_layout_get_fit_dims (DIA_PAGE_LAYOUT (ps->paper), &fitw, &fith);
     xscale = fitw * pwidth / dwidth;
     yscale = fith * pheight / dheight;
-    dia_page_layout_set_scaling(DIA_PAGE_LAYOUT(ps->paper),
-				MIN(xscale, yscale));
+    dia_page_layout_set_scaling (DIA_PAGE_LAYOUT (ps->paper),
+                                 MIN (xscale, yscale));
   } else {
-    fitw = ceil(dwidth * cur_scaling / pwidth);
-    fith = ceil(dheight * cur_scaling / pheight);
-    dia_page_layout_set_fit_dims(DIA_PAGE_LAYOUT(ps->paper), fitw, fith);
+    fitw = ceil (dwidth * cur_scaling / pwidth);
+    fith = ceil (dheight * cur_scaling / pheight);
+    dia_page_layout_set_fit_dims (DIA_PAGE_LAYOUT (ps->paper), fitw, fith);
   }
 
   dia_page_layout_set_changed (DIA_PAGE_LAYOUT(ps->paper), FALSE);
@@ -167,18 +172,18 @@ pagesetup_changed(GtkWidget *wid, PageSetup *ps)
 static void
 pagesetup_apply(GtkWidget *wid, PageSetup *ps)
 {
-  undo_change_memswap (ps->dia, &ps->dia->data->paper, sizeof(ps->dia->data->paper));
+  dia_mem_swap_change_new (ps->dia, &ps->dia->data->paper, sizeof(ps->dia->data->paper));
   undo_set_transactionpoint(ps->dia->undo);
 
-  g_free(ps->dia->data->paper.name);
+  g_clear_pointer (&ps->dia->data->paper.name, g_free);
   ps->dia->data->paper.name =
-    g_strdup(dia_page_layout_get_paper(DIA_PAGE_LAYOUT(ps->paper)));
+    g_strdup (dia_page_layout_get_paper (DIA_PAGE_LAYOUT (ps->paper)));
 
-  dia_page_layout_get_margins(DIA_PAGE_LAYOUT(ps->paper),
-			      &ps->dia->data->paper.tmargin,
-			      &ps->dia->data->paper.bmargin,
-			      &ps->dia->data->paper.lmargin,
-			      &ps->dia->data->paper.rmargin);
+  dia_page_layout_get_margins (DIA_PAGE_LAYOUT (ps->paper),
+                               &ps->dia->data->paper.tmargin,
+                               &ps->dia->data->paper.bmargin,
+                               &ps->dia->data->paper.lmargin,
+                               &ps->dia->data->paper.rmargin);
 
   ps->dia->data->paper.is_portrait =
     dia_page_layout_get_orientation(DIA_PAGE_LAYOUT(ps->paper)) ==

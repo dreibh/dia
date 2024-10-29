@@ -19,12 +19,12 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 
-#include "intl.h"
 #include "object.h"
 #include "connection.h"
 #include "connectionpoint.h"
@@ -48,6 +48,7 @@
 #define CONDITION_ARROW_SIZE 0.0 /* XXX The norm says there's no arrow head.
                                     a lot of people do put it, though. */
 
+
 typedef struct _Condition {
   Connection connection;
 
@@ -59,45 +60,54 @@ typedef struct _Condition {
   Color cond_color;
 
   /* computed values : */
-  Rectangle labelbb;
+  DiaRectangle labelbb;
 } Condition;
 
-static ObjectChange* condition_move_handle(Condition *condition, Handle *handle,
-					   Point *to, ConnectionPoint *cp,
-					   HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* condition_move(Condition *condition, Point *to);
-static void condition_select(Condition *condition, Point *clicked_point,
-			      DiaRenderer *interactive_renderer);
-static void condition_draw(Condition *condition, DiaRenderer *renderer);
-static DiaObject *condition_create(Point *startpoint,
-				 void *user_data,
-				 Handle **handle1,
-				 Handle **handle2);
-static real condition_distance_from(Condition *condition, Point *point);
-static void condition_update_data(Condition *condition);
-static void condition_destroy(Condition *condition);
-static DiaObject *condition_load(ObjectNode obj_node, int version,
-				 DiaContext *context);
-static PropDescription *condition_describe_props(Condition *condition);
-static void condition_get_props(Condition *condition,
-                                GPtrArray *props);
-static void condition_set_props(Condition *condition,
-                                GPtrArray *props);
 
-static ObjectTypeOps condition_type_ops =
-{
-  (CreateFunc)condition_create,   /* create */
-  (LoadFunc)  condition_load,     /* load */
-  (SaveFunc)  object_save_using_properties,      /* save */
+static DiaObjectChange *condition_move_handle    (Condition         *condition,
+                                                  Handle            *handle,
+                                                  Point             *to,
+                                                  ConnectionPoint   *cp,
+                                                  HandleMoveReason   reason,
+                                                  ModifierKeys       modifiers);
+static DiaObjectChange *condition_move           (Condition         *condition,
+                                                  Point             *to);
+static void             condition_select         (Condition         *condition,
+                                                  Point             *clicked_point,
+                                                  DiaRenderer       *renderer);
+static void             condition_draw           (Condition         *condition,
+                                                  DiaRenderer       *renderer);
+static DiaObject       *condition_create         (Point             *startpoint,
+                                                  void              *user_data,
+                                                  Handle           **handle1,
+                                                  Handle           **handle2);
+static real             condition_distance_from  (Condition         *condition,
+                                                  Point             *point);
+static void             condition_update_data    (Condition         *condition);
+static void             condition_destroy        (Condition         *condition);
+static DiaObject       *condition_load           (ObjectNode         obj_node,
+                                                  int                version,
+                                                  DiaContext        *context);
+static PropDescription *condition_describe_props (Condition         *condition);
+static void             condition_get_props      (Condition         *condition,
+                                                  GPtrArray         *props);
+static void             condition_set_props      (Condition         *condition,
+                                                  GPtrArray         *props);
+
+
+static ObjectTypeOps condition_type_ops = {
+  (CreateFunc) condition_create,              /* create */
+  (LoadFunc)   condition_load,                /* load */
+  (SaveFunc)   object_save_using_properties,  /* save */
   (GetDefaultsFunc)   NULL,
   (ApplyDefaultsFunc) NULL
 };
 
-DiaObjectType condition_type =
-{
-  "GRAFCET - Condition", /* name */
-  0,                  /* version */
-  condition_xpm,       /* pixmap */
+
+DiaObjectType condition_type = {
+  "GRAFCET - Condition",  /* name */
+  0,                      /* version */
+  condition_xpm,          /* pixmap */
   &condition_type_ops     /* ops */
 };
 
@@ -135,119 +145,165 @@ static PropDescription condition_props[] = {
   PROP_DESC_END
 };
 
+
 static PropDescription *
-condition_describe_props(Condition *condition)
+condition_describe_props (Condition *condition)
 {
   if (condition_props[0].quark == 0) {
-    prop_desc_list_calculate_quarks(condition_props);
+    prop_desc_list_calculate_quarks (condition_props);
   }
   return condition_props;
 }
 
+
 static PropOffset condition_offsets[] = {
   CONNECTION_COMMON_PROPERTIES_OFFSETS,
-  {"condition",PROP_TYPE_STRING,offsetof(Condition,cond_value)},
-  {"cond_font",PROP_TYPE_FONT,offsetof(Condition,cond_font)},
-  {"cond_fontheight",PROP_TYPE_REAL,offsetof(Condition,cond_fontheight)},
-  {"cond_color",PROP_TYPE_COLOUR,offsetof(Condition,cond_color)},
+  {"condition", PROP_TYPE_STRING, offsetof (Condition, cond_value)},
+  {"cond_font", PROP_TYPE_FONT, offsetof (Condition, cond_font)},
+  {"cond_fontheight", PROP_TYPE_REAL, offsetof (Condition, cond_fontheight)},
+  {"cond_color", PROP_TYPE_COLOUR, offsetof (Condition, cond_color)},
   { NULL,0,0 }
 };
 
+
 static void
-condition_get_props(Condition *condition, GPtrArray *props)
+condition_get_props (Condition *condition, GPtrArray *props)
 {
-  object_get_props_from_offsets(&condition->connection.object,
-                                condition_offsets,props);
+  object_get_props_from_offsets (DIA_OBJECT (condition),
+                                 condition_offsets,props);
 }
 
-static void
-condition_set_props(Condition *condition, GPtrArray *props)
-{
-  object_set_props_from_offsets(&condition->connection.object,
-                                condition_offsets,props);
 
-  boolequation_set_value(condition->cond,condition->cond_value);
-  dia_font_unref(condition->cond->font);
-  condition->cond->font = dia_font_ref(condition->cond_font);
+static void
+condition_set_props (Condition *condition, GPtrArray *props)
+{
+  object_set_props_from_offsets (&condition->connection.object,
+                                 condition_offsets,props);
+
+  boolequation_set_value (condition->cond,condition->cond_value);
+  g_clear_object (&condition->cond->font);
+  condition->cond->font = g_object_ref (condition->cond_font);
   condition->cond->fontheight = condition->cond_fontheight;
   condition->cond->color = condition->cond_color;
-  condition_update_data(condition);
+  condition_update_data (condition);
 }
 
+
 static real
-condition_distance_from(Condition *condition, Point *point)
+condition_distance_from (Condition *condition, Point *point)
 {
   Connection *conn = &condition->connection;
   real dist;
-  dist = distance_rectangle_point(&condition->labelbb,point);
-  dist = MIN(dist,distance_line_point(&conn->endpoints[0],
-				      &conn->endpoints[1],
-				      CONDITION_LINE_WIDTH,point));
+  dist = distance_rectangle_point (&condition->labelbb, point);
+  dist = MIN (dist,
+              distance_line_point (&conn->endpoints[0],
+                                   &conn->endpoints[1],
+                                   CONDITION_LINE_WIDTH,
+                                   point));
   return dist;
 }
 
+
 static void
-condition_select(Condition *condition, Point *clicked_point,
-		  DiaRenderer *interactive_renderer)
+condition_select (Condition   *condition,
+                  Point       *clicked_point,
+                  DiaRenderer *interactive_renderer)
 {
-  condition_update_data(condition);
+  condition_update_data (condition);
 }
 
-static ObjectChange*
-condition_move_handle(Condition *condition, Handle *handle,
-		       Point *to, ConnectionPoint *cp,
-		      HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+condition_move_handle (Condition        *condition,
+                       Handle           *handle,
+                       Point            *to,
+                       ConnectionPoint  *cp,
+                       HandleMoveReason  reason,
+                       ModifierKeys      modifiers)
 {
   Point s,e,v;
   int horiz;
 
-  g_assert(condition!=NULL);
-  g_assert(handle!=NULL);
-  g_assert(to!=NULL);
+  g_return_val_if_fail (condition!= NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
   switch (handle->id) {
-  case HANDLE_MOVE_STARTPOINT:
-    point_copy(&s,to);
-    point_copy(&e,&condition->connection.endpoints[1]);
-    point_copy(&v,&e);
-    point_sub(&v,&s);
+    case HANDLE_MOVE_STARTPOINT:
+      point_copy (&s, to);
+      point_copy (&e, &condition->connection.endpoints[1]);
+      point_copy (&v, &e);
+      point_sub (&v, &s);
 
-    horiz = ABS(v.x) > ABS(v.y);
-    if (horiz) {
-      v.y = 0.0;
-    } else {
-      v.x = 0.0;
-    }
+      horiz = ABS (v.x) > ABS (v.y);
+      if (horiz) {
+        v.y = 0.0;
+      } else {
+        v.x = 0.0;
+      }
 
-    point_copy(&s,&e);
-    point_sub(&s,&v);
-    /* XXX: fix e to make it look good (what's good ?) V is a good hint ? */
-    connection_move_handle(&condition->connection, HANDLE_MOVE_STARTPOINT,
-			   &s, cp, reason, modifiers);
-    break;
-  case HANDLE_MOVE_ENDPOINT:
-    point_copy(&s,&condition->connection.endpoints[0]);
-    point_copy(&e,&condition->connection.endpoints[1]);
-    point_copy(&v,&e);
-    point_sub(&v,&s);
-    connection_move_handle(&condition->connection, HANDLE_MOVE_ENDPOINT,
-			   to, cp, reason, modifiers);
-    point_copy(&s,to);
-    point_sub(&s,&v);
-    connection_move_handle(&condition->connection, HANDLE_MOVE_STARTPOINT,
-			   &s, NULL, reason, 0);
-    break;
-  default:
-    g_assert_not_reached();
+      point_copy (&s,&e);
+      point_sub (&s,&v);
+
+      /* XXX: fix e to make it look good (what's good ?) V is a good hint ? */
+      connection_move_handle (&condition->connection,
+                              HANDLE_MOVE_STARTPOINT,
+                              &s,
+                              cp,
+                              reason,
+                              modifiers);
+
+      break;
+    case HANDLE_MOVE_ENDPOINT:
+      point_copy (&s, &condition->connection.endpoints[0]);
+      point_copy (&e, &condition->connection.endpoints[1]);
+      point_copy (&v, &e);
+      point_sub (&v, &s);
+      connection_move_handle (&condition->connection,
+                              HANDLE_MOVE_ENDPOINT,
+                              to,
+                              cp,
+                              reason,
+                              modifiers);
+      point_copy (&s,to);
+      point_sub (&s,&v);
+      connection_move_handle (&condition->connection,
+                              HANDLE_MOVE_STARTPOINT,
+                              &s,
+                              NULL,
+                              reason,
+                              0);
+      break;
+    case HANDLE_RESIZE_NW:
+    case HANDLE_RESIZE_N:
+    case HANDLE_RESIZE_NE:
+    case HANDLE_RESIZE_W:
+    case HANDLE_RESIZE_E:
+    case HANDLE_RESIZE_SW:
+    case HANDLE_RESIZE_S:
+    case HANDLE_RESIZE_SE:
+    case HANDLE_CUSTOM1:
+    case HANDLE_CUSTOM2:
+    case HANDLE_CUSTOM3:
+    case HANDLE_CUSTOM4:
+    case HANDLE_CUSTOM5:
+    case HANDLE_CUSTOM6:
+    case HANDLE_CUSTOM7:
+    case HANDLE_CUSTOM8:
+    case HANDLE_CUSTOM9:
+    default:
+      g_return_val_if_reached (NULL);
+      break;
   }
-  condition_update_data(condition);
+
+  condition_update_data (condition);
 
   return NULL;
 }
 
 
-static ObjectChange*
-condition_move(Condition *condition, Point *to)
+static DiaObjectChange *
+condition_move (Condition *condition, Point *to)
 {
   Point start_to_end;
   Point *endpoints = &condition->connection.endpoints[0];
@@ -286,32 +342,34 @@ condition_update_data(Condition *condition)
 
 
 static void
-condition_draw(Condition *condition, DiaRenderer *renderer)
+condition_draw (Condition *condition, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Connection *conn = &condition->connection;
 
-  renderer_ops->set_linewidth(renderer, CONDITION_LINE_WIDTH);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
-  renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
+  dia_renderer_set_linewidth (renderer, CONDITION_LINE_WIDTH);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
 
   if (CONDITION_ARROW_SIZE > (CONDITION_LINE_WIDTH/2.0)) {
     Arrow arrow;
     arrow.type = ARROW_FILLED_TRIANGLE;
     arrow.width = CONDITION_ARROW_SIZE;
     arrow.length = CONDITION_ARROW_SIZE/2;
-    renderer_ops->draw_line_with_arrows(renderer,
-					 &conn->endpoints[0],&conn->endpoints[1],
-					 CONDITION_LINE_WIDTH,
-					 &color_black,
-					 &arrow, NULL);
+    dia_renderer_draw_line_with_arrows (renderer,
+                                        &conn->endpoints[0],
+                                        &conn->endpoints[1],
+                                        CONDITION_LINE_WIDTH,
+                                        &color_black,
+                                        &arrow,
+                                        NULL);
   } else {
-    renderer_ops->draw_line(renderer,
-			     &conn->endpoints[0],&conn->endpoints[1],
-			     &color_black);
+    dia_renderer_draw_line (renderer,
+                            &conn->endpoints[0],
+                            &conn->endpoints[1],
+                            &color_black);
   }
 
-  boolequation_draw(condition->cond,renderer);
+  boolequation_draw (condition->cond, renderer);
 }
 
 static DiaObject *
@@ -330,7 +388,7 @@ condition_create(Point *startpoint,
   real default_fontheight;
   Color fg_color;
 
-  condition = g_malloc0(sizeof(Condition));
+  condition = g_new0 (Condition, 1);
   conn = &condition->connection;
   obj = &conn->object;
   extra = &conn->extra_spacing;
@@ -351,7 +409,7 @@ condition_create(Point *startpoint,
   condition->cond = boolequation_create("",default_font,default_fontheight,
 				 &fg_color);
   condition->cond_value = g_strdup("");
-  condition->cond_font = dia_font_ref(default_font);
+  condition->cond_font = g_object_ref (default_font);
   condition->cond_fontheight = default_fontheight;
   condition->cond_color = fg_color;
 
@@ -366,19 +424,21 @@ condition_create(Point *startpoint,
   *handle1 = &conn->endpoint_handles[0];
   *handle2 = &conn->endpoint_handles[1];
 
-  dia_font_unref(default_font);
+  g_clear_object (&default_font);
 
   return &condition->connection.object;
 }
 
+
 static void
-condition_destroy(Condition *condition)
+condition_destroy (Condition *condition)
 {
-  dia_font_unref(condition->cond_font);
-  boolequation_destroy(condition->cond);
-  g_free(condition->cond_value);
-  connection_destroy(&condition->connection);
+  g_clear_object (&condition->cond_font);
+  boolequation_destroy (condition->cond);
+  g_clear_pointer (&condition->cond_value, g_free);
+  connection_destroy (&condition->connection);
 }
+
 
 static DiaObject *
 condition_load(ObjectNode obj_node, int version, DiaContext *ctx)

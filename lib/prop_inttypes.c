@@ -23,7 +23,9 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <stdlib.h> /* strtol */
 
@@ -80,7 +82,7 @@ charprop_set_from_widget(CharProperty *prop, WIDGET *widget)
 {
   gchar *buf = gtk_editable_get_chars(GTK_EDITABLE(widget), 0, 1);
   prop->char_data = g_utf8_get_char(buf);
-  g_free(buf);
+  g_clear_pointer (&buf, g_free);
 }
 
 static void
@@ -90,7 +92,7 @@ charprop_load(CharProperty *prop, AttributeNode attr, DataNode data, DiaContext 
 
   if (str && str[0]) {
     prop->char_data = g_utf8_get_char(str);
-    g_free(str);
+    g_clear_pointer (&str, g_free);
   } else {
     g_warning("Could not read character data for attribute %s",
               prop->common.descr->name);
@@ -121,9 +123,10 @@ charprop_set_from_offset(CharProperty *prop,
 }
 
 static int
-charprop_get_data_size(CharProperty *prop)
+charprop_get_data_size(void)
 {
-  return sizeof (prop->char_data);
+  CharProperty prop;
+  return sizeof (prop.char_data);
 }
 
 
@@ -150,15 +153,6 @@ static const PropertyOps charprop_ops = {
 /* The BOOL property type. */
 /***************************/
 
-static void
-bool_toggled(GtkWidget *wid)
-{
-  if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(wid)))
-    gtk_label_set_text(GTK_LABEL(gtk_bin_get_child(GTK_BIN(wid))), _("Yes"));
-  else
-    gtk_label_set_text(GTK_LABEL(gtk_bin_get_child(GTK_BIN(wid))), _("No"));
-}
-
 static Property *
 boolprop_new(const PropDescription *pdesc, PropDescToPropPredicate reason)
 {
@@ -182,23 +176,21 @@ boolprop_copy(BoolProperty *src)
 static WIDGET *
 boolprop_get_widget(BoolProperty *prop, PropDialog *dialog)
 {
-  GtkWidget *ret = gtk_toggle_button_new_with_label(_("No"));
-  g_signal_connect(G_OBJECT(ret), "toggled",
-                   G_CALLBACK (bool_toggled), NULL);
-  prophandler_connect(&prop->common, G_OBJECT(ret), "toggled");
+  GtkWidget *ret = gtk_switch_new();
+  prophandler_connect_notify(&prop->common, G_OBJECT(ret), "notify::active");
   return ret;
 }
 
 static void
 boolprop_reset_widget(BoolProperty *prop, WIDGET *widget)
 {
-  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(widget),prop->bool_data);
+  gtk_switch_set_active(GTK_SWITCH(widget),prop->bool_data);
 }
 
 static void
 boolprop_set_from_widget(BoolProperty *prop, WIDGET *widget)
 {
-  prop->bool_data = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(widget));
+  prop->bool_data = gtk_switch_get_active (GTK_SWITCH(widget));
 }
 
 static void
@@ -228,9 +220,10 @@ boolprop_set_from_offset(BoolProperty *prop,
 }
 
 static int
-boolprop_get_data_size(BoolProperty *prop)
+boolprop_get_data_size(void)
 {
-  return sizeof (prop->bool_data);
+  BoolProperty prop;
+  return sizeof (prop.bool_data);
 }
 
 
@@ -339,9 +332,10 @@ intprop_set_from_offset(IntProperty *prop,
 }
 
 static int
-intprop_get_data_size(IntProperty *prop)
+intprop_get_data_size(void)
 {
-  return sizeof (prop->int_data);
+  IntProperty prop;
+  return sizeof (prop.int_data);
 }
 
 static const PropertyOps intprop_ops = {
@@ -378,7 +372,7 @@ static void
 intarrayprop_free(IntarrayProperty *prop)
 {
   g_array_free(prop->intarray_data,TRUE);
-  g_free(prop);
+  g_clear_pointer (&prop, g_free);
 }
 
 static IntarrayProperty *
@@ -417,30 +411,38 @@ intarrayprop_save(IntarrayProperty *prop, AttributeNode attr, DiaContext *ctx)
     data_add_int(attr, g_array_index(prop->intarray_data,gint,i), ctx);
 }
 
-static void
-intarrayprop_get_from_offset(IntarrayProperty *prop,
-                             void *base, guint offset, guint offset2)
-{
-  guint nvals = struct_member(base,offset2,guint);
-  guint i;
-  void *ofs_val = struct_member(base,offset,void *);
-  g_array_set_size(prop->intarray_data,nvals);
-  for (i = 0; i < nvals; i++)
-    g_array_index(prop->intarray_data,gint,i) =
-      struct_member(ofs_val,i * sizeof(gint),gint);
-}
 
 static void
-intarrayprop_set_from_offset(IntarrayProperty *prop,
-                             void *base, guint offset, guint offset2)
+intarrayprop_get_from_offset (IntarrayProperty *prop,
+                              void             *base,
+                              guint             offset,
+                              guint             offset2)
+{
+  guint nvals = struct_member (base, offset2, guint);
+  guint i;
+  void *ofs_val = struct_member(base, offset, void *);
+  g_array_set_size(prop->intarray_data, nvals);
+  for (i = 0; i < nvals; i++) {
+    g_array_index (prop->intarray_data, int, i) =
+      struct_member (ofs_val, i * sizeof (int), int);
+  }
+}
+
+
+static void
+intarrayprop_set_from_offset (IntarrayProperty *prop,
+                              void             *base,
+                              guint             offset,
+                              guint             offset2)
 {
   guint nvals = prop->intarray_data->len;
-  gint *vals = g_memdup(&g_array_index(prop->intarray_data,gint,0),
-                        sizeof(gint) * nvals);
-  g_free(struct_member(base,offset,gint *));
-  struct_member(base,offset,gint *) = vals;
-  struct_member(base,offset2,guint) = nvals;
+  int *vals = g_memdup2 (&g_array_index (prop->intarray_data, int, 0),
+                         sizeof (int) * nvals);
+  g_clear_pointer (&struct_member (base, offset, int *), g_free);
+  struct_member (base, offset, int *) = vals;
+  struct_member (base, offset2, guint) = nvals;
 }
+
 
 static const PropertyOps intarrayprop_ops = {
   (PropertyType_New) intarrayprop_new,
@@ -629,7 +631,7 @@ static void
 enumarrayprop_free(EnumarrayProperty *prop)
 {
   g_array_free(prop->enumarray_data,TRUE);
-  g_free(prop);
+  g_clear_pointer (&prop, g_free);
 }
 
 static EnumarrayProperty *
@@ -669,30 +671,38 @@ enumarrayprop_save(EnumarrayProperty *prop, AttributeNode attr, DiaContext *ctx)
     data_add_enum(attr, g_array_index(prop->enumarray_data,gint,i), ctx);
 }
 
-static void
-enumarrayprop_get_from_offset(EnumarrayProperty *prop,
-                              void *base, guint offset, guint offset2)
-{
-  guint nvals = struct_member(base,offset2,guint);
-  guint i;
-  void *ofs_val = struct_member(base,offset,void *);
-  g_array_set_size(prop->enumarray_data,nvals);
-  for (i = 0; i < nvals; i++)
-    g_array_index(prop->enumarray_data,gint,i) =
-      struct_member(ofs_val,i * sizeof(gint),gint);
-}
 
 static void
-enumarrayprop_set_from_offset(EnumarrayProperty *prop,
-                              void *base, guint offset, guint offset2)
+enumarrayprop_get_from_offset (EnumarrayProperty *prop,
+                               void              *base,
+                               guint              offset,
+                               guint              offset2)
+{
+  guint nvals = struct_member (base, offset2, guint);
+  guint i;
+  void *ofs_val = struct_member (base, offset, void *);
+  g_array_set_size (prop->enumarray_data, nvals);
+  for (i = 0; i < nvals; i++) {
+    g_array_index (prop->enumarray_data, int, i) =
+      struct_member(ofs_val, i * sizeof (int), int);
+  }
+}
+
+
+static void
+enumarrayprop_set_from_offset (EnumarrayProperty *prop,
+                               void              *base,
+                               guint              offset,
+                               guint              offset2)
 {
   guint nvals = prop->enumarray_data->len;
-  gint *vals = g_memdup(&g_array_index(prop->enumarray_data,gint,0),
-                        sizeof(gint) * nvals);
-  g_free(struct_member(base,offset,gint *));
-  struct_member(base,offset,gint *) = vals;
-  struct_member(base,offset2,guint) = nvals;
+  int *vals = g_memdup2 (&g_array_index (prop->enumarray_data, int, 0),
+                         sizeof (int) * nvals);
+  g_clear_pointer (&struct_member (base, offset, int *), g_free);
+  struct_member (base, offset, int *) = vals;
+  struct_member (base, offset2, guint) = nvals;
 }
+
 
 static const PropertyOps enumarrayprop_ops = {
   (PropertyType_New) enumarrayprop_new,

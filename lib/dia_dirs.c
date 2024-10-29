@@ -16,359 +16,257 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <string.h> /* strlen() */
+#include <glib/gi18n-lib.h>
+
+#include <glib/gstdio.h>
+#include <glib.h>
 
 #include "dia_dirs.h"
-#include "intl.h"
 #include "message.h"
-#ifdef G_OS_WIN32
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#else
-#include <sys/stat.h>
-#include <sys/types.h>
-#endif
-#include <glib/gstdio.h>
 
-#if defined(G_OS_WIN32) && defined(PREFIX)
-static gchar *
-replace_prefix (const gchar *runtime_prefix,
-                const gchar *configure_time_path)
-{
-  if (runtime_prefix &&
-      strncmp (configure_time_path, PREFIX "/",
-               strlen (PREFIX) + 1) == 0) {
-    return g_strconcat (runtime_prefix,
-                        configure_time_path + strlen (PREFIX) + 1,
-                        NULL);
-  } else
-    return g_strdup (configure_time_path);
-}
-#endif
 
-#ifdef G_OS_WIN32
-/*
- * Calulate the module directory from executable path
- * Convert to UTF-8 to be compatible with GLib's filename encoding.
- */
-static gchar *
-_dia_get_module_directory (void)
-{
-  wchar_t wsLoc [MAX_PATH+1];
-  HINSTANCE hInst = GetModuleHandle(NULL);
-  gchar *sLoc = NULL;
-
-  if (0 != GetModuleFileNameW(hInst, wsLoc, MAX_PATH))
-    {
-      sLoc = g_utf16_to_utf8 (wsLoc, -1, NULL, NULL, NULL);
-      /* strip the name */
-      if (strrchr(sLoc, G_DIR_SEPARATOR))
-        strrchr(sLoc, G_DIR_SEPARATOR)[0] = 0;
-      /* and one dir (bin) */
-      if (strrchr(sLoc, G_DIR_SEPARATOR))
-        strrchr(sLoc, G_DIR_SEPARATOR)[1] = 0;
-    }
-  return sLoc;
-}
-#endif
-
-/** Get the name of a subdirectory of our data directory.
- *  This function does not create the subdirectory, just make the correct name.
- * @param subdir The name of the directory desired.
- * @returns The full path to the directory.  This string should be freed
+/**
+ * dia_get_data_directory:
+ * @subdir: The name of the directory desired.
+ *
+ * Get the name of a subdirectory of our data directory.
+ *
+ * This function does not create the subdirectory, just make the correct name.
+ *
+ * Returns: The full path to the directory. This string should be freed
  *          after use.
+ *
+ * Since: dawn-of-time
  */
-gchar *
-dia_get_data_directory(const gchar* subdir)
+char *
+dia_get_data_directory (const char* subdir)
 {
 #ifdef G_OS_WIN32
-  gchar *tmpPath = NULL;
-  gchar *returnPath = NULL;
+  char *returnPath = NULL;
   /*
    * Calculate from executable path
    */
-  gchar *sLoc = _dia_get_module_directory ();
-#  if defined(PREFIX) && defined(PKGDATADIR)
-  tmpPath = replace_prefix(sLoc, PKGDATADIR);
-  if (strlen (subdir) == 0)
-    returnPath = g_strdup(tmpPath);
-  else
-    returnPath = g_build_path(G_DIR_SEPARATOR_S, tmpPath, subdir, NULL);
-  g_free(tmpPath);
-#  else
-  returnPath = g_strconcat (sLoc , subdir, NULL);
-#  endif
-  g_free (sLoc);
+  char *sLoc = g_win32_get_package_installation_directory_of_module (NULL);
+
+  returnPath = g_build_filename (sLoc, "share", "dia", subdir, NULL);
+
+  g_clear_pointer (&sLoc, g_free);
+
   return returnPath;
 #else
-  gchar *base = g_strdup (PKGDATADIR);
-  char  *ret;
+  char *base = g_strdup (PKGDATADIR);
+  char *ret;
   if (g_getenv ("DIA_BASE_PATH") != NULL) {
-    g_free (base);
+    g_clear_pointer (&base, g_free);
     /* a small hack cause the final destination and the local path differ */
     base = g_build_filename (g_getenv ("DIA_BASE_PATH"), "data", NULL);
   }
-  if (strlen (subdir) == 0)
+  if (strlen (subdir) == 0) {
     ret = g_strconcat (base, NULL);
-  else
+  } else {
     ret = g_strconcat (base, G_DIR_SEPARATOR_S, subdir, NULL);
-  g_free (base);
+  }
+  g_clear_pointer (&base, g_free);
   return ret;
 #endif
 }
 
-/** Get a subdirectory of our lib directory.  This does not create the
- *  directory, merely the name of the full path.
- * @param subdir The name of the subdirectory wanted.
- * @return The full path of the named directory.  The string should be
- *          freed after use.
+
+/**
+ * dia_get_lib_directory:
+ *
+ * Get a subdirectory of our lib directory. This does not create the
+ * directory, merely the name of the full path.
+ *
+ * Return: The full path of the directory. The string should be freed after
+ *         use.
  */
-gchar*
-dia_get_lib_directory(void)
+char *
+dia_get_lib_directory (void)
 {
 #ifdef G_OS_WIN32
-  gchar *sLoc = _dia_get_module_directory ();
-  gchar *returnPath = NULL;
-#  if defined(PREFIX) && defined(DIALIBDIR)
-    returnPath = replace_prefix(sLoc, DIALIBDIR);
-#  else
-  returnPath = g_strconcat (sLoc , "dia", NULL);
-#  endif
-  g_free (sLoc);
+  char *sLoc = g_win32_get_package_installation_directory_of_module (NULL);
+  char *returnPath = g_build_filename (sLoc, "lib", "dia", NULL);
+
+  g_clear_pointer (&sLoc, g_free);
+
   return returnPath;
 #else
-  return g_strconcat (DIALIBDIR, G_DIR_SEPARATOR_S, "", NULL);
+  return g_build_filename (DIALIBDIR, "", NULL);
 #endif
 }
 
-gchar*
-dia_get_locale_directory(void)
+
+char *
+dia_get_locale_directory (void)
 {
 #ifdef G_OS_WIN32
-  gchar *sLoc = _dia_get_module_directory ();
-  gchar *returnPath = NULL;
-#  if defined(PREFIX) && defined(LOCALEDIR)
-    returnPath = replace_prefix(sLoc, LOCALEDIR);
-#  else
-  returnPath = g_strconcat (sLoc, "locale", NULL);
-#  endif
-  g_free (sLoc);
-  return returnPath;
+  char *sLoc = g_win32_get_package_installation_directory_of_module (NULL);
+  char *ret = g_build_filename (sLoc, "share", "locale", NULL);
+
+  g_clear_pointer (&sLoc, g_free);
+
+  return ret;
 #else
-  return g_strconcat (LOCALEDIR, G_DIR_SEPARATOR_S, "", NULL);
+  return g_strdup (LOCALEDIR);
 #endif
 }
 
-/** Get the name of a file under the Dia config directory.  If no home
- *  directory can be found, uses a temporary directory.
- * @param subfile Name of the subfile.
- * @returns A string with the full path of the desired file.  This string
+
+/**
+ * dia_config_filename:
+ * @subfile: Name of the subfile.
+ *
+ * Get the name of a file under the Dia config directory. If no home
+ * directory can be found, uses a temporary directory.
+ *
+ * Returns: A string with the full path of the desired file. This string
  *          should be freed after use.
+ *
+ * Since: dawn-of-time
  */
-gchar *
-dia_config_filename(const gchar *subfile)
+char *
+dia_config_filename (const char *subfile)
 {
-  const gchar *homedir;
+  const char *homedir;
 
-  homedir = g_get_home_dir();
+  homedir = g_get_home_dir ();
   if (!homedir) {
-    homedir = g_get_tmp_dir(); /* put config stuff in /tmp -- not ideal, but
-				* we should not reach this state */
+    homedir = g_get_tmp_dir (); /* put config stuff in /tmp -- not ideal, but
+                                 * we should not reach this state */
   }
-  return g_strconcat(homedir, G_DIR_SEPARATOR_S ".dia" G_DIR_SEPARATOR_S,
-		     subfile, NULL);
+  return g_build_filename (homedir, ".dia", subfile, NULL);
 }
 
-/** Ensure that the directory part of `filename' exists.
- * @param filename A file that we want the parent directory of to exist.
- * @returns TRUE if the directory existed or has been created, FALSE if
+
+/**
+ * dia_config_ensure_dir:
+ * @filename: A file that we want the parent directory of to exist.
+ *
+ * Ensure that the directory part of `filename' exists.
+ *
+ * Returns: %TRUE if the directory existed or has been created, %FALSE if
  *          it cannot be created.
+ *
+ * Since: dawn-of-time
  */
 gboolean
-dia_config_ensure_dir(const gchar *filename)
+dia_config_ensure_dir (const char *filename)
 {
-  gchar *dir = g_path_get_dirname(filename);
+  char *dir = g_path_get_dirname (filename);
   gboolean exists;
-  if (dir == NULL) return FALSE;
-  if (strcmp(dir, ".")) {
-    if (g_file_test(dir, G_FILE_TEST_IS_DIR)) {
+  if (dir == NULL) {
+    return FALSE;
+  }
+  if (strcmp (dir, ".")) {
+    if (g_file_test (dir, G_FILE_TEST_IS_DIR)) {
       exists = TRUE;
     } else {
-      if (dia_config_ensure_dir(dir)) {
-	exists = (g_mkdir(dir, 0755) == 0);
+      if (dia_config_ensure_dir (dir)) {
+        exists = (g_mkdir(dir, 0755) == 0);
       } else {
-	exists = FALSE;
+        exists = FALSE;
       }
     }
   } else {
     exists = FALSE;
   }
-  g_free(dir);
+  g_clear_pointer (&dir, g_free);
   return exists;
 }
 
-/** Remove all instances of . and .. from an absolute path.
- * This is not a cheap function.
- * @param path String to canonicalize.
- * @returns A newly allocated string, or NULL if too many ..'s were found
- */
-gchar *
-dia_get_canonical_path(const gchar *path)
-{
-  gchar  *ret = NULL;
-  gchar **list;
-  int i = 0, n = 0;
 
-  /* shortcut for nothing to do (also keeps UNC path intact */
-  if (!strstr(path, "..") && !strstr(path, "." G_DIR_SEPARATOR_S))
-    return g_strdup(path);
-
-  list = g_strsplit (path, G_DIR_SEPARATOR_S, -1);
-  while (list[i] != NULL) {
-    if (0 == strcmp (list[i], ".")) {
-      /* simple, just remove it */
-      g_free (list[i]);
-      list[i] = g_strdup ("");
-    }
-    else if  (0 == strcmp (list[i], "..")) {
-      /* need to 'remove' the previous non empty part too */
-      n = i;
-      g_free (list[i]);
-      list[i] = g_strdup ("");
-      while (n >= 0) {
-        if (0 != strlen(list[n])) {
-          /* remove it */
-          g_free (list[n]);
-          list[n] = g_strdup ("");
-          break;
-        }
-        n--;
-      }
-      /* we haven't found an entry to remove for '..' */
-      if (n < 0)
-        break;
-    }
-    i++;
-  }
-  if (n >= 0) {
-    /* cant use g_strjoinv () cause it would stumble about empty elements */
-    GString *str = g_string_new (NULL);
-
-    i = 0;
-    while (list[i] != NULL) {
-      if (strlen(list[i]) > 0) {
-
-        /* win32 filenames usually don't start with a dir separator but
-         * with <drive>:\
-         */
-	if (i != 0 || list[i][1] != ':')
-          g_string_append (str, G_DIR_SEPARATOR_S);
-        g_string_append (str, list[i]);
-      }
-      i++;
-    }
-    ret = g_string_free (str, FALSE);
-  }
-
-  g_strfreev(list);
-
-  return ret;
-}
-
-/** Returns an filename in UTF-8 encoding from filename in filesystem encoding.
- * @param filename A filename string as gotten from the filesystem.
- * @returns UTF-8 encoded copy of the filename.
+/**
+ * dia_message_filename:
+ * @filename: A filename string as gotten from the filesystem.
+ *
+ * Returns an filename in UTF-8 encoding from filename in filesystem encoding.
+ *
  * The value returned is a pointer to static array.
+ *
  * Note: The string can be used AFTER the next call to this function
- *       Written like glib/gstrfuncs.c#g_strerror()
+ *       Written like g_strerror()
+ *
+ * Returns: UTF-8 encoded copy of the filename.
+ *
+ * Since: dawn-of-time
  */
-const gchar *
+const char *
 dia_message_filename(const gchar *filename)
 {
-  gchar *tmp;
+  char *tmp;
   GQuark msg_quark;
 
-  tmp = g_filename_display_name(filename);
-  /* Stick in the quark table so that we can return a static result
-   */
+  tmp = g_filename_display_name (filename);
+
+  /* Stick in the quark table so that we can return a static result */
   msg_quark = g_quark_from_string (tmp);
-  g_free (tmp);
-  tmp = (gchar *) g_quark_to_string (msg_quark);
-  return tmp;
+
+  g_clear_pointer (&tmp, g_free);
+
+  return g_quark_to_string (msg_quark);
 }
 
-/** Return an absolute filename from an absolute or relative filename.
- * @param filename A relative or absolute filename.
- * @return Absolute and canonicalized filename as a newly allocated string.
- */
-gchar *
-dia_get_absolute_filename (const gchar *filename)
-{
-  gchar *current_dir;
-  gchar *fullname;
-  gchar *canonical;
-  if (filename == NULL) return NULL;
-  if (g_path_is_absolute(filename)) return dia_get_canonical_path(filename);
-  current_dir = g_get_current_dir();
-  fullname = g_build_filename(current_dir, filename, NULL);
-  g_free(current_dir);
-  if (strchr(fullname, '.') == NULL) return fullname;
-  canonical = dia_get_canonical_path(fullname);
-  if (canonical == NULL) {
-    message_warning(_("Too many \"..\"s in filename %s\n"),
-                    dia_message_filename(filename));
-    return g_strdup(filename);
-  }
-  g_free(fullname);
-  return canonical;
-}
 
-/** Calculate a filename relative to the basepath of a master file
- * @param master The main filename
- * @param slave  A filename to become relative to the master
- * @return Relative filename or NULL if there is no common base path
+/**
+ * dia_relativize_filename:
+ * @master: The main filename
+ * @slave: A filename to become relative to the master
+ *
+ * Calculate a filename relative to the basepath of a master file
+ *
+ * Returns: Relative filename or %NULL if there is no common base path
+ *
+ * Since: dawn-of-time
  */
-gchar *
-dia_relativize_filename (const gchar *master, const gchar *slave)
+char *
+dia_relativize_filename (const char *master, const char *slave)
 {
-  gchar *bp1;
-  gchar *bp2;
-  gchar * rel = NULL;
+  char *bp1;
+  char *bp2;
+  char *rel = NULL;
 
-  if (!g_path_is_absolute (master) || !g_path_is_absolute (slave))
+  if (!g_path_is_absolute (master) || !g_path_is_absolute (slave)) {
     return NULL;
+  }
 
   bp1 = g_path_get_dirname (master);
   bp2 = g_path_get_dirname (slave);
 
   /* the slave path has to be included in master to become relative */
   if (g_str_has_prefix (bp2, bp1)) {
-    gchar *p;
+    char *p;
     /* We have do deal with the special meaning of Windows drives, where 'c:' is
      * a reference to the current directory, but c:\ is the root path. For other
      * directory names the trailing backslash is stripped by g_path_get_dirname().
      * So only advance (+1) in slave when there is no trailing backslash.
      */
-    rel = g_strdup (slave + strlen (bp1)
-			  + (g_str_has_suffix (bp1, G_DIR_SEPARATOR_S) ? 0 : 1));
+    rel = g_strdup (slave + strlen (bp1) +
+                    (g_str_has_suffix (bp1, G_DIR_SEPARATOR_S) ? 0 : 1));
     /* flip backslashes */
-    for (p = rel; *p != '\0'; p++)
-      if (*p == '\\') *p = '/';
+    for (p = rel; *p != '\0'; p++) {
+      if (*p == '\\') {
+        *p = '/';
+      }
+    }
   }
-  g_free (bp1);
-  g_free (bp2);
+
+  g_clear_pointer (&bp1, g_free);
+  g_clear_pointer (&bp2, g_free);
 
   return rel;
 }
 
-gchar *
-dia_absolutize_filename (const gchar *master, const gchar *slave)
-{
-  gchar *path = g_path_get_dirname (master);
-  gchar *result = g_build_path (G_DIR_SEPARATOR_S, path, slave, NULL);
 
-  g_free (path);
+char *
+dia_absolutize_filename (const char *master, const char *slave)
+{
+  char *path = g_path_get_dirname (master);
+  char *result = g_build_path (G_DIR_SEPARATOR_S, path, slave, NULL);
+
+  g_clear_pointer (&path, g_free);
+
   return result;
 }

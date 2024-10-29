@@ -18,12 +18,13 @@
  */
 
 /*! \file line.c -- Implements the "Standard - Line" object */
-#include <config.h>
 
-#include <assert.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 
-#include "intl.h"
 #include "object.h"
 #include "connection.h"
 #include "connectionpoint.h"
@@ -54,25 +55,25 @@ typedef struct _Line {
   ConnPointLine *cpl;
 
   Color line_color;
-  real line_width;
-  LineStyle line_style;
-  LineCaps line_caps;
+  double line_width;
+  DiaLineStyle line_style;
+  DiaLineCaps line_caps;
   Arrow start_arrow, end_arrow;
-  real dashlength;
-  real absolute_start_gap, absolute_end_gap;
+  double dashlength;
+  double absolute_start_gap, absolute_end_gap;
 } Line;
 
 struct _LineProperties {
-  real absolute_start_gap, absolute_end_gap;
+  double absolute_start_gap, absolute_end_gap;
 };
 
 static LineProperties default_properties;
 
-static ObjectChange* line_move_handle(Line *line, Handle *handle,
+static DiaObjectChange* line_move_handle(Line *line, Handle *handle,
 				      Point *to, ConnectionPoint *cp,
 				      HandleMoveReason reason,
 			     ModifierKeys modifiers);
-static ObjectChange* line_move(Line *line, Point *to);
+static DiaObjectChange* line_move(Line *line, Point *to);
 static void line_select(Line *line, Point *clicked_point,
 			DiaRenderer *interactive_renderer);
 static void line_draw(Line *line, DiaRenderer *renderer);
@@ -181,16 +182,19 @@ static ObjectOps line_ops = {
   (TransformFunc)       line_transform,
 };
 
-static void
-line_set_props(Line *line, GPtrArray *props)
-{
-  object_set_props_from_offsets(&line->connection.object,
-                                line_offsets, props);
-  line_update_data(line);
-}
 
 static void
-line_init_defaults() {
+line_set_props (Line *line, GPtrArray *props)
+{
+  object_set_props_from_offsets (DIA_OBJECT (line),
+                                 line_offsets, props);
+  line_update_data (line);
+}
+
+
+static void
+line_init_defaults (void)
+{
   static int defaults_initialized = 0;
 
   if (!defaults_initialized) {
@@ -200,48 +204,56 @@ line_init_defaults() {
   }
 }
 
-/*!
- * \brief Add a connection point to the line
+
+/**
+ * line_add_connpoint_callback:
  *
- * \memberof Line
+ * Add a connection point to the line
  */
-static ObjectChange *
-line_add_connpoint_callback(DiaObject *obj, Point *clicked, gpointer data)
+static DiaObjectChange *
+line_add_connpoint_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
-  ObjectChange *oc;
-  oc = connpointline_add_point(((Line *)obj)->cpl,clicked);
-  line_update_data((Line *)obj);
+  DiaObjectChange *oc;
+
+  oc = connpointline_add_point (((Line *) obj)->cpl, clicked);
+  line_update_data ((Line *) obj);
+
   return oc;
 }
+
 
 /*!
  * \brief Remove a connection point from the line
  *
  * \memberof Line
  */
-static ObjectChange *
+static DiaObjectChange *
 line_remove_connpoint_callback(DiaObject *obj, Point *clicked, gpointer data)
 {
-  ObjectChange *oc;
-  oc = connpointline_remove_point(((Line *)obj)->cpl,clicked);
-  line_update_data((Line *)obj);
+  DiaObjectChange *oc;
+
+  oc = connpointline_remove_point (((Line *)obj)->cpl, clicked);
+  line_update_data ((Line *) obj);
+
   return oc;
 }
 
-/*!
- * \brief Upgrade the Line to a Polyline
+
+/**
+ * _convert_to_polyline_callback:
+ * @obj: self pointer
+ * @clicked: last clicked point on canvas or %NULL
+ * @data: here unuesed user_data pointer
  *
- * Convert the _Line to a _Polyline with the position clicked as third point.
+ *
+ * Upgrade the #Line to a #Polyline
+ *
+ * Convert the #Line to a Polyline with the position clicked as third point.
  * Further object properties are preserved by the use of object_substitute()
  *
- * @param obj  self pointer
- * @param clicked  last clicked point on canvas or NULL
- * @param data  here unuesed user_data pointer
- * @return an _ObjectChange to support undo/redo
- *
- * \memberof Line
+ * Returns: an #DiaObjectChange to support undo/redo
  */
-static ObjectChange *
+static DiaObjectChange *
 _convert_to_polyline_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
   DiaObject *poly;
@@ -262,27 +274,28 @@ _convert_to_polyline_callback (DiaObject *obj, Point *clicked, gpointer data)
   return object_substitute (obj, poly);
 }
 
-/*!
- * \brief Upgrade the Line to a Zigzagline
+
+/**
+ * _convert_to_zigzagline_callback:
+ * @obj: self pointer
+ * @clicked: last clicked point on canvas or %NULL
+ * @data: here unuesed user_data pointer
  *
- * Convert the _Line to a _Zigzagline with the position clicked (if near enough)
+ * Upgrade the #Line to a #Zigzagline
+ *
+ * Convert the #Line to a #Zigzagline with the position clicked (if near enough)
  * for the new segment. The result of this function is more favorable for connected
  * lines by autorouting.
  *
  * Further object properties are preserved by the use of object_substitute()
  *
- * @param obj  self pointer
- * @param clicked  last clicked point on canvas or NULL
- * @param data  here unuesed user_data pointer
- * @return an _ObjectChange to support undo/redo
- *
- * \memberof Line
+ * Returns: an #DiaObjectChange to support undo/redo
  */
-static ObjectChange *
+static DiaObjectChange *
 _convert_to_zigzagline_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
   DiaObject *zigzag;
-  Line *line = (Line *)obj;
+  Line *line = (Line *) obj;
   Point points[4];
 
   if (clicked) {
@@ -311,6 +324,7 @@ _convert_to_zigzagline_callback (DiaObject *obj, Point *clicked, gpointer data)
   g_return_val_if_fail (zigzag != NULL, NULL);
   return object_substitute (obj, zigzag);
 }
+
 
 static DiaMenuItem object_menu_items[] = {
   { N_("Add connection point"), line_add_connpoint_callback, NULL, 1 },
@@ -409,24 +423,34 @@ line_select(Line *line, Point *clicked_point,
   connection_update_handles(&line->connection);
 }
 
-static ObjectChange*
-line_move_handle(Line *line, Handle *handle,
-		 Point *to, ConnectionPoint *cp,
-		 HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+line_move_handle (Line             *line,
+                  Handle           *handle,
+                  Point            *to,
+                  ConnectionPoint  *cp,
+                  HandleMoveReason  reason,
+                  ModifierKeys      modifiers)
 {
-  assert(line!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+  g_return_val_if_fail (line != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
-  connection_move_handle(&line->connection, handle->id, to, cp, reason, modifiers);
-  connection_adjust_for_autogap(&line->connection);
+  connection_move_handle (&line->connection,
+                          handle->id,
+                          to,
+                          cp,
+                          reason,
+                          modifiers);
+  connection_adjust_for_autogap (&line->connection);
 
-  line_update_data(line);
+  line_update_data (line);
 
   return NULL;
 }
 
-static ObjectChange*
+
+static DiaObjectChange*
 line_move(Line *line, Point *to)
 {
   Point start_to_end;
@@ -443,38 +467,37 @@ line_move(Line *line, Point *to)
   return NULL;
 }
 
+
 static void
-line_draw(Line *line, DiaRenderer *renderer)
+line_draw (Line *line, DiaRenderer *renderer)
 {
   Point gap_endpoints[2];
 
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
+  g_return_if_fail (line != NULL);
+  g_return_if_fail (renderer != NULL);
 
-  assert(line != NULL);
-  assert(renderer != NULL);
-
-  renderer_ops->set_linewidth(renderer, line->line_width);
-  renderer_ops->set_linestyle(renderer, line->line_style, line->dashlength);
-  renderer_ops->set_linecaps(renderer, line->line_caps);
+  dia_renderer_set_linewidth (renderer, line->line_width);
+  dia_renderer_set_linestyle (renderer, line->line_style, line->dashlength);
+  dia_renderer_set_linecaps (renderer, line->line_caps);
 
   if (line->absolute_start_gap || line->absolute_end_gap ) {
-    line_adjust_for_absolute_gap(line, gap_endpoints);
+    line_adjust_for_absolute_gap (line, gap_endpoints);
 
-    renderer_ops->draw_line_with_arrows(renderer,
-					&gap_endpoints[0], &gap_endpoints[1],
-					line->line_width,
-					&line->line_color,
-					&line->start_arrow,
-					&line->end_arrow);
+    dia_renderer_draw_line_with_arrows (renderer,
+                                        &gap_endpoints[0],
+                                        &gap_endpoints[1],
+                                        line->line_width,
+                                        &line->line_color,
+                                        &line->start_arrow,
+                                        &line->end_arrow);
   } else {
-        renderer_ops->draw_line_with_arrows(renderer,
-					    &line->connection.endpoints[0],
-					    &line->connection.endpoints[1],
-					    line->line_width,
-					    &line->line_color,
-					    &line->start_arrow,
-					    &line->end_arrow);
-
+    dia_renderer_draw_line_with_arrows (renderer,
+                                        &line->connection.endpoints[0],
+                                        &line->connection.endpoints[1],
+                                        line->line_width,
+                                        &line->line_color,
+                                        &line->start_arrow,
+                                        &line->end_arrow);
   }
 }
 
@@ -491,7 +514,7 @@ line_create(Point *startpoint,
 
   line_init_defaults();
 
-  line = g_malloc0(sizeof(Line));
+  line = g_new0 (Line, 1);
 
   line->line_width = attributes_get_default_linewidth();
   line->line_color = attributes_get_foreground();
@@ -513,7 +536,7 @@ line_create(Point *startpoint,
   line->cpl = connpointline_create(obj,1);
 
   attributes_get_default_line_style(&line->line_style, &line->dashlength);
-  line->line_caps = LINECAPS_BUTT;
+  line->line_caps = DIA_LINE_CAPS_BUTT;
   line->start_arrow = attributes_get_default_start_arrow();
   line->end_arrow = attributes_get_default_end_arrow();
   line_update_data(line);
@@ -540,7 +563,7 @@ line_copy(Line *line)
 
   conn = &line->connection;
 
-  newline = g_malloc0(sizeof(Line));
+  newline = g_new0 (Line, 1);
   newconn = &newline->connection;
   newobj = &newconn->object;
 
@@ -594,7 +617,7 @@ line_update_data(Line *line)
     end = conn->endpoints[1];
   }
   if (line->start_arrow.type != ARROW_NONE) {
-    Rectangle bbox;
+    DiaRectangle bbox;
     Point move_arrow, move_line;
     Point to = start;
     Point from = end;
@@ -608,7 +631,7 @@ line_update_data(Line *line)
     rectangle_union (&obj->bounding_box, &bbox);
   }
   if (line->end_arrow.type != ARROW_NONE) {
-    Rectangle bbox;
+    DiaRectangle bbox;
     Point move_arrow, move_line;
     Point to = end;
     Point from = start;
@@ -650,22 +673,32 @@ line_save(Line *line, ObjectNode obj_node, DiaContext *ctx)
     data_add_real(new_attribute(obj_node, PROP_STDNAME_LINE_WIDTH),
 		  line->line_width, ctx);
 
-  if (line->line_style != LINESTYLE_SOLID)
+  if (line->line_style != DIA_LINE_STYLE_SOLID)
     data_add_enum(new_attribute(obj_node, "line_style"),
 		  line->line_style, ctx);
 
-  if (line->line_caps != LINECAPS_BUTT)
-    data_add_enum(new_attribute(obj_node, "line_caps"),
-                  line->line_caps, ctx);
+  if (line->line_caps != DIA_LINE_CAPS_BUTT) {
+    data_add_enum (new_attribute (obj_node, "line_caps"),
+                   line->line_caps,
+                   ctx);
+  }
 
   if (line->start_arrow.type != ARROW_NONE) {
-    save_arrow(obj_node, &line->start_arrow,
-	       "start_arrow", "start_arrow_length", "start_arrow_width", ctx);
+    dia_arrow_save (&line->start_arrow,
+                    obj_node,
+                    "start_arrow",
+                    "start_arrow_length",
+                    "start_arrow_width",
+                    ctx);
   }
 
   if (line->end_arrow.type != ARROW_NONE) {
-    save_arrow(obj_node, &line->end_arrow,
-	       "end_arrow", "end_arrow_length", "end_arrow_width", ctx);
+    dia_arrow_save (&line->end_arrow,
+                    obj_node,
+                    "end_arrow",
+                    "end_arrow_length",
+                    "end_arrow_width",
+                    ctx);
   }
 
   if (line->absolute_start_gap)
@@ -675,7 +708,7 @@ line_save(Line *line, ObjectNode obj_node, DiaContext *ctx)
     data_add_real(new_attribute(obj_node, "absolute_end_gap"),
                  line->absolute_end_gap, ctx);
 
-  if (line->line_style != LINESTYLE_SOLID && line->dashlength != DEFAULT_LINESTYLE_DASHLEN)
+  if (line->line_style != DIA_LINE_STYLE_SOLID && line->dashlength != DEFAULT_LINESTYLE_DASHLEN)
     data_add_real(new_attribute(obj_node, "dashlength"),
 		  line->dashlength, ctx);
 }
@@ -688,7 +721,7 @@ line_load(ObjectNode obj_node, int version, DiaContext *ctx)
   DiaObject *obj;
   AttributeNode attr;
 
-  line = g_malloc0(sizeof(Line));
+  line = g_new0 (Line, 1);
 
   conn = &line->connection;
   obj = &conn->object;
@@ -708,21 +741,30 @@ line_load(ObjectNode obj_node, int version, DiaContext *ctx)
   if (attr != NULL)
     line->line_width = data_real(attribute_first_data(attr), ctx);
 
-  line->line_style = LINESTYLE_SOLID;
+  line->line_style = DIA_LINE_STYLE_SOLID;
   attr = object_find_attribute(obj_node, "line_style");
   if (attr != NULL)
     line->line_style = data_enum(attribute_first_data(attr), ctx);
 
-  line->line_caps = LINECAPS_BUTT;
-  attr = object_find_attribute(obj_node, "line_caps");
-  if (attr != NULL)
-    line->line_caps = data_enum(attribute_first_data(attr), ctx);
+  line->line_caps = DIA_LINE_CAPS_BUTT;
+  attr = object_find_attribute (obj_node, "line_caps");
+  if (attr != NULL) {
+    line->line_caps = data_enum (attribute_first_data (attr), ctx);
+  }
 
-  load_arrow(obj_node, &line->start_arrow,
-	     "start_arrow", "start_arrow_length", "start_arrow_width", ctx);
+  dia_arrow_load (&line->start_arrow,
+                  obj_node,
+                  "start_arrow",
+                  "start_arrow_length",
+                  "start_arrow_width",
+                  ctx);
 
-  load_arrow(obj_node, &line->end_arrow,
-	     "end_arrow", "end_arrow_length", "end_arrow_width", ctx);
+  dia_arrow_load (&line->end_arrow,
+                  obj_node,
+                  "end_arrow",
+                  "end_arrow_length",
+                  "end_arrow_width",
+                  ctx);
 
   line->absolute_start_gap = 0.0;
   attr = object_find_attribute(obj_node, "absolute_start_gap");

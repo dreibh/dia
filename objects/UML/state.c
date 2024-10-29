@@ -16,13 +16,13 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "diarenderer.h"
@@ -62,11 +62,11 @@ struct _State {
   Color line_color;
   Color fill_color;
 
-  real line_width;
+  double line_width;
 
-  gchar* entry_action;
-  gchar* do_action;
-  gchar* exit_action;
+  char *entry_action;
+  char *do_action;
+  char *exit_action;
 };
 
 
@@ -81,10 +81,10 @@ struct _State {
 static real state_distance_from(State *state, Point *point);
 static void state_select(State *state, Point *clicked_point,
 			DiaRenderer *interactive_renderer);
-static ObjectChange* state_move_handle(State *state, Handle *handle,
+static DiaObjectChange* state_move_handle(State *state, Handle *handle,
 				       Point *to, ConnectionPoint *cp,
 				       HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* state_move(State *state, Point *to);
+static DiaObjectChange* state_move(State *state, Point *to);
 static void state_draw(State *state, DiaRenderer *renderer);
 static DiaObject *state_create(Point *startpoint,
 			   void *user_data,
@@ -96,7 +96,7 @@ static PropDescription *state_describe_props(State *state);
 static void state_get_props(State *state, GPtrArray *props);
 static void state_set_props(State *state, GPtrArray *props);
 static void state_update_data(State *state);
-static gchar* state_get_action_text(State* state, StateAction action);
+static char* state_get_action_text (State* state, StateAction action);
 static void state_calc_action_text_pos(State* state, StateAction action, Point* pos);
 
 static ObjectTypeOps state_type_ops =
@@ -221,21 +221,26 @@ state_select(State *state, Point *clicked_point,
   element_update_handles(&state->element);
 }
 
-static ObjectChange*
-state_move_handle(State *state, Handle *handle,
-		  Point *to, ConnectionPoint *cp,
-		  HandleMoveReason reason, ModifierKeys modifiers)
-{
-  assert(state!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
 
-  assert(handle->id < 8);
+static DiaObjectChange *
+state_move_handle (State            *state,
+                   Handle           *handle,
+                   Point            *to,
+                   ConnectionPoint  *cp,
+                   HandleMoveReason  reason,
+                   ModifierKeys      modifiers)
+{
+  g_return_val_if_fail (state != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
+
+  g_return_val_if_fail (handle->id < 8, NULL);
 
   return NULL;
 }
 
-static ObjectChange*
+
+static DiaObjectChange*
 state_move(State *state, Point *to)
 {
   state->element.corner = *to;
@@ -244,33 +249,36 @@ state_move(State *state, Point *to)
   return NULL;
 }
 
-static void
-state_draw_action_string(State *state, DiaRenderer *renderer, StateAction action)
-{
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
-  Point pos;
-  gchar* action_text = state_get_action_text(state, action);
-  state_calc_action_text_pos(state, action, &pos);
-  renderer_ops->set_font(renderer, state->text->font, state->text->height);
-  renderer_ops->draw_string(renderer,
-                            action_text,
-                            &pos,
-                            ALIGN_LEFT,
-                            &state->text->color);
-  g_free(action_text);
-}
 
 static void
-state_draw(State *state, DiaRenderer *renderer)
+state_draw_action_string (State       *state,
+                          DiaRenderer *renderer,
+                          StateAction  action)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
+  Point pos;
+  char *action_text = state_get_action_text (state, action);
+
+  state_calc_action_text_pos (state, action, &pos);
+  dia_renderer_set_font (renderer, state->text->font, state->text->height);
+  dia_renderer_draw_string (renderer,
+                            action_text,
+                            &pos,
+                            DIA_ALIGN_LEFT,
+                            &state->text->color);
+  g_clear_pointer (&action_text, g_free);
+}
+
+
+static void
+state_draw (State *state, DiaRenderer *renderer)
+{
   Element *elem;
-  real x, y, w, h, r;
+  double x, y, w, h, r;
   Point p1, p2, split_line_left, split_line_right;
   gboolean has_actions;
 
-  assert(state != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (state != NULL);
+  g_return_if_fail (renderer != NULL);
 
   elem = &state->element;
 
@@ -279,79 +287,91 @@ state_draw(State *state, DiaRenderer *renderer)
   w = elem->width;
   h = elem->height;
 
-  renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
-  renderer_ops->set_linewidth(renderer, state->line_width);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
+  dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+  dia_renderer_set_linewidth (renderer, state->line_width);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
 
   if (state->state_type!=STATE_NORMAL) {
-      p1.x = x + w/2;
-      p1.y = y + h/2;
-      if (state->state_type==STATE_END) {
-	  r = STATE_ENDRATIO;
-	  renderer_ops->draw_ellipse (renderer,
-				      &p1,
-				      r, r,
-				      &state->fill_color, &state->line_color);
-      }
-      r = STATE_RATIO;
-      renderer_ops->draw_ellipse (renderer,
-				  &p1,
-				  r, r,
-				  NULL, &state->line_color);
+    p1.x = x + w/2;
+    p1.y = y + h/2;
+    if (state->state_type==STATE_END) {
+      r = STATE_ENDRATIO;
+      dia_renderer_draw_ellipse (renderer,
+                                 &p1,
+                                 r,
+                                 r,
+                                 &state->fill_color,
+                                 &state->line_color);
+    }
+    r = STATE_RATIO;
+    dia_renderer_draw_ellipse (renderer,
+                               &p1,
+                               r,
+                               r,
+                               NULL,
+                               &state->line_color);
   } else {
-      p1.x = x;
-      p1.y = y;
-      p2.x = x + w;
-      p2.y = y + h;
-      renderer_ops->draw_rounded_rect(renderer, &p1, &p2,
-				      &state->fill_color, &state->line_color,
-				      0.5);
+    p1.x = x;
+    p1.y = y;
+    p2.x = x + w;
+    p2.y = y + h;
+    dia_renderer_draw_rounded_rect (renderer,
+                                    &p1,
+                                    &p2,
+                                    &state->fill_color,
+                                    &state->line_color,
+                                    0.5);
 
-      text_draw(state->text, renderer);
-      has_actions = FALSE;
-      if (state->entry_action && strlen(state->entry_action) != 0) {
-          state_draw_action_string(state, renderer, ENTRY_ACTION);
-          has_actions = TRUE;
-      }
-      if (state->do_action && strlen(state->do_action) != 0) {
-          state_draw_action_string(state, renderer, DO_ACTION);
-          has_actions = TRUE;
-      }
-      if (state->exit_action && strlen(state->exit_action) != 0) {
-          state_draw_action_string(state, renderer, EXIT_ACTION);
-          has_actions = TRUE;
-      }
+    text_draw (state->text, renderer);
+    has_actions = FALSE;
+    if (state->entry_action && strlen (state->entry_action) != 0) {
+      state_draw_action_string (state, renderer, ENTRY_ACTION);
+      has_actions = TRUE;
+    }
+    if (state->do_action && strlen (state->do_action) != 0) {
+      state_draw_action_string (state, renderer, DO_ACTION);
+      has_actions = TRUE;
+    }
+    if (state->exit_action && strlen (state->exit_action) != 0) {
+      state_draw_action_string (state, renderer, EXIT_ACTION);
+      has_actions = TRUE;
+    }
 
-      if (has_actions) {
-        split_line_left.x = x;
-        split_line_right.x = x+w;
-        split_line_left.y = split_line_right.y
-                          = state->element.corner.y + STATE_MARGIN_Y +
-                            state->text->numlines*state->text->height;
-        renderer_ops->draw_line(renderer, &split_line_left, &split_line_right,
-                                &state->line_color);
-      }
+    if (has_actions) {
+      split_line_left.x = x;
+      split_line_right.x = x+w;
+      split_line_left.y = split_line_right.y
+                        = state->element.corner.y + STATE_MARGIN_Y +
+                          state->text->numlines*state->text->height;
+      dia_renderer_draw_line (renderer,
+                              &split_line_left,
+                              &split_line_right,
+                              &state->line_color);
+    }
   }
 }
 
 
 static void
-state_update_width_and_height_with_action_text(State* state,
-                                               StateAction action,
-                                               real* width,
-                                               real* height)
+state_update_width_and_height_with_action_text (State       *state,
+                                                StateAction  action,
+                                                double      *width,
+                                                double      *height)
 {
-  gchar* action_text = state_get_action_text(state, action);
-  *width = MAX(*width, dia_font_string_width(action_text, state->text->font,
-                                             state->text->height) + 2*STATE_MARGIN_X);
-  g_free(action_text);
+  char *action_text = state_get_action_text (state, action);
+  *width = MAX (*width,
+                dia_font_string_width (action_text,
+                                       state->text->font,
+                                       state->text->height) + 2 * STATE_MARGIN_X);
+  g_clear_pointer (&action_text, g_free);
   *height += state->text->height;
 }
 
+
 static void
-state_update_data(State *state)
+state_update_data (State *state)
 {
-  real w, h;
+  double w, h;
 
   Element *elem = &state->element;
   ElementBBExtras *extra = &elem->extra_spacing;
@@ -410,7 +430,7 @@ state_create(Point *startpoint,
   DiaFont *font;
   int i;
 
-  state = g_malloc0(sizeof(State));
+  state = g_new0 (State, 1);
 
   /* old default */
   state->line_width = 0.1;
@@ -432,9 +452,9 @@ state_create(Point *startpoint,
   p.x += STATE_WIDTH/2.0;
   p.y += STATE_HEIGHT/2.0;
 
-  state->text = new_text("", font, 0.8, &p, &color_black, ALIGN_CENTER);
+  state->text = new_text ("", font, 0.8, &p, &color_black, DIA_ALIGN_CENTRE);
 
-  dia_font_unref(font);
+  g_clear_object (&font);
 
   state->state_type = STATE_NORMAL;
   element_init(elem, 8, NUM_CONNECTIONS);
@@ -457,44 +477,54 @@ state_create(Point *startpoint,
   return &state->element.object;
 }
 
+
 static void
-state_destroy(State *state)
+state_destroy (State *state)
 {
-  g_free (state->entry_action);
-  g_free (state->do_action);
-  g_free (state->exit_action);
+  g_clear_pointer (&state->entry_action, g_free);
+  g_clear_pointer (&state->do_action, g_free);
+  g_clear_pointer (&state->exit_action, g_free);
 
-  text_destroy(state->text);
+  text_destroy (state->text);
 
-  element_destroy(&state->element);
+  element_destroy (&state->element);
 }
 
+
 static DiaObject *
-state_load(ObjectNode obj_node, int version,DiaContext *ctx)
+state_load (ObjectNode obj_node, int version, DiaContext *ctx)
 {
-  State *obj = (State*)object_load_using_properties(&state_type,
-					     obj_node,version,ctx);
+  State *obj = (State*) object_load_using_properties (&state_type,
+                                                      obj_node,
+                                                      version,
+                                                      ctx);
   if (obj->state_type != STATE_NORMAL) {
     /* Would like to create a state_term instead, but making the connections
      * is a pain */
-    message_warning(_("This diagram uses the State object for initial/final states.\nThis option will go away in future versions.\nPlease use the Initial/Final State object instead.\n"));
+    message_warning (_("This diagram uses the State object for initial/final "
+                       "states.\nThis option will go away in future versions."
+                       "\nPlease use the Initial/Final State object "
+                       "instead.\n"));
   }
-  return (DiaObject *)obj;
+
+  return (DiaObject *) obj;
 }
 
+
 static void
-state_calc_action_text_pos(State* state, StateAction action, Point* pos)
+state_calc_action_text_pos (State* state, StateAction action, Point* pos)
 {
-  int entry_action_valid = state->entry_action && strlen(state->entry_action) != 0;
-  int do_action_valid = state->do_action && strlen(state->do_action) != 0;
+  int entry_action_valid = state->entry_action &&
+                           strlen (state->entry_action) != 0;
+  int do_action_valid = state->do_action &&
+                        strlen (state->do_action) != 0;
 
   real first_action_y = state->text->numlines*state->text->height +
                         state->text->position.y;
 
   pos->x = state->element.corner.x + STATE_MARGIN_X;
 
-  switch (action)
-  {
+  switch (action) {
     case ENTRY_ACTION:
       pos->y = first_action_y;
       break;
@@ -509,28 +539,32 @@ state_calc_action_text_pos(State* state, StateAction action, Point* pos)
       if (entry_action_valid) pos->y += state->text->height;
       if (do_action_valid) pos->y += state->text->height;
       break;
+
+    default:
+      g_return_if_reached ();
   }
 }
 
 
-static gchar*
-state_get_action_text(State* state, StateAction action)
+static char *
+state_get_action_text (State* state, StateAction action)
 {
-  switch (action)
-  {
+  switch (action) {
     case ENTRY_ACTION:
-      return g_strdup_printf("entry/ %s", state->entry_action);
+      return g_strdup_printf ("entry/ %s", state->entry_action);
       break;
 
     case DO_ACTION:
-      return g_strdup_printf("do/ %s", state->do_action);
+      return g_strdup_printf ("do/ %s", state->do_action);
       break;
 
     case EXIT_ACTION:
-      return g_strdup_printf("exit/ %s", state->exit_action);
+      return g_strdup_printf ("exit/ %s", state->exit_action);
       break;
+
+    default:
+      g_return_val_if_reached (NULL);
   }
+
   return NULL;
 }
-
-

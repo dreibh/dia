@@ -18,17 +18,17 @@
 
  /*! \file arc.c -- Implementation of "Standard - Arc" */
 
-#include <config.h>
+#include "config.h"
 
-#define _DEFAULT_SOURCE 1 /* to get finite */
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
-#include <assert.h>
 
-#include "intl.h"
 #include "object.h"
 #include "connection.h"
 #include "connectionpoint.h"
 #include "diarenderer.h"
+#include "diainteractiverenderer.h"
 #include "attributes.h"
 #include "arrows.h"
 #include "properties.h"
@@ -55,25 +55,24 @@ struct _Arc {
   Handle center_handle; /*!< Handle on he center of the full circle */
 
   Color arc_color; /*!< Color of the Arc */
-  real curve_distance; /*!< distance between middle_handle and chord */
-  real line_width; /*!< line width for the Arc */
-  LineStyle line_style; /*!< line style for the Arc */
-  LineCaps line_caps; /*!< line ends of the Arc */
-  real dashlength; /*!< part of the linestyle if not LINESTYLE_SOLID */
+  double curve_distance; /*!< distance between middle_handle and chord */
+  double line_width; /*!< line width for the Arc */
+  DiaLineStyle line_style; /*!< line style for the Arc */
+  DiaLineCaps line_caps; /*!< line ends of the Arc */
+  double dashlength; /*!< part of the linestyle if not DIA_LINE_STYLE_SOLID */
   Arrow start_arrow, end_arrow; /*!< arrows */
 
   /* Calculated parameters: */
-  real radius;
+  double radius;
   Point center;
-  real angle1, angle2;
-
+  double angle1, angle2;
 };
 
 /* updates both endpoints and arc->curve_distance */
-static ObjectChange* arc_move_handle(Arc *arc, Handle *handle,
+static DiaObjectChange* arc_move_handle(Arc *arc, Handle *handle,
 				     Point *to, ConnectionPoint *cp,
 				     HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* arc_move(Arc *arc, Point *to);
+static DiaObjectChange* arc_move(Arc *arc, Point *to);
 static void arc_select(Arc *arc, Point *clicked_point,
 		       DiaRenderer *interactive_renderer);
 static void arc_draw(Arc *arc, DiaRenderer *renderer);
@@ -333,19 +332,24 @@ point_projection_is_between (const Point *c,
   return (c->x == a->x && c->y == a->y);
 }
 
-static ObjectChange*
-arc_move_handle(Arc *arc, Handle *handle,
-		Point *to, ConnectionPoint *cp,
-		HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange*
+arc_move_handle (Arc              *arc,
+                 Handle           *handle,
+                 Point            *to,
+                 ConnectionPoint  *cp,
+                 HandleMoveReason  reason,
+                 ModifierKeys      modifiers)
 {
-  assert(arc!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
-  /* A minimum distance between our three points needs to be maintained
-   * Otherwise our math will get unstable with unpredictable results. */
+  g_return_val_if_fail (arc != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
+
   {
     const Point *p1, *p2;
 
+    /* A minimum distance between our three points needs to be maintained
+     * Otherwise our math will get unstable with unpredictable results. */
     if (handle->id == HANDLE_MIDDLE) {
       p1 = &arc->connection.endpoints[0];
       p2 = &arc->connection.endpoints[1];
@@ -357,77 +361,109 @@ arc_move_handle(Arc *arc, Handle *handle,
       p1 = &arc->middle_handle.pos;
       p2 = &arc->connection.endpoints[(handle == (&arc->connection.endpoint_handles[0])) ? 1 : 0];
     }
+
+
     if (   (distance_point_point (to, p1) < 0.01)
-        || (distance_point_point (to, p2) < 0.01))
+        || (distance_point_point (to, p2) < 0.01)) {
       return NULL;
+    }
   }
 
   if (handle->id == HANDLE_MIDDLE) {
-          TRACE(printf("curve_dist: %.2f \n",arc->curve_distance));
-          arc->curve_distance = arc_compute_curve_distance(arc, &arc->connection.endpoints[0], &arc->connection.endpoints[1], to);
-          TRACE(printf("curve_dist: %.2f \n",arc->curve_distance));
+    TRACE (g_printerr ("curve_dist: %.2f \n", arc->curve_distance));
+    arc->curve_distance = arc_compute_curve_distance (arc,
+                                                      &arc->connection.endpoints[0],
+                                                      &arc->connection.endpoints[1],
+                                                      to);
+    TRACE (g_printerr ("curve_dist: %.2f \n", arc->curve_distance));
   } else if (handle->id == HANDLE_CENTER) {
-          /* We can move the handle only on the line through center and middle
-	   * Intersecting chord theorem says a*a=b*c
-	   *   with a = dist(p1,p2)/2
-	   *        b = curve_distance
-	   *        c = 2*radius-b or c = r + d
-	   *   with Pythagoras r^2 = d^2 + a^2
-	   *        d = sqrt(r^2-a^2)
-	   */
-	  Point p0 = arc->connection.endpoints[0];
-	  Point p1 = arc->connection.endpoints[1];
-	  Point p2 = { (p0.x + p1.x) / 2.0, (p0.y + p1.y) / 2.0 };
-	  real a = distance_point_point (&p0, &p1)/2.0;
-	  real r = (  distance_point_point (&p0, to) + distance_point_point (&p1, to)) / 2.0;
-	  real d = sqrt(r*r-a*a);
-	  real cd;
-	  /* If the new point lies between midpoint and the chords center the angles is >180,
-	   * so c is smaller than r */
-	  if (point_projection_is_between (to, &arc->middle_handle.pos, &p2))
-	    d = -d;
-	  cd  = a*a / (r+d);
-	  /* the sign of curve_distance, i.e. if the arc angle is clockwise, does not change */
-	  arc->curve_distance = (arc->curve_distance > 0) ? cd : -cd;
+    /* We can move the handle only on the line through center and middle
+     * Intersecting chord theorem says a*a=b*c
+     *   with a = dist(p1,p2)/2
+     *        b = curve_distance
+     *        c = 2*radius-b or c = r + d
+     *   with Pythagoras r^2 = d^2 + a^2
+     *        d = sqrt(r^2-a^2)
+     */
+    Point p0 = arc->connection.endpoints[0];
+    Point p1 = arc->connection.endpoints[1];
+    Point p2 = { (p0.x + p1.x) / 2.0, (p0.y + p1.y) / 2.0 };
+    double a = distance_point_point (&p0, &p1) / 2.0;
+    double r = (distance_point_point (&p0, to) + distance_point_point (&p1, to)) / 2.0;
+    double d = sqrt (r * r - a * a);
+    double cd;
+    /* If the new point lies between midpoint and the chords center the angles is >180,
+    * so c is smaller than r */
+    if (point_projection_is_between (to, &arc->middle_handle.pos, &p2)) {
+      d = -d;
+    }
+    cd  = (a * a) / (r + d);
+    /* the sign of curve_distance, i.e. if the arc angle is clockwise, does not change */
+    arc->curve_distance = (arc->curve_distance > 0) ? cd : -cd;
   } else {
-        Point best;
-        TRACE(printf("Modifiers: %d \n",modifiers));
-        if (modifiers & MODIFIER_SHIFT)
-        /* if(arc->end_arrow.type == ARROW_NONE)*/
-        {
-          TRACE(printf("SHIFT USED, to at %.2f %.2f  ",to->x,to->y));
-          if (arc_find_radial(arc, to, &best)){
-            /* needs to move two handles at the same time
-             * compute pos of middle handle */
-            Point midpoint;
-            int ok;
-            if (handle == (&arc->connection.endpoint_handles[0]))
-              ok = arc_compute_midpoint(arc, &best , &arc->connection.endpoints[1], &midpoint);
-            else
-              ok = arc_compute_midpoint(arc,  &arc->connection.endpoints[0], &best , &midpoint);
-            if (!ok)
-              return NULL;
-            connection_move_handle(&arc->connection, handle->id, &best, cp, reason, modifiers);
-            connection_adjust_for_autogap(&arc->connection);
-            /* recompute curve distance equiv. move middle handle */
-            arc->curve_distance = arc_compute_curve_distance(arc, &arc->connection.endpoints[0], &arc->connection.endpoints[1], &midpoint);
-            TRACE(printf("curve_dist: %.2f \n",arc->curve_distance));
-          }
-          else {
-            TRACE(printf("NO best\n"));
-          }
-       } else {
-          connection_move_handle(&arc->connection, handle->id, to, cp, reason, modifiers);
-          connection_adjust_for_autogap(&arc->connection);
-       }
+    Point best;
+    TRACE (g_printerr ("Modifiers: %d \n", modifiers));
+    if (modifiers & MODIFIER_SHIFT)
+    /* if(arc->end_arrow.type == ARROW_NONE)*/
+    {
+      TRACE(g_printerr ("SHIFT USED, to at %.2f %.2f  ",to->x,to->y));
+      if (arc_find_radial (arc, to, &best)){
+        /* needs to move two handles at the same time
+          * compute pos of middle handle */
+        Point midpoint;
+        int ok;
+
+        if (handle == (&arc->connection.endpoint_handles[0])) {
+          ok = arc_compute_midpoint (arc,
+                                     &best,
+                                     &arc->connection.endpoints[1],
+                                     &midpoint);
+        } else {
+          ok = arc_compute_midpoint (arc,
+                                     &arc->connection.endpoints[0],
+                                     &best,
+                                     &midpoint);
+        }
+
+        if (!ok) {
+          return NULL;
+        }
+
+        connection_move_handle (&arc->connection,
+                                handle->id,
+                                &best,
+                                cp,
+                                reason,
+                                modifiers);
+        connection_adjust_for_autogap (&arc->connection);
+        /* recompute curve distance equiv. move middle handle */
+        arc->curve_distance = arc_compute_curve_distance (arc,
+                                                          &arc->connection.endpoints[0],
+                                                          &arc->connection.endpoints[1],
+                                                          &midpoint);
+        TRACE (g_printerr ("curve_dist: %.2f \n", arc->curve_distance));
+      }
+      else {
+        TRACE (g_printerr ("NO best\n"));
+      }
+    } else {
+      connection_move_handle (&arc->connection,
+                              handle->id,
+                              to,
+                              cp,
+                              reason,
+                              modifiers);
+      connection_adjust_for_autogap (&arc->connection);
+    }
   }
 
-  arc_update_data(arc);
+  arc_update_data (arc);
 
   return NULL;
 }
 
-static ObjectChange*
+
+static DiaObjectChange*
 arc_move(Arc *arc, Point *to)
 {
   Point start_to_end;
@@ -459,25 +495,25 @@ arc_compute_midpoint(Arc *arc, const Point * ep0, const Point * ep1 , Point * mi
             angle -= -atan2(oep0->y - arc->center.y, oep0->x - arc->center.x); /* minus angle of old */
             angle += -atan2(ep1->y - arc->center.y, ep1->x - arc->center.x); /* plus angle of new */
             angle -= -atan2(oep1->y - arc->center.y, oep1->x - arc->center.x); /* minus angle of old */
-            if (!finite(angle)){
+            if (!isfinite(angle)){
                     return 0;
             }
             if (angle < -1 * M_PI){
-                    TRACE(printf("angle: %.2f ",angle));
+                    TRACE(g_printerr ("angle: %.2f ",angle));
                     angle += 2*M_PI;
-                    TRACE(printf("angle: %.2f ",angle));
+                    TRACE(g_printerr ("angle: %.2f ",angle));
             }
             if (angle > 1 * M_PI){
-                    TRACE(printf("angle: %.2f ",angle));
+                    TRACE(g_printerr ("angle: %.2f ",angle));
                     angle -= 2*M_PI;
-                    TRACE(printf("angle: %.2f ",angle));
+                    TRACE(g_printerr ("angle: %.2f ",angle));
             }
 
             midpos = arc->middle_handle.pos;
             /*rotate middle handle by half the angle */
-            TRACE(printf("\nmidpos before: %.2f %.2f \n",midpos.x, midpos.y));
+            TRACE(g_printerr ("\nmidpos before: %.2f %.2f \n",midpos.x, midpos.y));
             rotate_point_around_point(&midpos, &arc->center, angle/2);
-            TRACE(printf("\nmidpos after : %.2f %.2f \n",midpos.x, midpos.y));
+            TRACE(g_printerr ("\nmidpos after : %.2f %.2f \n",midpos.x, midpos.y));
             *midpoint = midpos;
             return 1;
 }
@@ -533,12 +569,12 @@ calculate_arc_object_edge(Arc *arc, real ang_start, real ang_end, DiaObject *obj
   mid2 = get_middle_arc_angle(ang_start, ang_end, clockwiseness);
   mid3 = ang_end;
 
-  TRACE(printf("Find middle angle between %f° and  %f°\n",ang_start,ang_end));
+  TRACE(g_printerr ("Find middle angle between %f° and  %f°\n",ang_start,ang_end));
   /* If the other end is inside the object */
   arc_get_point_at_angle(arc,target,mid1);
   dist = obj->ops->distance_from(obj, target );
   if (dist < 0.001){
-          TRACE(printf("Point at %f°: %f,%f is very close to object: %f, returning it\n",mid1, target->x, target->y, dist));
+          TRACE(g_printerr ("Point at %f°: %f,%f is very close to object: %f, returning it\n",mid1, target->x, target->y, dist));
           return ;
   }
   do {
@@ -562,22 +598,22 @@ calculate_arc_object_edge(Arc *arc, real ang_start, real ang_end, DiaObject *obj
 #ifdef TRACE_DIST
     for (j = 0; j < i; j++) {
       arc_get_point_at_angle(arc,target,trace[j]);
-      printf("%d: %f° : %f,%f :%f\n", j, trace[j],target->x,target->y, disttrace[j]);
+      g_printerr ("%d: %f° : %f,%f :%f\n", j, trace[j],target->x,target->y, disttrace[j]);
     }
 #endif
   arc_get_point_at_angle(arc,target,mid2);
   return ;
 }
+
 static void
-arc_draw(Arc *arc, DiaRenderer *renderer)
+arc_draw (Arc *arc, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point *endpoints;
   Point gaptmp[3];
   ConnectionPoint *start_cp, *end_cp;
 
-  assert(arc != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (arc != NULL);
+  g_return_if_fail (renderer != NULL);
 
   endpoints = &arc->connection.endpoints[0];
 
@@ -586,39 +622,40 @@ arc_draw(Arc *arc, DiaRenderer *renderer)
   start_cp = arc->connection.endpoint_handles[0].connected_to;
   end_cp = arc->connection.endpoint_handles[1].connected_to;
 
-  TRACE(printf("drawing arc:\n start:%f°:%f,%f \tend:%f°:%f,%f\n",arc->angle1,endpoints[0].x,endpoints[0].y, arc->angle2,endpoints[1].x,endpoints[1].y));
+  TRACE(g_printerr ("drawing arc:\n start:%f°:%f,%f \tend:%f°:%f,%f\n",arc->angle1,endpoints[0].x,endpoints[0].y, arc->angle2,endpoints[1].x,endpoints[1].y));
 
-  if (connpoint_is_autogap(start_cp)) {
-     TRACE(printf("computing start intersection\ncurve_distance: %f\n",arc->curve_distance));
+  if (connpoint_is_autogap (start_cp)) {
+     TRACE (printf ("computing start intersection\ncurve_distance: %f\n", arc->curve_distance));
      if (arc->curve_distance < 0)
-             calculate_arc_object_edge(arc, arc->angle1, arc->angle2, start_cp->object, &gaptmp[0], FALSE);
+        calculate_arc_object_edge (arc, arc->angle1, arc->angle2, start_cp->object, &gaptmp[0], FALSE);
      else
-             calculate_arc_object_edge(arc, arc->angle2, arc->angle1, start_cp->object, &gaptmp[0], TRUE);
+        calculate_arc_object_edge (arc, arc->angle2, arc->angle1, start_cp->object, &gaptmp[0], TRUE);
   }
-  if (connpoint_is_autogap(end_cp)) {
-     TRACE(printf("computing end intersection\ncurve_distance: %f\n",arc->curve_distance));
-     if (arc->curve_distance < 0)
-             calculate_arc_object_edge(arc, arc->angle2, arc->angle1, end_cp->object, &gaptmp[1], TRUE);
-     else
-             calculate_arc_object_edge(arc, arc->angle1, arc->angle2, end_cp->object, &gaptmp[1], FALSE);
+  if (connpoint_is_autogap (end_cp)) {
+    TRACE(g_printerr ("computing end intersection\ncurve_distance: %f\n",arc->curve_distance));
+    if (arc->curve_distance < 0)
+      calculate_arc_object_edge (arc, arc->angle2, arc->angle1, end_cp->object, &gaptmp[1], TRUE);
+    else
+      calculate_arc_object_edge (arc, arc->angle1, arc->angle2, end_cp->object, &gaptmp[1], FALSE);
   }
 
   /* compute new middle_point */
-  arc_compute_midpoint(arc, &gaptmp[0], &gaptmp[1], &gaptmp[2]);
+  arc_compute_midpoint (arc, &gaptmp[0], &gaptmp[1], &gaptmp[2]);
 
-  renderer_ops->set_linewidth(renderer, arc->line_width);
-  renderer_ops->set_linestyle(renderer, arc->line_style, arc->dashlength);
-  renderer_ops->set_linecaps(renderer, arc->line_caps);
+  dia_renderer_set_linewidth (renderer, arc->line_width);
+  dia_renderer_set_linestyle (renderer, arc->line_style, arc->dashlength);
+  dia_renderer_set_linecaps (renderer, arc->line_caps);
 
   /* Special case when almost line: */
   if (arc_is_line (arc)) {
-          TRACE(printf("drawing like a line\n"));
-    renderer_ops->draw_line_with_arrows(renderer,
-					 &gaptmp[0], &gaptmp[1],
-					 arc->line_width,
-					 &arc->arc_color,
-					 &arc->start_arrow,
-					 &arc->end_arrow);
+    TRACE (printf ("drawing like a line\n"));
+    dia_renderer_draw_line_with_arrows (renderer,
+                                        &gaptmp[0],
+                                        &gaptmp[1],
+                                        arc->line_width,
+                                        &arc->arc_color,
+                                        &arc->start_arrow,
+                                        &arc->end_arrow);
     return;
   }
 
@@ -629,36 +666,41 @@ arc_draw(Arc *arc, DiaRenderer *renderer)
     real angle1 = arc->curve_distance > 0.0 ? arc->angle1 : arc->angle2;
     real angle2 = arc->curve_distance > 0.0 ? arc->angle2 : arc->angle1;
     /* make it direction aware */
-    if (arc->curve_distance > 0.0 && angle2 < angle1)
+    if (arc->curve_distance > 0.0 && angle2 < angle1) {
       angle1 -= 360.0;
-    else if (arc->curve_distance < 0.0 && angle2 > angle1)
+    } else if (arc->curve_distance < 0.0 && angle2 > angle1) {
       angle2 -= 360.0;
-    renderer_ops->draw_arc(renderer, &arc->center_handle.pos,
-			   arc->radius*2.0, arc->radius*2.0,
-			   angle1, angle2,
-			   &arc->arc_color);
+    }
+    dia_renderer_draw_arc (renderer,
+                           &arc->center_handle.pos,
+                           arc->radius*2.0,
+                           arc->radius*2.0,
+                           angle1,
+                           angle2,
+                           &arc->arc_color);
   } else {
-    renderer_ops->draw_arc_with_arrows(renderer,
-					&gaptmp[0],
-					&gaptmp[1],
-					&gaptmp[2],
-					arc->line_width,
-					&arc->arc_color,
-					&arc->start_arrow,
-					&arc->end_arrow);
+    dia_renderer_draw_arc_with_arrows (renderer,
+                                       &gaptmp[0],
+                                       &gaptmp[1],
+                                       &gaptmp[2],
+                                       arc->line_width,
+                                       &arc->arc_color,
+                                       &arc->start_arrow,
+                                       &arc->end_arrow);
   }
-  if (renderer->is_interactive &&
-      dia_object_is_selected(&arc->connection.object)) {
+
+  if (DIA_IS_INTERACTIVE_RENDERER (renderer) &&
+      dia_object_is_selected (&arc->connection.object)) {
     /* draw the central angle */
     Color line_color = { 0.0, 0.0, 0.6, 1.0 };
 
-    renderer_ops->set_linewidth(renderer, 0);
-    renderer_ops->set_linestyle(renderer, LINESTYLE_DOTTED, 1);
-    renderer_ops->set_linejoin(renderer, LINEJOIN_MITER);
-    renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
+    dia_renderer_set_linewidth (renderer, 0);
+    dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_DOTTED, 1);
+    dia_renderer_set_linejoin (renderer, DIA_LINE_JOIN_MITER);
+    dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
 
-    renderer_ops->draw_line(renderer, &endpoints[0], &arc->center, &line_color);
-    renderer_ops->draw_line(renderer, &endpoints[1], &arc->center, &line_color);
+    dia_renderer_draw_line (renderer, &endpoints[0], &arc->center, &line_color);
+    dia_renderer_draw_line (renderer, &endpoints[1], &arc->center, &line_color);
   }
 }
 
@@ -692,14 +734,14 @@ arc_create(Point *startpoint,
   DiaObject *obj;
   Point defaultlen = { 1.0, 1.0 };
 
-  arc = g_malloc0(sizeof(Arc));
-  arc->connection.object.enclosing_box = g_new0 (Rectangle, 1);
+  arc = g_new0 (Arc, 1);
+  arc->connection.object.enclosing_box = g_new0 (DiaRectangle, 1);
 
   arc->line_width =  attributes_get_default_linewidth();
   arc->curve_distance = 1.0;
   arc->arc_color = attributes_get_foreground();
   attributes_get_default_line_style(&arc->line_style, &arc->dashlength);
-  arc->line_caps = LINECAPS_BUTT;
+  arc->line_caps = DIA_LINE_CAPS_BUTT;
   arc->start_arrow = attributes_get_default_start_arrow();
   arc->end_arrow = attributes_get_default_end_arrow();
 
@@ -727,8 +769,7 @@ arc_create(Point *startpoint,
 static void
 arc_destroy(Arc *arc)
 {
-  g_free (arc->connection.object.enclosing_box);
-  arc->connection.object.enclosing_box = NULL;
+  g_clear_pointer (&arc->connection.object.enclosing_box, g_free);
   connection_destroy(&arc->connection);
 }
 
@@ -741,8 +782,8 @@ arc_copy(Arc *arc)
 
   conn = &arc->connection;
 
-  newarc = g_malloc0(sizeof(Arc));
-  newarc->connection.object.enclosing_box = g_new0 (Rectangle, 1);
+  newarc = g_new0 (Arc, 1);
+  newarc->connection.object.enclosing_box = g_new0 (DiaRectangle, 1);
   newconn = &newarc->connection;
   newobj = &newconn->object;
 
@@ -884,7 +925,7 @@ arc_update_data(Arc *arc)
      * currently uses the tangent For big arcs the difference is not huge and the
      * minimum size of small arcs should be limited by the arror length.
      */
-    Rectangle bbox = {0,};
+    DiaRectangle bbox = {0,};
     real tmp;
     Point move_arrow, move_line;
     Point to = arc->connection.endpoints[0];
@@ -906,7 +947,7 @@ arc_update_data(Arc *arc)
     rectangle_union(&obj->bounding_box, &bbox);
   }
   if (arc->end_arrow.type != ARROW_NONE) {
-    Rectangle bbox = {0,};
+    DiaRectangle bbox = {0,};
     real tmp;
     Point move_arrow, move_line;
     Point to = arc->connection.endpoints[1];
@@ -951,29 +992,40 @@ arc_save(Arc *arc, ObjectNode obj_node, DiaContext *ctx)
     data_add_real(new_attribute(obj_node, PROP_STDNAME_LINE_WIDTH),
 		  arc->line_width, ctx);
 
-  if (arc->line_style != LINESTYLE_SOLID)
+  if (arc->line_style != DIA_LINE_STYLE_SOLID)
     data_add_enum(new_attribute(obj_node, "line_style"),
 		  arc->line_style, ctx);
 
-  if (arc->line_style != LINESTYLE_SOLID &&
+  if (arc->line_style != DIA_LINE_STYLE_SOLID &&
       arc->dashlength != DEFAULT_LINESTYLE_DASHLEN)
     data_add_real(new_attribute(obj_node, "dashlength"),
 		  arc->dashlength, ctx);
 
-  if (arc->line_caps != LINECAPS_BUTT)
-    data_add_enum(new_attribute(obj_node, "line_caps"),
-                  arc->line_caps, ctx);
+  if (arc->line_caps != DIA_LINE_CAPS_BUTT) {
+    data_add_enum (new_attribute (obj_node, "line_caps"),
+                   arc->line_caps,
+                   ctx);
+  }
 
   if (arc->start_arrow.type != ARROW_NONE) {
-    save_arrow(obj_node, &arc->start_arrow, "start_arrow",
-	     "start_arrow_length", "start_arrow_width", ctx);
+    dia_arrow_save (&arc->start_arrow,
+                    obj_node,
+                    "start_arrow",
+                    "start_arrow_length",
+                    "start_arrow_width",
+                    ctx);
   }
 
   if (arc->end_arrow.type != ARROW_NONE) {
-    save_arrow(obj_node, &arc->end_arrow, "end_arrow",
-	     "end_arrow_length", "end_arrow_width", ctx);
+    dia_arrow_save (&arc->end_arrow,
+                    obj_node,
+                    "end_arrow",
+                    "end_arrow_length",
+                    "end_arrow_width",
+                    ctx);
   }
 }
+
 
 static DiaObject *
 arc_load(ObjectNode obj_node, int version,DiaContext *ctx)
@@ -983,8 +1035,8 @@ arc_load(ObjectNode obj_node, int version,DiaContext *ctx)
   DiaObject *obj;
   AttributeNode attr;
 
-  arc = g_malloc0(sizeof(Arc));
-  arc->connection.object.enclosing_box = g_new0 (Rectangle, 1);
+  arc = g_new0 (Arc, 1);
+  arc->connection.object.enclosing_box = g_new0 (DiaRectangle, 1);
 
   conn = &arc->connection;
   obj = &conn->object;
@@ -1009,7 +1061,7 @@ arc_load(ObjectNode obj_node, int version,DiaContext *ctx)
   if (attr != NULL)
     arc->line_width = data_real(attribute_first_data(attr), ctx);
 
-  arc->line_style = LINESTYLE_SOLID;
+  arc->line_style = DIA_LINE_STYLE_SOLID;
   attr = object_find_attribute(obj_node, "line_style");
   if (attr != NULL)
     arc->line_style = data_enum(attribute_first_data(attr), ctx);
@@ -1019,16 +1071,25 @@ arc_load(ObjectNode obj_node, int version,DiaContext *ctx)
   if (attr != NULL)
     arc->dashlength = data_real(attribute_first_data(attr), ctx);
 
-  arc->line_caps = LINECAPS_BUTT;
-  attr = object_find_attribute(obj_node, "line_caps");
-  if (attr != NULL)
-    arc->line_caps = data_enum(attribute_first_data(attr), ctx);
+  arc->line_caps = DIA_LINE_CAPS_BUTT;
+  attr = object_find_attribute (obj_node, "line_caps");
+  if (attr != NULL) {
+    arc->line_caps = data_enum (attribute_first_data (attr), ctx);
+  }
 
-  load_arrow(obj_node, &arc->start_arrow, "start_arrow",
-	     "start_arrow_length", "start_arrow_width", ctx);
+  dia_arrow_load (&arc->start_arrow,
+                  obj_node,
+                  "start_arrow",
+                  "start_arrow_length",
+                  "start_arrow_width",
+                  ctx);
 
-  load_arrow(obj_node, &arc->end_arrow, "end_arrow",
-	     "end_arrow_length", "end_arrow_width", ctx);
+  dia_arrow_load (&arc->end_arrow,
+                  obj_node,
+                  "end_arrow",
+                  "end_arrow_length",
+                  "end_arrow_width",
+                  ctx);
 
   connection_init(conn, 4, 0);
 

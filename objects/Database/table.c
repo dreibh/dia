@@ -26,9 +26,10 @@
  * template. -- pn
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <string.h>
 #include <ctype.h>
 
@@ -50,33 +51,62 @@
 
 /* ----------------------------------------------------------------------- */
 
-static real         table_calculate_namebox_data (Table *);
-static real         table_init_attributesbox_height (Table *);
-static DiaObject *  table_create (Point *, void *, Handle **, Handle **);
-static DiaObject *  table_load (ObjectNode obj_node, int version, DiaContext *ctx);
-static void         table_save (Table *, ObjectNode, DiaContext *ctx);
-static void         table_destroy (Table *);
-static real         table_distance_from (Table *, Point *);
-static void         table_select (Table *, Point *, DiaRenderer *);
-static DiaObject *  table_copy (Table *table);
-static ObjectChange* table_move (Table *, Point *);
-static ObjectChange * table_move_handle (Table *, Handle *,
-                                         Point *, ConnectionPoint *,
-                                         HandleMoveReason, ModifierKeys);
-static PropDescription * table_describe_props (Table *);
-static void         table_get_props (Table *, GPtrArray *);
-static void         table_set_props (Table *, GPtrArray *);
-
-static void         table_draw (Table *, DiaRenderer *);
-static real         table_draw_namebox (Table *, DiaRenderer *, Element *);
-static real         table_draw_attributesbox (Table *, DiaRenderer *,
-                                              Element *, real);
-static DiaMenu * table_object_menu(DiaObject *, Point *);
-static ObjectChange * table_show_comments_cb(DiaObject *, Point *, gpointer);
-static void underline_table_attribute (DiaRenderer  *, Point,
-                                       TableAttribute *, Table *);
-static void fill_diamond (DiaRenderer *, real, real, Point *, Color *);
-static void table_init_fonts (Table *);
+static double           table_calculate_namebox_data    (Table             *);
+static double           table_init_attributesbox_height (Table             *);
+static DiaObject       *table_create                    (Point             *,
+                                                         void              *,
+                                                         Handle           **,
+                                                         Handle           **);
+static DiaObject       *table_load                      (ObjectNode         obj_node,
+                                                         int                version,
+                                                         DiaContext        *ctx);
+static void             table_save                      (Table             *,
+                                                         ObjectNode,
+                                                         DiaContext        *ctx);
+static void             table_destroy                   (Table             *);
+static double           table_distance_from             (Table             *,
+                                                         Point             *);
+static void             table_select                    (Table             *,
+                                                         Point             *,
+                                                         DiaRenderer       *);
+static DiaObject       *table_copy                      (Table             *table);
+static DiaObjectChange *table_move                      (Table             *,
+                                                         Point             *);
+static DiaObjectChange *table_move_handle               (Table             *,
+                                                         Handle            *,
+                                                         Point             *,
+                                                         ConnectionPoint   *,
+                                                         HandleMoveReason,
+                                                         ModifierKeys);
+static PropDescription *table_describe_props            (Table             *);
+static void             table_get_props                 (Table             *,
+                                                         GPtrArray         *);
+static void             table_set_props                 (Table             *,
+                                                         GPtrArray         *);
+static void             table_draw                      (Table             *,
+                                                         DiaRenderer       *);
+static double           table_draw_namebox              (Table             *,
+                                                         DiaRenderer       *,
+                                                         Element           *);
+static double           table_draw_attributesbox        (Table             *,
+                                                         DiaRenderer       *,
+                                                         Element           *,
+                                                         double);
+static DiaMenu         *table_object_menu               (DiaObject         *,
+                                                         Point             *);
+static DiaObjectChange *table_show_comments_cb          (DiaObject         *,
+                                                         Point             *,
+                                                         gpointer);
+static void             underline_table_attribute       (DiaRenderer       *,
+                                                         Point,
+                                                         TableAttribute    *,
+                                                         Table             *);
+static void             fill_diamond                    (DiaRenderer       *,
+                                                         double,
+                                                         double,
+                                                         Point             *,
+                                                         Color             *);
+static void             table_init_fonts                (Table             *);
 
 static TableAttribute *table_attribute_new (void);
 static void table_attribute_free (TableAttribute *);
@@ -85,23 +115,26 @@ static void table_update_connectionpoints (Table *);
 static void table_update_positions (Table *);
 static void table_compute_width_height (Table *);
 static TableState *table_state_new (Table *);
-static TableChange *table_change_new (Table *, TableState *,
-                                      GList *, GList *, GList *);
+static DiaObjectChange *table_change_new                (Table             *,
+                                                         TableState        *,
+                                                         GList             *,
+                                                         GList             *,
+                                                         GList             *);
 static void table_update_primary_key_font (Table *);
 
-static gchar * create_documentation_tag (gchar * comment,
-                                         gboolean tagging,
-                                         gint WrapPoint,
-                                         gint *NumberOfLines);
-static void draw_comments(DiaRenderer *renderer,
-                          DiaFont     *font,
-                          real         font_height,
-                          Color       *text_color,
-                          gchar       *comment,
-                          gboolean     comment_tagging,
-                          gint         Comment_line_length,
-                          Point       *p,
-                          gint         alignment);
+static char *create_documentation_tag (char     *comment,
+                                       gboolean  tagging,
+                                       int       WrapPoint,
+                                       int      *NumberOfLines);
+static void draw_comments (DiaRenderer *renderer,
+                           DiaFont     *font,
+                           double       font_height,
+                           Color       *text_color,
+                           char        *comment,
+                           gboolean     comment_tagging,
+                           int          Comment_line_length,
+                           Point       *p,
+                           int          alignment);
 
 /* ----------------------------------------------------------------------- */
 
@@ -324,6 +357,7 @@ table_attribute_ensure_connection_points (TableAttribute * attr,
   attr->right_connection->object = obj;
 }
 
+
 /**
  * Free a TableAttribute and its allocated resources. Upon return of
  * this function the passed pointer will not be valid anymore.
@@ -331,14 +365,15 @@ table_attribute_ensure_connection_points (TableAttribute * attr,
 static void
 table_attribute_free (TableAttribute * attr)
 {
-  if (attr->name) g_free (attr->name);
-  if (attr->type) g_free (attr->type);
-  if (attr->comment) g_free (attr->comment);
+  g_clear_pointer (&attr->name, g_free);
+  g_clear_pointer (&attr->type, g_free);
+  g_clear_pointer (&attr->comment, g_free);
 
   /* do not free the connection points here as they may be shared */
 
   g_free (attr);
 }
+
 
 /**
  * Create a copy of the passed attribute. The returned copy of the
@@ -377,7 +412,7 @@ table_create (Point * startpoint,
   DiaObject *obj;
   gint i;
 
-  table = g_malloc0 (sizeof (Table));
+  table = g_new0 (Table, 1);
   elem = &table->element;
   obj = &elem->object;
 
@@ -499,35 +534,33 @@ table_destroy (Table * table)
 
   element_destroy (&table->element);
 
-  g_free (table->name);
-  g_free (table->comment);
+  g_clear_pointer (&table->name, g_free);
+  g_clear_pointer (&table->comment, g_free);
 
   list = table->attributes;
-  while (list != NULL)
-    {
-      TableAttribute * attr = (TableAttribute *) list->data;
-      table_attribute_free (attr);
+  while (list != NULL) {
+    TableAttribute * attr = (TableAttribute *) list->data;
+    table_attribute_free (attr);
 
-      list = g_list_next (list);
-    }
+    list = g_list_next (list);
+  }
   g_list_free (table->attributes);
 
-  dia_font_unref (table->normal_font);
-  dia_font_unref (table->primary_key_font);
-  dia_font_unref (table->name_font);
-  dia_font_unref (table->comment_font);
+  g_clear_object (&table->normal_font);
+  g_clear_object (&table->primary_key_font);
+  g_clear_object (&table->name_font);
+  g_clear_object (&table->comment_font);
 }
 
 static void
 table_draw (Table *table, DiaRenderer *renderer)
 {
-  DiaRendererClass * renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   real y = 0.0;
   Element * elem;
 
-  renderer_ops->set_linewidth (renderer, table->border_width);
-  renderer_ops->set_fillstyle (renderer, FILLSTYLE_SOLID);
-  renderer_ops->set_linestyle (renderer, LINESTYLE_SOLID, 0.0);
+  dia_renderer_set_linewidth (renderer, table->border_width);
+  dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
 
   elem = &table->element;
 
@@ -536,9 +569,8 @@ table_draw (Table *table, DiaRenderer *renderer)
 }
 
 static real
-table_draw_namebox (Table * table, DiaRenderer * renderer, Element * elem)
+table_draw_namebox (Table *table, DiaRenderer *renderer, Element *elem)
 {
-  DiaRendererClass * renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point startP;
   Point endP;
 
@@ -550,28 +582,32 @@ table_draw_namebox (Table * table, DiaRenderer * renderer, Element * elem)
   endP.y = startP.y + table->namebox_height;
 
   /* first draw the outer box and fill for the class name object */
-  renderer_ops->draw_rect (renderer, &startP, &endP, &table->fill_color, &table->line_color);
+  dia_renderer_draw_rect (renderer, &startP, &endP, &table->fill_color, &table->line_color);
 
-  if (IS_NOT_EMPTY(table->name))
-    {
-      startP.x += elem->width / 2.0;
-      startP.y += table->name_font_height;
-      renderer_ops->set_font (renderer,
-                              table->name_font,
-                              table->name_font_height);
-      renderer_ops->draw_string (renderer,
-                                 table->name,
-                                 &startP,
-                                 ALIGN_CENTER,
-                                 &table->text_color);
-    }
+  if (IS_NOT_EMPTY (table->name)) {
+    startP.x += elem->width / 2.0;
+    startP.y += table->name_font_height;
+    dia_renderer_set_font (renderer,
+                           table->name_font,
+                           table->name_font_height);
+    dia_renderer_draw_string (renderer,
+                              table->name,
+                              &startP,
+                              DIA_ALIGN_CENTRE,
+                              &table->text_color);
+  }
 
-  if (table->visible_comment && IS_NOT_EMPTY(table->comment))
-    {
-      draw_comments (renderer, table->comment_font, table->comment_font_height,
-                     &table->text_color, table->comment, table->tagging_comment,
-                     TABLE_COMMENT_MAXWIDTH, &startP, ALIGN_CENTER);
-    }
+  if (table->visible_comment && IS_NOT_EMPTY (table->comment)) {
+    draw_comments (renderer,
+                   table->comment_font,
+                   table->comment_font_height,
+                   &table->text_color,
+                   table->comment,
+                   table->tagging_comment,
+                   TABLE_COMMENT_MAXWIDTH,
+                   &startP,
+                   DIA_ALIGN_CENTRE);
+  }
 
   return endP.y;
 }
@@ -601,48 +637,48 @@ table_draw_namebox (Table * table, DiaRenderer * renderer, Element * elem)
  * @see   uml_create_documentation
  */
 static void
-draw_comments(DiaRenderer *renderer,
-              DiaFont     *font,
-              real         font_height,
-              Color       *text_color,
-              gchar       *comment,
-              gboolean     comment_tagging,
-              gint         Comment_line_length,
-              Point       *p,
-              gint         alignment)
+draw_comments (DiaRenderer *renderer,
+               DiaFont     *font,
+               real         font_height,
+               Color       *text_color,
+               char        *comment,
+               gboolean     comment_tagging,
+               gint         Comment_line_length,
+               Point       *p,
+               int          alignment)
 {
-  gint      NumberOfLines = 0;
-  gint      Index;
-  gchar     *CommentString = 0;
-  gchar     *NewLineP= NULL;
-  gchar     *RenderP;
-
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
+  int   NumberOfLines = 0;
+  int   Index;
+  char *CommentString = 0;
+  char *NewLineP= NULL;
+  char *RenderP;
 
   CommentString =
-    create_documentation_tag(comment, comment_tagging, Comment_line_length, &NumberOfLines);
+    create_documentation_tag (comment, comment_tagging, Comment_line_length, &NumberOfLines);
   RenderP = CommentString;
-  renderer_ops->set_font(renderer, font, font_height);
-  for ( Index=0; Index < NumberOfLines; Index++)
-  {
+  dia_renderer_set_font (renderer, font, font_height);
+  for ( Index=0; Index < NumberOfLines; Index++) {
     p->y += font_height;                    /* Advance to the next line */
-    NewLineP = strchr(RenderP, '\n');
-    if ( NewLineP != NULL)
-    {
+    NewLineP = strchr (RenderP, '\n');
+    if ( NewLineP != NULL) {
       *NewLineP++ = '\0';
     }
-    renderer_ops->draw_string(renderer, RenderP, p, alignment, text_color);
+    dia_renderer_draw_string (renderer, RenderP, p, alignment, text_color);
     RenderP = NewLineP;
     if ( NewLineP == NULL){
-        break;
+      break;
     }
   }
-  g_free(CommentString);
+  g_clear_pointer (&CommentString, g_free);
 }
 
+
 static void
-fill_diamond (DiaRenderer *renderer, real half_height, real width,
-              Point * lower_midpoint, Color * color)
+fill_diamond (DiaRenderer *renderer,
+              real         half_height,
+              real         width,
+              Point       *lower_midpoint,
+              Color       *color)
 {
   Point poly[4];
 
@@ -655,17 +691,18 @@ fill_diamond (DiaRenderer *renderer, real half_height, real width,
   poly[3].x = poly[1].x;
   poly[3].y = lower_midpoint->y - half_height;
 
-  DIA_RENDERER_GET_CLASS (renderer)->set_fillstyle (renderer, FILLSTYLE_SOLID);
-  DIA_RENDERER_GET_CLASS (renderer)->set_linejoin (renderer, LINEJOIN_MITER);
+  dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+  dia_renderer_set_linejoin (renderer, DIA_LINE_JOIN_MITER);
 
-  DIA_RENDERER_GET_CLASS (renderer)->draw_polygon (renderer, poly, 4, color, NULL);
+  dia_renderer_draw_polygon (renderer, poly, 4, color, NULL);
 }
 
 static real
-table_draw_attributesbox (Table * table, DiaRenderer * renderer,
-                          Element * elem, real Yoffset)
+table_draw_attributesbox (Table         *table,
+                          DiaRenderer   *renderer,
+                          Element       *elem,
+                          real           Yoffset)
 {
-  DiaRendererClass * renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point startP, startTypeP;
   Point endP;
   Point indicP;
@@ -683,7 +720,7 @@ table_draw_attributesbox (Table * table, DiaRenderer * renderer,
   endP.x = startP.x + elem->width;
   endP.y = startP.y + table->attributesbox_height;
 
-  renderer_ops->draw_rect (renderer, &startP, &endP, fill_color, line_color);
+  dia_renderer_draw_rect (renderer, &startP, &endP, fill_color, line_color);
 
   startP.x += TABLE_ATTR_NAME_OFFSET;
   startP.x += (table->border_width/2.0 + 0.1);
@@ -691,97 +728,88 @@ table_draw_attributesbox (Table * table, DiaRenderer * renderer,
   list = table->attributes;
   /* adjust size of symbols with font height */
   scale = table->normal_font_height/TABLE_NORMAL_FONT_HEIGHT;
-  while (list != NULL)
-    {
-      TableAttribute * attr = (TableAttribute *) list->data;
+  while (list != NULL) {
+    TableAttribute * attr = (TableAttribute *) list->data;
 
-      if (attr->primary_key)
-        {
-          attr_font = table->primary_key_font;
-          attr_font_height = table->primary_key_font_height;
-        }
-      else
-        {
-          attr_font = table->normal_font;
-          attr_font_height = table->normal_font_height;
-        }
-
-      startP.y += attr_font_height;
-      renderer_ops->set_font (renderer,
-                              attr_font,
-                              attr_font_height);
-
-      renderer_ops->set_linewidth (renderer, TABLE_ATTR_INDIC_LINE_WIDTH);
-      indicP = startP;
-      indicP.x -= ((TABLE_ATTR_NAME_OFFSET/2.0)
-                   + (TABLE_ATTR_INDIC_WIDTH*scale/4.0));
-      indicP.y -= (attr_font_height/2.0);
-      indicP.y += TABLE_ATTR_INDIC_WIDTH*scale/2.0;
-      if (attr->primary_key)
-        {
-          fill_diamond (renderer,
-                        0.75*TABLE_ATTR_INDIC_WIDTH*scale,
-                        TABLE_ATTR_INDIC_WIDTH*scale,
-                        &indicP,
-                        &table->line_color);
-        }
-      else if (attr->nullable)
-        {
-          renderer_ops->draw_ellipse (renderer,
-                                      &indicP,
-                                      TABLE_ATTR_INDIC_WIDTH*scale,
-                                      TABLE_ATTR_INDIC_WIDTH*scale,
-                                      NULL, &table->line_color);
-        }
-      else
-        {
-          renderer_ops->draw_ellipse (renderer,
-                                      &indicP,
-                                      TABLE_ATTR_INDIC_WIDTH*scale,
-                                      TABLE_ATTR_INDIC_WIDTH*scale,
-                                      &table->line_color, NULL);
-        }
-
-      if (IS_NOT_EMPTY(attr->name))
-        {
-          renderer_ops->draw_string (renderer,
-                                     attr->name,
-                                     &startP,
-                                     ALIGN_LEFT,
-                                     text_color);
-        }
-      if (IS_NOT_EMPTY(attr->type))
-        {
-          startTypeP = startP;
-          startTypeP.x += table->maxwidth_attr_name + TABLE_ATTR_NAME_TYPE_GAP;
-          renderer_ops->draw_string (renderer,
-                                     attr->type,
-                                     &startTypeP,
-                                     ALIGN_LEFT,
-                                     text_color);
-        }
-
-      if (table->underline_primary_key && attr->primary_key)
-        underline_table_attribute (renderer, startP, attr, table);
-
-      if (table->visible_comment && IS_NOT_EMPTY(attr->comment))
-        {
-          startP.x += TABLE_ATTR_COMMENT_OFFSET;
-          draw_comments (renderer,
-                         table->comment_font,
-                         table->comment_font_height,
-                         text_color,
-                         attr->comment,
-                         table->tagging_comment,
-                         TABLE_COMMENT_MAXWIDTH,
-                         &startP,
-                         ALIGN_LEFT);
-          startP.x -= TABLE_ATTR_COMMENT_OFFSET;
-          startP.y += table->comment_font_height/2;
-        }
-
-      list = g_list_next (list);
+    if (attr->primary_key) {
+      attr_font = table->primary_key_font;
+      attr_font_height = table->primary_key_font_height;
+    } else {
+      attr_font = table->normal_font;
+      attr_font_height = table->normal_font_height;
     }
+
+    startP.y += attr_font_height;
+    dia_renderer_set_font (renderer,
+                           attr_font,
+                           attr_font_height);
+
+    dia_renderer_set_linewidth (renderer, TABLE_ATTR_INDIC_LINE_WIDTH);
+    indicP = startP;
+    indicP.x -= ((TABLE_ATTR_NAME_OFFSET/2.0)
+                  + (TABLE_ATTR_INDIC_WIDTH*scale/4.0));
+    indicP.y -= (attr_font_height/2.0);
+    indicP.y += TABLE_ATTR_INDIC_WIDTH*scale/2.0;
+    if (attr->primary_key) {
+      fill_diamond (renderer,
+                    0.75*TABLE_ATTR_INDIC_WIDTH*scale,
+                    TABLE_ATTR_INDIC_WIDTH*scale,
+                    &indicP,
+                    &table->line_color);
+    } else if (attr->nullable) {
+      dia_renderer_draw_ellipse (renderer,
+                                 &indicP,
+                                 TABLE_ATTR_INDIC_WIDTH*scale,
+                                 TABLE_ATTR_INDIC_WIDTH*scale,
+                                 NULL,
+                                 &table->line_color);
+    } else {
+      dia_renderer_draw_ellipse (renderer,
+                                 &indicP,
+                                 TABLE_ATTR_INDIC_WIDTH*scale,
+                                 TABLE_ATTR_INDIC_WIDTH*scale,
+                                 &table->line_color,
+                                 NULL);
+    }
+
+    if (IS_NOT_EMPTY (attr->name)) {
+      dia_renderer_draw_string (renderer,
+                                attr->name,
+                                &startP,
+                                DIA_ALIGN_LEFT,
+                                text_color);
+    }
+
+    if (IS_NOT_EMPTY (attr->type)) {
+      startTypeP = startP;
+      startTypeP.x += table->maxwidth_attr_name + TABLE_ATTR_NAME_TYPE_GAP;
+      dia_renderer_draw_string (renderer,
+                                attr->type,
+                                &startTypeP,
+                                DIA_ALIGN_LEFT,
+                                text_color);
+    }
+
+    if (table->underline_primary_key && attr->primary_key)
+      underline_table_attribute (renderer, startP, attr, table);
+
+    if (table->visible_comment && IS_NOT_EMPTY (attr->comment)) {
+      startP.x += TABLE_ATTR_COMMENT_OFFSET;
+      draw_comments (renderer,
+                     table->comment_font,
+                     table->comment_font_height,
+                     text_color,
+                     attr->comment,
+                     table->tagging_comment,
+                     TABLE_COMMENT_MAXWIDTH,
+                     &startP,
+                     DIA_ALIGN_LEFT);
+      startP.x -= TABLE_ATTR_COMMENT_OFFSET;
+      startP.y += table->comment_font_height/2;
+    }
+
+    list = g_list_next (list);
+  }
 
   return Yoffset;
 }
@@ -789,7 +817,7 @@ table_draw_attributesbox (Table * table, DiaRenderer * renderer,
 static real
 table_distance_from (Table * table, Point *point)
 {
-  const Rectangle * rect;
+  const DiaRectangle * rect;
   DiaObject * obj;
 
   obj = &table->element.object;
@@ -848,11 +876,11 @@ table_copy(Table * orig)
       list = g_list_next (list);
     }
   copy->normal_font_height = orig->normal_font_height;
-  copy->normal_font = dia_font_ref (orig->normal_font);
+  copy->normal_font = g_object_ref (orig->normal_font);
   copy->name_font_height = orig->name_font_height;
-  copy->name_font = dia_font_ref (orig->name_font);
+  copy->name_font = g_object_ref (orig->name_font);
   copy->comment_font_height = orig->comment_font_height;
-  copy->comment_font = dia_font_ref (orig->comment_font);
+  copy->comment_font = g_object_ref (orig->comment_font);
   copy->text_color = orig->text_color;
   copy->line_color = orig->line_color;
   copy->fill_color = orig->fill_color;
@@ -865,7 +893,8 @@ table_copy(Table * orig)
   return &copy->element.object;
 }
 
-static ObjectChange *
+
+static DiaObjectChange *
 table_move (Table *table, Point *to)
 {
   table->element.corner = *to;
@@ -873,10 +902,14 @@ table_move (Table *table, Point *to)
   return NULL;
 }
 
-static ObjectChange *
-table_move_handle (Table *table, Handle *handle,
-                   Point *to, ConnectionPoint *cp,
-                   HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+table_move_handle (Table            *table,
+                   Handle           *handle,
+                   Point            *to,
+                   ConnectionPoint  *cp,
+                   HandleMoveReason  reason,
+                   ModifierKeys      modifiers)
 {
   /* ignore this event */
   return NULL;
@@ -1000,15 +1033,15 @@ table_init_attributesbox_height (Table * table)
     if (table->visible_comment && IS_NOT_EMPTY(attrib->comment))
       {
         int num_of_lines = 0;
-        gchar * cmt_str = create_documentation_tag (attrib->comment,
-                                                    table->tagging_comment,
-                                                    TABLE_COMMENT_MAXWIDTH,
-                                                    &num_of_lines);
+        char * cmt_str = create_documentation_tag (attrib->comment,
+                                                   table->tagging_comment,
+                                                   TABLE_COMMENT_MAXWIDTH,
+                                                   &num_of_lines);
         width = dia_font_string_width (cmt_str,
                                        comment_font,
                                        comment_font_height);
         width += TABLE_ATTR_COMMENT_OFFSET;
-        g_free (cmt_str);
+        g_clear_pointer (&cmt_str, g_free);
 
         table->attributesbox_height += (comment_font_height * num_of_lines);
         table->attributesbox_height += comment_font_height / 2;
@@ -1026,40 +1059,35 @@ table_init_attributesbox_height (Table * table)
 }
 
 static void
-underline_table_attribute(DiaRenderer  *   renderer,
-                          Point            StartPoint,
-                          TableAttribute * attr,
-                          Table *          table)
+underline_table_attribute (DiaRenderer     *renderer,
+                           Point            StartPoint,
+                           TableAttribute  *attr,
+                           Table           *table)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point    UnderlineStartPoint;
   Point    UnderlineEndPoint;
   DiaFont * font;
   real font_height;
 
-  if (attr->primary_key)
-    {
-      font = table->primary_key_font;
-      font_height = table->primary_key_font_height;
-    }
-  else
-    {
-      font = table->normal_font;
-      font_height = table->normal_font_height;
-    }
+  if (attr->primary_key) {
+    font = table->primary_key_font;
+    font_height = table->primary_key_font_height;
+  } else {
+    font = table->normal_font;
+    font_height = table->normal_font_height;
+  }
 
   UnderlineStartPoint = StartPoint;
   UnderlineStartPoint.y += font_height * 0.1;
   UnderlineEndPoint = UnderlineStartPoint;
   UnderlineEndPoint.x += table->maxwidth_attr_name + TABLE_ATTR_NAME_TYPE_GAP;
-  if (IS_NOT_EMPTY(attr->type))
-    {
-      UnderlineEndPoint.x += dia_font_string_width(attr->type,
-                                                   font,
-                                                   font_height);
-    }
-  renderer_ops->set_linewidth(renderer, TABLE_UNDERLINE_WIDTH);
-  renderer_ops->draw_line(renderer,
+  if (IS_NOT_EMPTY (attr->type)) {
+    UnderlineEndPoint.x += dia_font_string_width (attr->type,
+                                                  font,
+                                                  font_height);
+  }
+  dia_renderer_set_linewidth (renderer, TABLE_UNDERLINE_WIDTH);
+  dia_renderer_draw_line (renderer,
                           &UnderlineStartPoint,
                           &UnderlineEndPoint,
                           &table->text_color);
@@ -1098,26 +1126,26 @@ underline_table_attribute(DiaRenderer  *   renderer,
  *      This function should most likely be move to a source file for
  *      handling global UML functionallity at some point.
  */
-static gchar *
-create_documentation_tag (gchar * comment,
-                          gboolean tagging,
-                          gint WrapPoint,
-                          gint *NumberOfLines)
+static char *
+create_documentation_tag (char     *comment,
+                          gboolean  tagging,
+                          int       WrapPoint,
+                          int      *NumberOfLines)
 {
-  gchar  *CommentTag           = tagging ? "{documentation = " : "";
-  gint   TagLength             = strlen(CommentTag);
+  char *CommentTag = tagging ? "{documentation = " : "";
+  int   TagLength  = strlen (CommentTag);
   /* Make sure that there is at least some value greater then zero for the WrapPoint to
    * support diagrams from earlier versions of Dia. So if the WrapPoint is zero then use
    * the taglength as the WrapPoint. If the Tag has been changed such that it has a length
    * of 0 then use 1.
    */
-  gint     WorkingWrapPoint = (TagLength<WrapPoint) ? WrapPoint : ((TagLength<=0)?1:TagLength);
-  gint     RawLength        = TagLength + strlen(comment) + (tagging?1:0);
-  gint     MaxCookedLength  = RawLength + RawLength/WorkingWrapPoint;
-  gchar    *WrappedComment  = g_malloc0(MaxCookedLength+1);
-  gint     AvailSpace       = WorkingWrapPoint - TagLength;
-  gchar    *Scan;
-  gchar    *BreakCandidate;
+  int   WorkingWrapPoint = (TagLength<WrapPoint) ? WrapPoint : ((TagLength<=0)?1:TagLength);
+  int   RawLength        = TagLength + strlen(comment) + (tagging?1:0);
+  int   MaxCookedLength  = RawLength + RawLength/WorkingWrapPoint;
+  char *WrappedComment   = g_new0 (char, MaxCookedLength + 1);
+  int   AvailSpace       = WorkingWrapPoint - TagLength;
+  char *Scan;
+  char *BreakCandidate;
   gunichar ScanChar;
   gboolean AddNL            = FALSE;
 
@@ -1159,9 +1187,12 @@ create_documentation_tag (gchar * comment,
   }
   if (tagging)
     strcat(WrappedComment, "}");
-  assert(strlen(WrappedComment)<=MaxCookedLength);
+
+  g_return_val_if_fail (strlen (WrappedComment) <= MaxCookedLength, NULL);
+
   return WrappedComment;
 }
+
 
 /**
  * Compute the dimension of the box surrounding the table's name and its
@@ -1170,37 +1201,36 @@ create_documentation_tag (gchar * comment,
  * function makes use of the fonts defined in the passed table
  * structure, so be sure to initialize them before calling this routine.
  */
-static real
+static double
 table_calculate_namebox_data (Table * table)
 {
-  real maxwidth = 0.0;
+  double maxwidth = 0.0;
 
-  if (IS_NOT_EMPTY(table->name))
-    {
-      maxwidth = dia_font_string_width (table->name,
-                                        table->name_font,
-                                        table->name_font_height);
-    }
+  if (IS_NOT_EMPTY (table->name)) {
+    maxwidth = dia_font_string_width (table->name,
+                                      table->name_font,
+                                      table->name_font_height);
+  }
   table->namebox_height = table->name_font_height + 2*0.1;
 
-  if (table->visible_comment && IS_NOT_EMPTY(table->comment))
-    {
-      real width;
-      gint numOfCommentLines = 0;
-      gchar * wrapped_box = create_documentation_tag (table->comment,
-                                                      table->tagging_comment,
-                                                      TABLE_COMMENT_MAXWIDTH,
-                                                      &numOfCommentLines);
-      width = dia_font_string_width (wrapped_box,
-                                     table->comment_font,
-                                     table->comment_font_height);
-      g_free (wrapped_box);
-      table->namebox_height += table->comment_font_height * numOfCommentLines;
-      maxwidth = MAX(width, maxwidth);
-    }
+  if (table->visible_comment && IS_NOT_EMPTY (table->comment)) {
+    double width;
+    int numOfCommentLines = 0;
+    char * wrapped_box = create_documentation_tag (table->comment,
+                                                   table->tagging_comment,
+                                                   TABLE_COMMENT_MAXWIDTH,
+                                                   &numOfCommentLines);
+    width = dia_font_string_width (wrapped_box,
+                                   table->comment_font,
+                                   table->comment_font_height);
+    g_clear_pointer (&wrapped_box, g_free);
+    table->namebox_height += table->comment_font_height * numOfCommentLines;
+    maxwidth = MAX(width, maxwidth);
+  }
 
   return maxwidth;
 }
+
 
 static void
 table_update_positions (Table *table)
@@ -1208,7 +1238,7 @@ table_update_positions (Table *table)
   ConnectionPoint * connections = table->connections;
   Element * elem = &table->element;
   GList * list;
-  coord x, y;
+  double x, y;
   real pointspacing;
   gint i;
   gint pointswide;
@@ -1283,17 +1313,16 @@ table_update_positions (Table *table)
 
       y += attr_font_height;
 
-      if (table->visible_comment && IS_NOT_EMPTY(attr->comment))
-        {
-          gint num_of_lines = 0;
-          gchar * str = create_documentation_tag (attr->comment,
-                                                  table->tagging_comment,
-                                                  TABLE_COMMENT_MAXWIDTH,
-                                                  &num_of_lines);
-          y += table->comment_font_height * num_of_lines;
-          y += table->comment_font_height/2.0;
-          g_free (str);
-        }
+      if (table->visible_comment && IS_NOT_EMPTY (attr->comment)) {
+        int num_of_lines = 0;
+        char * str = create_documentation_tag (attr->comment,
+                                               table->tagging_comment,
+                                               TABLE_COMMENT_MAXWIDTH,
+                                               &num_of_lines);
+        y += table->comment_font_height * num_of_lines;
+        y += table->comment_font_height / 2.0;
+        g_clear_pointer (&str, g_free);
+      }
 
       list = g_list_next (list);
     }
@@ -1319,13 +1348,14 @@ table_update_connectionpoints (Table * table)
   obj = &table->element.object;
   num_attrs = g_list_length (table->attributes);
   num_connections = TABLE_CONNECTIONPOINTS + 2*num_attrs;
-  if (num_connections != obj->num_connections)
-    {
-      obj->num_connections = num_connections;
-      obj->connections =
-        g_realloc (obj->connections,
-                   num_connections * sizeof (ConnectionPoint *));
-    }
+
+  if (num_connections != obj->num_connections) {
+    obj->num_connections = num_connections;
+    obj->connections = g_renew (ConnectionPoint *,
+                                obj->connections,
+                                num_connections);
+  }
+
   list = table->attributes;
   index = TABLE_CONNECTIONPOINTS;
   while (list != NULL)
@@ -1338,8 +1368,9 @@ table_update_connectionpoints (Table * table)
     }
 }
 
+
 static DiaMenu *
-table_object_menu(DiaObject *obj, Point *p)
+table_object_menu (DiaObject *obj, Point *p)
 {
   table_menu_items[0].active = DIAMENU_ACTIVE|DIAMENU_TOGGLE|
     (((Table *)obj)->visible_comment ? DIAMENU_TOGGLE_ON : 0);
@@ -1347,8 +1378,9 @@ table_object_menu(DiaObject *obj, Point *p)
   return &table_menu;
 }
 
-static ObjectChange *
-table_show_comments_cb(DiaObject *obj, Point *pos, gpointer data)
+
+static DiaObjectChange *
+table_show_comments_cb (DiaObject *obj, Point *pos, gpointer data)
 {
   TableState * state;
   Table * table = (Table *) obj;
@@ -1357,8 +1389,10 @@ table_show_comments_cb(DiaObject *obj, Point *pos, gpointer data)
   table->visible_comment = !table->visible_comment;
   table_compute_width_height (table);
   table_update_positions (table);
-  return (ObjectChange *) table_change_new (table, state, NULL, NULL, NULL);
+
+  return table_change_new (table, state, NULL, NULL, NULL);
 }
+
 
 /**
  * This routine updates the font for primary keys. It depends on
@@ -1369,19 +1403,16 @@ table_show_comments_cb(DiaObject *obj, Point *pos, gpointer data)
 static void
 table_update_primary_key_font (Table * table)
 {
-  if (table->primary_key_font)
-    dia_font_unref (table->primary_key_font);
+  g_clear_object (&table->primary_key_font);
+
   if (!table->bold_primary_key
       || (DIA_FONT_STYLE_GET_WEIGHT (dia_font_get_style (table->normal_font))
-          == DIA_FONT_BOLD))
-    {
-      table->primary_key_font = dia_font_ref (table->normal_font);
-    }
-  else
-    {
-      table->primary_key_font = dia_font_copy (table->normal_font);
-      dia_font_set_weight (table->primary_key_font, DIA_FONT_BOLD);
-    }
+          == DIA_FONT_BOLD)) {
+    table->primary_key_font = g_object_ref (table->normal_font);
+  } else {
+    table->primary_key_font = dia_font_copy (table->normal_font);
+    dia_font_set_weight (table->primary_key_font, DIA_FONT_BOLD);
+  }
 
   table->primary_key_font_height = table->normal_font_height;
 }
@@ -1470,8 +1501,8 @@ table_state_free (TableState * state)
 {
   GList * list;
 
-  g_free (state->name);
-  g_free (state->comment);
+  g_clear_pointer (&state->name, g_free);
+  g_clear_pointer (&state->comment, g_free);
 
   list = state->attributes;
   while (list != NULL)
@@ -1485,35 +1516,57 @@ table_state_free (TableState * state)
   g_free (state);
 }
 
+
+struct _DiaDBTableObjectChange {
+  DiaObjectChange obj_change;
+
+  Table *obj;
+
+  GList *added_cp;
+  GList *deleted_cp;
+  GList *disconnected;
+
+  int applied;
+
+  TableState *saved_state;
+};
+
+
+DIA_DEFINE_OBJECT_CHANGE (DiaDBTableObjectChange, dia_db_table_object_change)
+
+
 /**
  * Called to UNDO a change on the table object.
  */
 static void
-table_change_revert (TableChange *change, DiaObject *obj)
+dia_db_table_object_change_revert (DiaObjectChange *self, DiaObject *obj)
 {
+  DiaDBTableObjectChange *change = DIA_DB_TABLE_OBJECT_CHANGE (self);
   TableState *old_state;
   GList *list;
 
-  old_state = table_state_new(change->obj);
+  old_state = table_state_new (change->obj);
 
-  table_state_set(change->saved_state, change->obj);
+  table_state_set (change->saved_state, change->obj);
 
   list = change->disconnected;
   while (list) {
     Disconnect *dis = (Disconnect *)list->data;
 
-    object_connect(dis->other_object, dis->other_handle, dis->cp);
+    object_connect (dis->other_object, dis->other_handle, dis->cp);
 
-    list = g_list_next(list);
+    list = g_list_next (list);
   }
 
   change->saved_state = old_state;
   change->applied = FALSE;
 }
 
+
 static void
-table_change_free (TableChange *change)
+dia_db_table_object_change_free (DiaObjectChange *self)
 {
+  DiaDBTableObjectChange *change = DIA_DB_TABLE_OBJECT_CHANGE (self);
   GList * free_list, * lst;
 
   table_state_free (change->saved_state);
@@ -1523,28 +1576,31 @@ table_change_free (TableChange *change)
     : change->added_cp;
 
   lst = free_list;
-  while (lst)
-    {
-      ConnectionPoint * cp = (ConnectionPoint *) lst->data;
-      g_assert (cp->connected == NULL);
-      object_remove_connections_to (cp);
-      g_free (cp);
+  while (lst) {
+    ConnectionPoint * cp = (ConnectionPoint *) lst->data;
+    g_assert (cp->connected == NULL);
+    object_remove_connections_to (cp);
+    g_clear_pointer (&cp, g_free);
 
-      lst = g_list_next (lst);
-    }
+    lst = g_list_next (lst);
+  }
   g_list_free (free_list);
 }
+
 
 /**
  * Called to REDO a change on the table object.
  */
 static void
-table_change_apply (TableChange * change, DiaObject * obj)
+dia_db_table_object_change_apply (DiaObjectChange *self, DiaObject *obj)
 {
-  TableState * old_state;
-  GList * lst;
+  DiaDBTableObjectChange *change = DIA_DB_TABLE_OBJECT_CHANGE (self);
+  TableState *old_state;
+  GList *lst;
 
-  g_print ("apply (o: 0x%08x) (c: 0x%08x)\n", GPOINTER_TO_UINT(obj), GPOINTER_TO_UINT(change));
+  g_print ("apply (o: 0x%08x) (c: 0x%08x)\n",
+           GPOINTER_TO_UINT (obj),
+           GPOINTER_TO_UINT (change));
 
   /* first the get the current state for later use */
   old_state = table_state_new (change->obj);
@@ -1552,28 +1608,27 @@ table_change_apply (TableChange * change, DiaObject * obj)
   table_state_set (change->saved_state, change->obj);
 
   lst = change->disconnected;
-  while (lst)
-    {
-      Disconnect * dis = (Disconnect *) lst->data;
-      object_unconnect (dis->other_object, dis->other_handle);
-      lst = g_list_next (lst);
-    }
+  while (lst) {
+    Disconnect * dis = (Disconnect *) lst->data;
+    object_unconnect (dis->other_object, dis->other_handle);
+    lst = g_list_next (lst);
+  }
+
   change->saved_state = old_state;
   change->applied = TRUE;
 }
 
-static TableChange *
-table_change_new (Table * table, TableState * saved_state,
-                  GList * added, GList * deleted,
-                  GList * disconnects)
+
+static DiaObjectChange *
+table_change_new (Table       *table,
+                  TableState *saved_state,
+                  GList      *added,
+                  GList      *deleted,
+                  GList      *disconnects)
 {
-  TableChange * change;
+  DiaDBTableObjectChange * change;
 
-  change = g_new (TableChange, 1);
-
-  change->obj_change.apply = (ObjectChangeApplyFunc) table_change_apply;
-  change->obj_change.revert = (ObjectChangeRevertFunc) table_change_revert;
-  change->obj_change.free = (ObjectChangeFreeFunc) table_change_free;
+  change = dia_object_change_new (DIA_DB_TYPE_TABLE_OBJECT_CHANGE);
 
   change->obj = table;
   change->added_cp = added;
@@ -1582,5 +1637,5 @@ table_change_new (Table * table, TableState * saved_state,
   change->applied = TRUE;
   change->saved_state = saved_state;
 
-  return change;
+  return DIA_OBJECT_CHANGE (change);
 }

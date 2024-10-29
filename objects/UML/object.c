@@ -16,14 +16,14 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "diarenderer.h"
@@ -75,10 +75,10 @@ struct _Objet {
 static real objet_distance_from(Objet *ob, Point *point);
 static void objet_select(Objet *ob, Point *clicked_point,
 			 DiaRenderer *interactive_renderer);
-static ObjectChange* objet_move_handle(Objet *ob, Handle *handle,
+static DiaObjectChange* objet_move_handle(Objet *ob, Handle *handle,
 				       Point *to, ConnectionPoint *cp,
 				       HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* objet_move(Objet *ob, Point *to);
+static DiaObjectChange* objet_move(Objet *ob, Point *to);
 static void objet_draw(Objet *ob, DiaRenderer *renderer);
 static DiaObject *objet_create(Point *startpoint,
 			    void *user_data,
@@ -197,18 +197,21 @@ static PropOffset objet_offsets[] = {
   { NULL, 0, 0 },
 };
 
-static void
-objet_get_props(Objet * objet, GPtrArray *props)
-{
-  text_get_attributes(objet->text,&objet->text_attrs);
-  /* the aligement is _not_ part of the deal */
-  objet->text_attrs.alignment = ALIGN_CENTER;
-  if (objet->attrib) g_free(objet->attrib);
-  objet->attrib = text_get_string_copy(objet->attributes);
 
-  object_get_props_from_offsets(&objet->element.object,
-                                objet_offsets,props);
+static void
+objet_get_props (Objet * objet, GPtrArray *props)
+{
+  text_get_attributes (objet->text, &objet->text_attrs);
+  /* the aligement is _not_ part of the deal */
+  objet->text_attrs.alignment = DIA_ALIGN_CENTRE;
+  g_clear_pointer (&objet->attrib, g_free);
+  objet->attrib = text_get_string_copy (objet->attributes);
+
+  object_get_props_from_offsets (&objet->element.object,
+                                 objet_offsets,
+                                 props);
 }
+
 
 static void
 objet_set_props(Objet *objet, GPtrArray *props)
@@ -218,13 +221,12 @@ objet_set_props(Objet *objet, GPtrArray *props)
   apply_textstr_properties(props,objet->attributes,"attrib",objet->attrib);
   /* also update our text object with the new color (font + height) */
   /* the aligement is _not_ part of the deal */
-  objet->text_attrs.alignment = ALIGN_CENTER;
+  objet->text_attrs.alignment = DIA_ALIGN_CENTRE;
   apply_textattr_properties(props,objet->text,"text",&objet->text_attrs);
-  objet->text_attrs.alignment = ALIGN_LEFT;
+  objet->text_attrs.alignment = DIA_ALIGN_LEFT;
   apply_textattr_properties(props,objet->attributes,"attrib",&objet->text_attrs);
-  objet->text_attrs.alignment = ALIGN_CENTER;
-  g_free(objet->st_stereotype);
-  objet->st_stereotype = NULL;
+  objet->text_attrs.alignment = DIA_ALIGN_CENTRE;
+  g_clear_pointer (&objet->st_stereotype, g_free);
   objet_update_data(objet);
 }
 
@@ -246,21 +248,26 @@ objet_select(Objet *ob, Point *clicked_point,
   element_update_handles(&ob->element);
 }
 
-static ObjectChange*
-objet_move_handle(Objet *ob, Handle *handle,
-		  Point *to, ConnectionPoint *cp,
-		  HandleMoveReason reason, ModifierKeys modifiers)
-{
-  assert(ob!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
 
-  assert(handle->id < 8);
+static DiaObjectChange *
+objet_move_handle (Objet            *ob,
+                   Handle           *handle,
+                   Point            *to,
+                   ConnectionPoint  *cp,
+                   HandleMoveReason  reason,
+                   ModifierKeys      modifiers)
+{
+  g_return_val_if_fail (ob != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
+
+  g_return_val_if_fail (handle->id < 8, NULL);
 
   return NULL;
 }
 
-static ObjectChange*
+
+static DiaObjectChange*
 objet_move(Objet *ob, Point *to)
 {
   ob->element.corner = *to;
@@ -269,17 +276,17 @@ objet_move(Objet *ob, Point *to)
   return NULL;
 }
 
+
 static void
-objet_draw(Objet *ob, DiaRenderer *renderer)
+objet_draw (Objet *ob, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Element *elem;
-  real bw, x, y, w, h;
+  double bw, x, y, w, h;
   Point p1, p2;
   int i;
 
-  assert(ob != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (ob != NULL);
+  g_return_if_fail (renderer != NULL);
 
   elem = &ob->element;
 
@@ -290,78 +297,84 @@ objet_draw(Objet *ob, DiaRenderer *renderer)
 
   bw = (ob->is_active) ? OBJET_ACTIVEBORDERWIDTH: ob->line_width;
 
-  renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
-  renderer_ops->set_linewidth(renderer, bw);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
+  dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+  dia_renderer_set_linewidth (renderer, bw);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
 
 
   p1.x = x; p1.y = y;
   p2.x = x+w; p2.y = y+h;
 
   if (ob->is_multiple) {
-    p1.x += OBJET_MARGIN_M(ob);
-    p2.y -= OBJET_MARGIN_M(ob);
-    renderer_ops->draw_rect(renderer,
-			     &p1, &p2,
-			     &ob->fill_color,
-			     &ob->line_color);
-    p1.x -= OBJET_MARGIN_M(ob);
-    p1.y += OBJET_MARGIN_M(ob);
-    p2.x -= OBJET_MARGIN_M(ob);
-    p2.y += OBJET_MARGIN_M(ob);
+    p1.x += OBJET_MARGIN_M (ob);
+    p2.y -= OBJET_MARGIN_M (ob);
+    dia_renderer_draw_rect (renderer,
+                            &p1,
+                            &p2,
+                            &ob->fill_color,
+                            &ob->line_color);
+    p1.x -= OBJET_MARGIN_M (ob);
+    p1.y += OBJET_MARGIN_M (ob);
+    p2.x -= OBJET_MARGIN_M (ob);
+    p2.y += OBJET_MARGIN_M (ob);
   }
 
-  renderer_ops->draw_rect(renderer,
-			   &p1, &p2,
-			   &ob->fill_color,
-			   &ob->line_color);
+  dia_renderer_draw_rect (renderer,
+                          &p1,
+                          &p2,
+                          &ob->fill_color,
+                          &ob->line_color);
 
 
-  text_draw(ob->text, renderer);
+  text_draw (ob->text, renderer);
 
-  renderer_ops->set_font(renderer, ob->text->font, ob->text->height);
+  dia_renderer_set_font (renderer, ob->text->font, ob->text->height);
 
   if ((ob->st_stereotype != NULL) && (ob->st_stereotype[0] != '\0')) {
-      renderer_ops->draw_string(renderer,
-				 ob->st_stereotype,
-				 &ob->st_pos, ALIGN_CENTER,
-				 &ob->text_attrs.color);
+    dia_renderer_draw_string (renderer,
+                              ob->st_stereotype,
+                              &ob->st_pos,
+                              DIA_ALIGN_CENTRE,
+                              &ob->text_attrs.color);
   }
 
   if ((ob->exstate != NULL) && (ob->exstate[0] != '\0')) {
-      renderer_ops->draw_string(renderer,
-				 ob->exstate,
-				 &ob->ex_pos, ALIGN_CENTER,
-				 &ob->text_attrs.color);
+    dia_renderer_draw_string (renderer,
+                              ob->exstate,
+                              &ob->ex_pos,
+                              DIA_ALIGN_CENTRE,
+                              &ob->text_attrs.color);
   }
 
   /* Is there a better way to underline? */
-  p1.x = x + (w - text_get_max_width(ob->text))/2;
-  p1.y = ob->text->position.y + text_get_descent(ob->text);
-  p2.x = p1.x + text_get_max_width(ob->text);
+  p1.x = x + (w - text_get_max_width (ob->text))/2;
+  p1.y = ob->text->position.y + text_get_descent (ob->text);
+  p2.x = p1.x + text_get_max_width (ob->text);
   p2.y = p1.y;
 
-  renderer_ops->set_linewidth(renderer, ob->line_width/2);
+  dia_renderer_set_linewidth (renderer, ob->line_width/2);
 
   for (i=0; i<ob->text->numlines; i++) {
-    p1.x = x + (w - text_get_line_width(ob->text, i))/2;
-    p2.x = p1.x + text_get_line_width(ob->text, i);
-    renderer_ops->draw_line(renderer,
-			     &p1, &p2,
-			     &ob->text_attrs.color);
+    p1.x = x + (w - text_get_line_width (ob->text, i))/2;
+    p2.x = p1.x + text_get_line_width (ob->text, i);
+    dia_renderer_draw_line (renderer,
+                            &p1,
+                            &p2,
+                            &ob->text_attrs.color);
     p1.y = p2.y += ob->text->height;
   }
 
   if (ob->show_attributes) {
-      p1.x = x; p2.x = x + w;
-      p1.y = p2.y = ob->attributes->position.y - ob->attributes->ascent - OBJET_MARGIN_Y(ob);
+    p1.x = x; p2.x = x + w;
+    p1.y = p2.y = ob->attributes->position.y - ob->attributes->ascent - OBJET_MARGIN_Y (ob);
 
-      renderer_ops->set_linewidth(renderer, bw);
-      renderer_ops->draw_line(renderer,
-			       &p1, &p2,
-			       &ob->line_color);
+    dia_renderer_set_linewidth (renderer, bw);
+    dia_renderer_draw_line (renderer,
+                            &p1,
+                            &p2,
+                            &ob->line_color);
 
-      text_draw(ob->attributes, renderer);
+    text_draw (ob->attributes, renderer);
   }
 }
 
@@ -455,7 +468,7 @@ objet_create(Point *startpoint,
   DiaFont *font;
   int i;
 
-  ob = g_malloc0(sizeof(Objet));
+  ob = g_new0 (Objet, 1);
   elem = &ob->element;
   obj = &elem->object;
 
@@ -483,14 +496,14 @@ objet_create(Point *startpoint,
   /* The text position is recalculated later */
   p.x = 0.0;
   p.y = 0.0;
-  ob->attributes = new_text("", font, 0.8, &p, &color_black, ALIGN_LEFT);
+  ob->attributes = new_text ("", font, 0.8, &p, &color_black, DIA_ALIGN_LEFT);
   ob->attrib = NULL;
-  ob->text = new_text("", font, 0.8, &p, &color_black, ALIGN_CENTER);
+  ob->text = new_text ("", font, 0.8, &p, &color_black, DIA_ALIGN_CENTRE);
   text_get_attributes(ob->text,&ob->text_attrs);
 
-  dia_font_unref(font);
+  g_clear_object (&font);
 
-  element_init(elem, 8, NUM_CONNECTIONS);
+  element_init (elem, 8, NUM_CONNECTIONS);
 
   for (i=0;i<NUM_CONNECTIONS;i++) {
     obj->connections[i] = &ob->connections[i];
@@ -511,19 +524,21 @@ objet_create(Point *startpoint,
   return &ob->element.object;
 }
 
+
 static void
-objet_destroy(Objet *ob)
+objet_destroy (Objet *ob)
 {
-  text_destroy(ob->text);
-  text_destroy(ob->attributes);
+  text_destroy (ob->text);
+  text_destroy (ob->attributes);
 
-  g_free(ob->stereotype);
-  g_free(ob->st_stereotype);
-  g_free(ob->exstate);
-  g_free(ob->attrib);
+  g_clear_pointer (&ob->stereotype, g_free);
+  g_clear_pointer (&ob->st_stereotype, g_free);
+  g_clear_pointer (&ob->exstate, g_free);
+  g_clear_pointer (&ob->attrib, g_free);
 
-  element_destroy(&ob->element);
+  element_destroy (&ob->element);
 }
+
 
 static DiaObject *
 objet_load(ObjectNode obj_node, int version,DiaContext *ctx)

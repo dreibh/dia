@@ -22,15 +22,19 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <config.h>
+
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <gtk/gtk.h>
 #include "dia_xml.h"
-#include "widgets.h"
 #include "properties.h"
 #include "propinternals.h"
-#include "diaarrowchooser.h"
-#include "diafontselector.h"
+#include "dia-arrow-selector.h"
+#include "dia-colour-selector.h"
+#include "dia-font-selector.h"
+#include "dia-line-style-selector.h"
 
 /***************************/
 /* The LINESTYLE property type.  */
@@ -42,7 +46,7 @@ linestyleprop_new(const PropDescription *pdesc,
 {
   LinestyleProperty *prop = g_new0(LinestyleProperty,1);
   initialize_property(&prop->common,pdesc,reason);
-  prop->style = LINESTYLE_SOLID;
+  prop->style = DIA_LINE_STYLE_SOLID;
   prop->dash = 0.0;
   return prop;
 }
@@ -67,21 +71,24 @@ linestyleprop_get_widget(LinestyleProperty *prop, PropDialog *dialog)
   return ret;
 }
 
-static void
-linestyleprop_reset_widget(LinestyleProperty *prop, WIDGET *widget)
-{
-  dia_line_style_selector_set_linestyle(DIALINESTYLESELECTOR(widget),
-                                        prop->style,
-                                        prop->dash);
-}
 
 static void
-linestyleprop_set_from_widget(LinestyleProperty *prop, WIDGET *widget)
+linestyleprop_reset_widget (LinestyleProperty *prop, GtkWidget *widget)
 {
-  dia_line_style_selector_get_linestyle(DIALINESTYLESELECTOR(widget),
-                                        &prop->style,
-                                        &prop->dash);
+  dia_line_style_selector_set_linestyle (DIA_LINE_STYLE_SELECTOR (widget),
+                                         prop->style,
+                                         prop->dash);
 }
+
+
+static void
+linestyleprop_set_from_widget (LinestyleProperty *prop, GtkWidget *widget)
+{
+  dia_line_style_selector_get_linestyle (DIA_LINE_STYLE_SELECTOR (widget),
+                                         &prop->style,
+                                         &prop->dash);
+}
+
 
 static void
 linestyleprop_load(LinestyleProperty *prop, AttributeNode attr, DataNode data, DiaContext *ctx)
@@ -89,7 +96,7 @@ linestyleprop_load(LinestyleProperty *prop, AttributeNode attr, DataNode data, D
   prop->style = data_enum(data, ctx);
   prop->dash = 1.0;
   /* don't bother checking dash length if we have a solid line. */
-  if (prop->style != LINESTYLE_SOLID) {
+  if (prop->style != DIA_LINE_STYLE_SOLID) {
     data = data_next(data);
     if (data)
       prop->dash = data_real(data, ctx);
@@ -110,21 +117,28 @@ linestyleprop_save(LinestyleProperty *prop, AttributeNode attr, DiaContext *ctx)
   data_add_real(attr, prop->dash, ctx);
 }
 
-static void
-linestyleprop_get_from_offset(LinestyleProperty *prop,
-                              void *base, guint offset, guint offset2)
-{
-  prop->style = struct_member(base, offset, LineStyle);
-  prop->dash = struct_member(base, offset2, real);
-}
 
 static void
-linestyleprop_set_from_offset(LinestyleProperty *prop,
-                              void *base, guint offset, guint offset2)
+linestyleprop_get_from_offset (LinestyleProperty *prop,
+                               void              *base,
+                               guint              offset,
+                               guint              offset2)
 {
-  struct_member(base, offset, LineStyle) = prop->style;
-  struct_member(base, offset2, real) = prop->dash;
+  prop->style = struct_member (base, offset, DiaLineStyle);
+  prop->dash = struct_member (base, offset2, double);
 }
+
+
+static void
+linestyleprop_set_from_offset (LinestyleProperty *prop,
+                               void              *base,
+                               guint              offset,
+                               guint              offset2)
+{
+  struct_member (base, offset, DiaLineStyle) = prop->style;
+  struct_member (base, offset2, double) = prop->dash;
+}
+
 
 static const PropertyOps linestyleprop_ops = {
   (PropertyType_New) linestyleprop_new,
@@ -203,12 +217,12 @@ arrowprop_load(ArrowProperty *prop, AttributeNode attr, DataNode data, DiaContex
     if ((attr = object_find_attribute(obj_node, str)) &&
         (data = attribute_first_data(attr)))
       prop->arrow_data.length = data_real(data, ctx);
-    g_free(str);
+    g_clear_pointer (&str, g_free);
     str = g_strconcat(prop->common.descr->name, "_width", NULL);
     if ((attr = object_find_attribute(obj_node, str)) &&
         (data = attribute_first_data(attr)))
       prop->arrow_data.width = data_real(data, ctx);
-    g_free(str);
+    g_clear_pointer (&str, g_free);
   }
 }
 
@@ -220,11 +234,11 @@ arrowprop_save(ArrowProperty *prop, AttributeNode attr, DiaContext *ctx)
     ObjectNode obj_node = attr->parent;
     gchar *str = g_strconcat(prop->common.descr->name, "_length", NULL);
     attr = new_attribute(obj_node, str);
-    g_free(str);
+    g_clear_pointer (&str, g_free);
     data_add_real(attr, prop->arrow_data.length, ctx);
     str = g_strconcat(prop->common.descr->name, "_width", NULL);
     attr = new_attribute(obj_node, str);
-    g_free(str);
+    g_clear_pointer (&str, g_free);
     data_add_real(attr, prop->arrow_data.width, ctx);
   }
 }
@@ -285,28 +299,32 @@ colorprop_copy(ColorProperty *src)
   return prop;
 }
 
-static WIDGET *
-colorprop_get_widget(ColorProperty *prop, PropDialog *dialog)
+
+static GtkWidget *
+colorprop_get_widget (ColorProperty *prop, PropDialog *dialog)
 {
-  GtkWidget *ret = dia_color_selector_new();
-  dia_color_selector_set_use_alpha (ret, TRUE);
-  prophandler_connect(&prop->common, G_OBJECT(ret), "value-changed");
+  GtkWidget *ret = dia_colour_selector_new ();
+  dia_colour_selector_set_use_alpha (DIA_COLOUR_SELECTOR (ret), TRUE);
+  prophandler_connect (&prop->common, G_OBJECT (ret), "value-changed");
   return ret;
 }
 
-static void
-colorprop_reset_widget(ColorProperty *prop, WIDGET *widget)
-{
-  dia_color_selector_set_color(widget,
-                               &prop->color_data);
-}
 
 static void
-colorprop_set_from_widget(ColorProperty *prop, WIDGET *widget)
+colorprop_reset_widget (ColorProperty *prop, GtkWidget *widget)
 {
-  dia_color_selector_get_color(widget,
-                               &prop->color_data);
+  dia_colour_selector_set_colour (DIA_COLOUR_SELECTOR (widget),
+                                  &prop->color_data);
 }
+
+
+static void
+colorprop_set_from_widget (ColorProperty *prop, GtkWidget *widget)
+{
+  dia_colour_selector_get_colour (DIA_COLOUR_SELECTOR (widget),
+                                  &prop->color_data);
+}
+
 
 static void
 colorprop_load(ColorProperty *prop, AttributeNode attr, DataNode data, DiaContext *ctx)
@@ -377,25 +395,25 @@ fontprop_new(const PropDescription *pdesc, PropDescToPropPredicate reason)
   return prop;
 }
 
+
 static void
-fontprop_free(FontProperty *prop)
+fontprop_free (FontProperty *prop)
 {
-  if (prop->font_data)
-    dia_font_unref(prop->font_data);
-  g_free(prop);
+  g_clear_object (&prop->font_data);
+  g_clear_pointer (&prop, g_free);
 }
+
 
 static FontProperty *
 fontprop_copy(FontProperty *src)
 {
   FontProperty *prop =
-    (FontProperty *)src->common.ops->new_prop(src->common.descr,
-                                               src->common.reason);
-  copy_init_property(&prop->common,&src->common);
+    (FontProperty *) src->common.ops->new_prop (src->common.descr,
+                                                src->common.reason);
+  copy_init_property (&prop->common, &src->common);
 
-  if (prop->font_data)
-    dia_font_unref(prop->font_data);
-  prop->font_data = dia_font_ref(src->font_data);
+  g_clear_object (&prop->font_data);
+  prop->font_data = g_object_ref (src->font_data);
 
   return prop;
 }
@@ -411,21 +429,20 @@ fontprop_get_widget(FontProperty *prop, PropDialog *dialog)
 static void
 fontprop_reset_widget(FontProperty *prop, WIDGET *widget)
 {
-  dia_font_selector_set_font(DIAFONTSELECTOR(widget),
-                             prop->font_data);
+  dia_font_selector_set_font (DIA_FONT_SELECTOR (widget),
+                              prop->font_data);
 }
 
 static void
 fontprop_set_from_widget(FontProperty *prop, WIDGET *widget)
 {
-  prop->font_data = dia_font_selector_get_font(DIAFONTSELECTOR(widget));
+  prop->font_data = dia_font_selector_get_font (DIA_FONT_SELECTOR (widget));
 }
 
 static void
 fontprop_load(FontProperty *prop, AttributeNode attr, DataNode data, DiaContext *ctx)
 {
-  if (prop->font_data)
-    dia_font_unref(prop->font_data);
+  g_clear_object (&prop->font_data);
   prop->font_data = data_font(data, ctx);
 }
 
@@ -442,36 +459,36 @@ fontprop_get_from_offset(FontProperty *prop,
   /* if we get the same font dont unref before reuse */
   DiaFont *old_font = prop->font_data;
   if (offset2 == 0) {
-    prop->font_data = dia_font_ref(struct_member(base,offset,DiaFont *));
+    prop->font_data = g_object_ref (struct_member (base, offset, DiaFont *));
   } else {
     void *base2 = struct_member(base,offset,void*);
     g_return_if_fail (base2 != NULL);
-    prop->font_data = dia_font_ref(struct_member(base2,offset2,DiaFont *));
+    prop->font_data = g_object_ref (struct_member (base2, offset2, DiaFont *));
   }
-  if (old_font)
-    dia_font_unref(old_font);
+  g_clear_object (&old_font);
 }
 
 static void
-fontprop_set_from_offset(FontProperty *prop,
-                         void *base, guint offset, guint offset2)
+fontprop_set_from_offset (FontProperty *prop,
+                          void         *base,
+                          guint         offset,
+                          guint         offset2)
 {
   if (prop->font_data) {
     DiaFont *old_font;
 
     if (offset2 == 0) {
-      old_font = struct_member(base,offset,DiaFont *);
-      struct_member(base,offset,DiaFont *) = dia_font_ref(prop->font_data);
+      old_font = struct_member (base, offset, DiaFont *);
+      struct_member (base, offset, DiaFont *) = g_object_ref (prop->font_data);
     } else {
-      void *base2 = struct_member(base,offset,void*);
+      void *base2 = struct_member (base, offset, void*);
       g_return_if_fail (base2 != NULL);
-      old_font = struct_member(base2,offset2,DiaFont *);
-      struct_member(base2,offset2,DiaFont *) = dia_font_ref(prop->font_data);
+      old_font = struct_member (base2, offset2, DiaFont *);
+      struct_member (base2, offset2, DiaFont *) = g_object_ref (prop->font_data);
       g_return_if_fail (offset2 == offsetof(Text, font));
-      text_set_font ((Text *)base2, prop->font_data);
+      text_set_font ((Text *) base2, prop->font_data);
     }
-    if (old_font)
-      dia_font_unref(old_font);
+    g_clear_object (&old_font);
   }
 }
 

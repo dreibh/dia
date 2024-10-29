@@ -18,26 +18,30 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <config.h>
 
-#include "intl.h"
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
+
 #include "message.h"
 #include "filter.h"
 #include "plug-ins.h"
 
 #include "stress-memory.h"
 
-static ObjectChange *
+
+static DiaObjectChange *
 stress_memory_callback (DiagramData *data,
-                       const gchar *filename,
-                       guint flags, /* further additions */
-                       void *user_data)
+                        const char  *filename,
+                        /* further additions */
+                        guint        flags,
+                        void        *user_data)
 {
   guint64 avail;
 
   if (vmem_avail (&avail)) {
     guint64 eat = (avail * 9) / 10;
-    
+
     if (vmem_reserve (eat)) {
       guint64 still_avail;
       vmem_avail (&still_avail);

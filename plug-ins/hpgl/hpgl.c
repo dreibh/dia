@@ -27,7 +27,9 @@
  *   interested renderers ?
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -37,11 +39,11 @@
 #include <glib.h>
 #include <glib/gstdio.h>
 
-#include "intl.h"
 #include "geometry.h"
 #include "diarenderer.h"
 #include "filter.h"
 #include "plug-ins.h"
+#include "font.h"
 
 /* #DEFINE DEBUG_HPGL */
 
@@ -57,6 +59,14 @@
 #define HPGL_RENDERER_CLASS(klass)   (G_TYPE_CHECK_CLASS_CAST ((klass), HPGL_TYPE_RENDERER, HpglRendererClass))
 #define HPGL_IS_RENDERER(obj)        (G_TYPE_CHECK_INSTANCE_TYPE ((obj), HPGL_TYPE_RENDERER))
 #define HPGL_RENDERER_GET_CLASS(obj) (G_TYPE_INSTANCE_GET_CLASS ((obj), HPGL_TYPE_RENDERER, HpglRendererClass))
+
+enum {
+  PROP_0,
+  PROP_FONT,
+  PROP_FONT_HEIGHT,
+  LAST_PROP
+};
+
 
 GType hpgl_renderer_get_type (void) G_GNUC_CONST;
 
@@ -78,6 +88,8 @@ struct _HpglRenderer
     int   has_it;
   } pen[HPGL_MAX_PENS];
   int last_pen;
+
+  DiaFont *font;
   real font_height;
 
   Point size;  /* extent size */
@@ -160,7 +172,7 @@ hpgl_scale(HpglRenderer *renderer, real val)
 
 /* render functions */
 static void
-begin_render(DiaRenderer *object, const Rectangle *update)
+begin_render(DiaRenderer *object, const DiaRectangle *update)
 {
     HpglRenderer *renderer = HPGL_RENDERER (object);
     int i;
@@ -195,95 +207,105 @@ set_linewidth(DiaRenderer *object, real linewidth)
     hpgl_select_pen(renderer, NULL, linewidth);
 }
 
-static void
-set_linecaps(DiaRenderer *object, LineCaps mode)
-{
-    DIAG_NOTE(g_message("set_linecaps %d", mode));
 
-    switch(mode) {
-    case LINECAPS_DEFAULT:
-    case LINECAPS_BUTT:
-	break;
-    case LINECAPS_ROUND:
-	break;
-    case LINECAPS_PROJECTING:
-	break;
+static void
+set_linecaps (DiaRenderer *object, DiaLineCaps mode)
+{
+  DIAG_NOTE (g_message ("set_linecaps %d", mode));
+
+  switch (mode) {
+    case DIA_LINE_CAPS_DEFAULT:
+    case DIA_LINE_CAPS_BUTT:
+      break;
+    case DIA_LINE_CAPS_ROUND:
+      break;
+    case DIA_LINE_CAPS_PROJECTING:
+      break;
     default:
-	g_warning("HpglRenderer: Unsupported fill mode specified!");
+      g_warning ("HpglRenderer: Unsupported fill mode specified!");
+  }
+}
+
+
+static void
+set_linejoin (DiaRenderer *object, DiaLineJoin mode)
+{
+  DIAG_NOTE (g_message ( "set_join %d", mode));
+
+  switch (mode) {
+    case DIA_LINE_JOIN_DEFAULT:
+    case DIA_LINE_JOIN_MITER:
+      break;
+    case DIA_LINE_JOIN_ROUND:
+      break;
+    case DIA_LINE_JOIN_BEVEL:
+      break;
+    default:
+      g_warning ("HpglRenderer : Unsupported fill mode specified!");
+  }
+}
+
+
+static void
+set_linestyle (DiaRenderer *object, DiaLineStyle mode, double dash_length)
+{
+  HpglRenderer *renderer = HPGL_RENDERER (object);
+
+  DIAG_NOTE (g_message ("set_linestyle %d", mode));
+
+  /* line type */
+  switch (mode) {
+    case DIA_LINE_STYLE_DEFAULT:
+    case DIA_LINE_STYLE_SOLID:
+      fprintf (renderer->file, "LT;\n");
+      break;
+    case DIA_LINE_STYLE_DASHED:
+      if (dash_length > 0.5) {
+        /* ??? unit of dash_lenght ? */
+        fprintf (renderer->file, "LT2;\n"); /* short */
+      } else {
+        fprintf (renderer->file, "LT3;\n"); /* long */
+      }
+      break;
+    case DIA_LINE_STYLE_DASH_DOT:
+      fprintf (renderer->file, "LT4;\n");
+      break;
+    case DIA_LINE_STYLE_DASH_DOT_DOT:
+      fprintf (renderer->file, "LT5;\n"); /* ??? Mittellinie? */
+      break;
+    case DIA_LINE_STYLE_DOTTED:
+      fprintf (renderer->file, "LT1;\n");
+      break;
+    default:
+      g_warning ("HpglRenderer : Unsupported fill mode specified!");
+  }
+}
+
+
+static void
+set_fillstyle (DiaRenderer *object, DiaFillStyle mode)
+{
+  DIAG_NOTE (g_message ("set_fillstyle %d", mode));
+
+  switch (mode) {
+    case DIA_FILL_STYLE_SOLID:
+      break;
+    default:
+      g_warning ("HpglRenderer : Unsupported fill mode specified!");
     }
 }
 
-static void
-set_linejoin(DiaRenderer *object, LineJoin mode)
-{
-    DIAG_NOTE(g_message("set_join %d", mode));
-
-    switch(mode) {
-    case LINEJOIN_DEFAULT:
-    case LINEJOIN_MITER:
-	break;
-    case LINEJOIN_ROUND:
-	break;
-    case LINEJOIN_BEVEL:
-	break;
-    default:
-	g_warning("HpglRenderer : Unsupported fill mode specified!");
-    }
-}
 
 static void
-set_linestyle(DiaRenderer *object, LineStyle mode, real dash_length)
+set_font (DiaRenderer *object, DiaFont *font, real height)
 {
-    HpglRenderer *renderer = HPGL_RENDERER (object);
+  HpglRenderer *renderer = HPGL_RENDERER (object);
 
-    DIAG_NOTE(g_message("set_linestyle %d", mode));
+  DIAG_NOTE (g_message ("set_font %f", height));
 
-    /* line type */
-    switch (mode) {
-    case LINESTYLE_DEFAULT:
-    case LINESTYLE_SOLID:
-      fprintf(renderer->file, "LT;\n");
-      break;
-    case LINESTYLE_DASHED:
-      if (dash_length > 0.5) /* ??? unit of dash_lenght ? */
-          fprintf(renderer->file, "LT2;\n"); /* short */
-      else
-          fprintf(renderer->file, "LT3;\n"); /* long */
-      break;
-    case LINESTYLE_DASH_DOT:
-      fprintf(renderer->file, "LT4;\n");
-      break;
-    case LINESTYLE_DASH_DOT_DOT:
-      fprintf(renderer->file, "LT5;\n"); /* ??? Mittellinie? */
-      break;
-    case LINESTYLE_DOTTED:
-      fprintf(renderer->file, "LT1;\n");
-      break;
-    default:
-	g_warning("HpglRenderer : Unsupported fill mode specified!");
-    }
-}
-
-static void
-set_fillstyle(DiaRenderer *object, FillStyle mode)
-{
-    DIAG_NOTE(g_message("set_fillstyle %d", mode));
-
-    switch(mode) {
-    case FILLSTYLE_SOLID:
-	break;
-    default:
-	g_warning("HpglRenderer : Unsupported fill mode specified!");
-    }
-}
-
-static void
-set_font(DiaRenderer *object, DiaFont *font, real height)
-{
-    HpglRenderer *renderer = HPGL_RENDERER (object);
-
-    DIAG_NOTE(g_message("set_font %f", height));
-    renderer->font_height = height;
+  g_clear_object (&renderer->font);
+  renderer->font = g_object_ref (font);
+  renderer->font_height = height;
 }
 
 /* Need to translate coord system:
@@ -505,34 +527,39 @@ draw_ellipse(DiaRenderer *object,
     }
 }
 
+
 static void
-draw_string(DiaRenderer *object,
-	    const char *text,
-	    Point *pos, Alignment alignment,
-	    Color *colour)
+draw_string (DiaRenderer  *object,
+             const char   *text,
+             Point        *pos,
+             DiaAlignment  alignment,
+             Color        *colour)
 {
-    HpglRenderer *renderer = HPGL_RENDERER (object);
-    real width, height;
+  HpglRenderer *renderer = HPGL_RENDERER (object);
+  real width, height;
 
-    DIAG_NOTE(g_message("draw_string %f,%f %s",
-              pos->x, pos->y, text));
+  DIAG_NOTE (g_message ("draw_string %f,%f %s",
+                        pos->x, pos->y, text));
 
-    /* set position */
-    fprintf(renderer->file, "PU%d,%d;",
-            hpgl_scale(renderer, pos->x), hpgl_scale(renderer, -pos->y));
+  /* set position */
+  fprintf (renderer->file, "PU%d,%d;",
+           hpgl_scale (renderer, pos->x), hpgl_scale (renderer, -pos->y));
 
-    switch (alignment) {
-    case ALIGN_LEFT:
-        fprintf (renderer->file, "LO1;\n");
-	break;
-    case ALIGN_CENTER:
-        fprintf (renderer->file, "LO4;\n");
-	break;
-    case ALIGN_RIGHT:
-        fprintf (renderer->file, "LO7;\n");
-	break;
-    }
-    hpgl_select_pen(renderer,colour,0.0);
+  switch (alignment) {
+    case DIA_ALIGN_LEFT:
+      fprintf (renderer->file, "LO1;\n");
+      break;
+    case DIA_ALIGN_CENTRE:
+      fprintf (renderer->file, "LO4;\n");
+      break;
+    case DIA_ALIGN_RIGHT:
+      fprintf (renderer->file, "LO7;\n");
+      break;
+    default:
+      g_return_if_reached ();
+  }
+
+  hpgl_select_pen (renderer, colour, 0.0);
 
 #if 0
     /*
@@ -605,8 +632,58 @@ hpgl_renderer_get_type (void)
 }
 
 static void
+hpgl_renderer_set_property (GObject      *object,
+                            guint         property_id,
+                            const GValue *value,
+                            GParamSpec   *pspec)
+{
+  HpglRenderer *self = HPGL_RENDERER (object);
+
+  switch (property_id) {
+    case PROP_FONT:
+      set_font (DIA_RENDERER (self),
+                DIA_FONT (g_value_get_object (value)),
+                self->font_height);
+      break;
+    case PROP_FONT_HEIGHT:
+      set_font (DIA_RENDERER (self),
+                self->font,
+                g_value_get_double (value));
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
+      break;
+  }
+}
+
+static void
+hpgl_renderer_get_property (GObject    *object,
+                            guint       property_id,
+                            GValue     *value,
+                            GParamSpec *pspec)
+{
+  HpglRenderer *self = HPGL_RENDERER (object);
+
+  switch (property_id) {
+    case PROP_FONT:
+      g_value_set_object (value, self->font);
+      break;
+    case PROP_FONT_HEIGHT:
+      g_value_set_double (value, self->font_height);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
+      break;
+  }
+}
+
+static void
 hpgl_renderer_finalize (GObject *object)
 {
+  HpglRenderer *self = HPGL_RENDERER (object);
+
+  g_clear_object (&self->font);
+
   G_OBJECT_CLASS (parent_class)->finalize (object);
 }
 
@@ -618,6 +695,8 @@ hpgl_renderer_class_init (HpglRendererClass *klass)
 
   parent_class = g_type_class_peek_parent (klass);
 
+  object_class->get_property = hpgl_renderer_get_property;
+  object_class->set_property = hpgl_renderer_set_property;
   object_class->finalize = hpgl_renderer_finalize;
 
   /* renderer members */
@@ -629,8 +708,6 @@ hpgl_renderer_class_init (HpglRendererClass *klass)
   renderer_class->set_linejoin   = set_linejoin;
   renderer_class->set_linestyle  = set_linestyle;
   renderer_class->set_fillstyle  = set_fillstyle;
-
-  renderer_class->set_font  = set_font;
 
   renderer_class->draw_line    = draw_line;
   renderer_class->draw_polygon = draw_polygon;
@@ -644,6 +721,9 @@ hpgl_renderer_class_init (HpglRendererClass *klass)
   /* medium level functions */
   renderer_class->draw_rect = draw_rect;
   renderer_class->draw_polyline  = draw_polyline;
+
+  g_object_class_override_property (object_class, PROP_FONT, "font");
+  g_object_class_override_property (object_class, PROP_FONT_HEIGHT, "font-height");
 }
 
 /* plug-in interface : export function */
@@ -654,7 +734,7 @@ export_data(DiagramData *data, DiaContext *ctx,
 {
     HpglRenderer *renderer;
     FILE *file;
-    Rectangle *extent;
+    DiaRectangle *extent;
     real width, height;
 
     file = g_fopen(filename, "w"); /* "wb" for binary! */
@@ -694,11 +774,11 @@ export_data(DiagramData *data, DiaContext *ctx,
             hpgl_scale(renderer, extent->bottom),
             hpgl_scale(renderer, extent->top));
 #endif
-    data_render(data, DIA_RENDERER(renderer), NULL, NULL, NULL);
+  data_render(data, DIA_RENDERER(renderer), NULL, NULL, NULL);
 
-    g_object_unref(renderer);
+  g_clear_object (&renderer);
 
-    return TRUE;
+  return TRUE;
 }
 
 static const gchar *extensions[] = { "plt", "hpgl", NULL };

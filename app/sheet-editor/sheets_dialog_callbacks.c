@@ -21,15 +21,11 @@
  *
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <errno.h>
-#include <string.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#endif
 #include <time.h>
 #ifdef HAVE_UTIME_H
 #include <utime.h>
@@ -42,10 +38,9 @@
 #endif
 #endif
 
-#include <glib/gstdio.h>
+#include <glib.h>
 #include <gmodule.h>
-
-#undef GTK_DISABLE_DEPRECATED /* GtkOptionMenu */
+#include <glib/gstdio.h>
 #include <gtk/gtk.h>
 
 #include <libxml/tree.h>
@@ -64,11 +59,31 @@
 #include "sheets.h"
 #include "sheets_dialog_callbacks.h"
 #include "sheets_dialog.h"
+#include "sheet-editor-button.h"
+#include "dia-version-info.h"
 
-#include "pixmaps/line_break.xpm"
-#include "intl.h"
 
 static GSList *radio_group = NULL;
+
+static gboolean
+remove_target_treeiter (GtkTreeModel *model,
+                        GtkTreePath  *path,
+                        GtkTreeIter  *iter,
+                        gpointer      udata)
+{
+  char *item;
+  gtk_tree_model_get (model,
+                      iter,
+                      SO_COL_NAME, &item,
+                      -1);
+
+  if (strcmp (item, (char *)udata) == 0) {
+    gtk_list_store_remove (GTK_LIST_STORE (model), iter);
+    return TRUE;
+  }
+
+  return FALSE;
+}
 
 static void
 sheets_dialog_hide (void)
@@ -101,7 +116,7 @@ sheets_dialog_up_down_set_sensitive (GList           *wrapbox_button_list,
 
   if (!wrapbox_button_list
       || GTK_TOGGLE_BUTTON (g_list_first (wrapbox_button_list)->data) == togglebutton
-      || (!g_object_get_data (G_OBJECT (togglebutton), "sheet_object_mod")
+      || (!dia_sheet_editor_button_get_object (DIA_SHEET_EDITOR_BUTTON (togglebutton))
           && g_list_nth (wrapbox_button_list, 1)
           && GTK_TOGGLE_BUTTON (g_list_nth (wrapbox_button_list, 1)->data)
              == togglebutton)) {
@@ -114,7 +129,7 @@ sheets_dialog_up_down_set_sensitive (GList           *wrapbox_button_list,
   g_return_if_fail (button != NULL);
   if (!wrapbox_button_list
       || GTK_TOGGLE_BUTTON (g_list_last (wrapbox_button_list)->data) == togglebutton
-      || (!g_object_get_data (G_OBJECT (togglebutton), "sheet_object_mod")
+      || (!dia_sheet_editor_button_get_object (DIA_SHEET_EDITOR_BUTTON (togglebutton))
           && ((second = g_list_previous (g_list_last (wrapbox_button_list))) != NULL)
           && GTK_TOGGLE_BUTTON (second->data) == togglebutton)) {
     gtk_widget_set_sensitive (button, FALSE);
@@ -148,11 +163,11 @@ on_sheets_dialog_object_button_toggled (GtkToggleButton *togglebutton,
   table_sheets = lookup_widget (sheets_dialog, "table_sheets");
   g_object_set_data (G_OBJECT (table_sheets), "active_wrapbox", ud_wrapbox);
 
-  optionmenu_left = lookup_widget (sheets_dialog, "optionmenu_left");
+  optionmenu_left = lookup_widget (sheets_dialog, "combo_left");
   sheet_left = g_object_get_data (G_OBJECT (optionmenu_left),
                                   "active_sheet_name");
 
-  optionmenu_right = lookup_widget (sheets_dialog, "optionmenu_right");
+  optionmenu_right = lookup_widget (sheets_dialog, "combo_right");
   sheet_right = g_object_get_data (G_OBJECT (optionmenu_right),
                                    "active_sheet_name");
 
@@ -184,7 +199,7 @@ on_sheets_dialog_object_button_toggled (GtkToggleButton *togglebutton,
 
   if (!strcmp (sheet_left, sheet_right)
       || g_object_get_data (G_OBJECT (togglebutton), "is_hidden_button")
-      || !g_object_get_data (G_OBJECT (togglebutton), "sheet_object_mod")) {
+      || !dia_sheet_editor_button_get_object (DIA_SHEET_EDITOR_BUTTON (togglebutton))) {
     button = lookup_widget (sheets_dialog, "button_copy");
     gtk_widget_set_sensitive (button, FALSE);
     button = lookup_widget (sheets_dialog, "button_copy_all");
@@ -208,14 +223,15 @@ on_sheets_dialog_object_button_toggled (GtkToggleButton *togglebutton,
 
   if (g_list_length (wrapbox_button_list)) {
     SheetMod *sm;
+    SheetObjectMod *som;
 
     sheets_dialog_up_down_set_sensitive (wrapbox_button_list, togglebutton);
 
-    sm = g_object_get_data (G_OBJECT (togglebutton), "sheet_mod");
+    sm = dia_sheet_editor_button_get_sheet (DIA_SHEET_EDITOR_BUTTON (togglebutton));
+    som = dia_sheet_editor_button_get_object (DIA_SHEET_EDITOR_BUTTON (togglebutton));
 
     button = lookup_widget (sheets_dialog, "button_edit");
-    if (!g_object_get_data (G_OBJECT (togglebutton), "sheet_object_mod")
-        && sm->sheet.scope == SHEET_SCOPE_SYSTEM) {
+    if (!som && sm->sheet.scope == SHEET_SCOPE_SYSTEM) {
       gtk_widget_set_sensitive (button, FALSE);
     } else {
       gtk_widget_set_sensitive (button, TRUE);
@@ -239,73 +255,33 @@ on_sheets_dialog_object_button_toggled (GtkToggleButton *togglebutton,
     button = lookup_widget (sheets_dialog, "button_remove");
     gtk_widget_set_sensitive (button, FALSE);
   }
+
   g_list_free (wrapbox_button_list);
 }
+
 
 static void
 sheets_dialog_wrapbox_add_line_break (GtkWidget *wrapbox)
 {
   SheetMod *sm;
   GtkWidget *button;
-  GtkStyle *style;
-  GdkPixmap *pixmap, *mask;
-  GtkWidget *gtkpixmap;
 
   sm = g_object_get_data (G_OBJECT (wrapbox), "sheet_mod");
-  g_assert (sm);
 
-  button = gtk_radio_button_new (radio_group);
-  gtk_button_set_relief (GTK_BUTTON (button), GTK_RELIEF_NONE);
+  g_return_if_fail (sm);
 
-  g_object_set_data (G_OBJECT (button), "sheet_mod", sm);
+  button = dia_sheet_editor_button_new_newline (radio_group, sm);
 
   radio_group = gtk_radio_button_get_group (GTK_RADIO_BUTTON (button));
 
-  gtk_toggle_button_set_mode (GTK_TOGGLE_BUTTON (button), FALSE);
-  gtk_container_set_border_width (GTK_CONTAINER (button), 0);
-
-  style = gtk_widget_get_style (wrapbox);
-  pixmap =
-    gdk_pixmap_colormap_create_from_xpm_d (NULL,
-                                           gtk_widget_get_colormap (wrapbox),
-                                           &mask,
-                                           &style->bg[GTK_STATE_NORMAL],
-                                           line_break_xpm);
-
-  gtkpixmap = gtk_pixmap_new (pixmap, mask);
-  gtk_container_add (GTK_CONTAINER (button), gtkpixmap);
-  gtk_widget_show (gtkpixmap);
-
   gtk_wrap_box_pack (GTK_WRAP_BOX (wrapbox), button, FALSE, TRUE, FALSE, TRUE);
   gtk_widget_show (button);
-
-  gtk_widget_set_tooltip_text (button, _("Line Break"));
 
   g_signal_connect (G_OBJECT (button), "toggled",
                     G_CALLBACK (on_sheets_dialog_object_button_toggled),
                     wrapbox);
 }
 
-static void
-sheets_dialog_object_set_tooltip (SheetObjectMod *som, GtkWidget *button)
-{
-  gchar *tip;
-
-  switch (som->type){
-    case OBJECT_TYPE_SVG:
-      tip = g_strdup_printf (_("%s\nShape"), som->sheet_object.description);
-      break;
-    case OBJECT_TYPE_PROGRAMMED:
-      tip = g_strdup_printf (_("%s\nObject"), som->sheet_object.description);
-      break;
-    default:
-      tip = g_strdup_printf (_("%s\nUnassigned type"), som->sheet_object.description);
-      break;
-  }
-
-  gtk_widget_set_tooltip_text (button, tip);
-  g_free (tip);
-}
 
 static GtkWidget *
 sheets_dialog_create_object_button (SheetObjectMod *som,
@@ -313,57 +289,54 @@ sheets_dialog_create_object_button (SheetObjectMod *som,
                                     GtkWidget      *wrapbox)
 {
   GtkWidget *button;
-  GdkPixmap *pixmap, *mask;
-  GtkWidget *gtkpixmap;
 
-  button = gtk_radio_button_new (radio_group);
+  button = dia_sheet_editor_button_new_object (radio_group, sm, som);
   radio_group = gtk_radio_button_get_group (GTK_RADIO_BUTTON (button));
 
-  gtk_toggle_button_set_mode (GTK_TOGGLE_BUTTON (button), FALSE);
-  gtk_container_set_border_width (GTK_CONTAINER (button), 0);
-
-  create_object_pixmap (&som->sheet_object, wrapbox, &pixmap, &mask);
-  gtkpixmap = gtk_pixmap_new (pixmap, mask);
-  gtk_container_add (GTK_CONTAINER (button), gtkpixmap);
-  gtk_widget_show (gtkpixmap);
-
-  sheets_dialog_object_set_tooltip (som, button);
-
-  g_object_set_data (G_OBJECT (button), "sheet_mod", sm);
-  g_object_set_data (G_OBJECT (button), "sheet_object_mod", som);
+  gtk_widget_set_tooltip_text (button, som->sheet_object.description);
 
   g_signal_connect (G_OBJECT (button), "toggled",
                     G_CALLBACK (on_sheets_dialog_object_button_toggled),
                     wrapbox);
+
   return button;
 }
+
 
 gboolean optionmenu_activate_first_pass = TRUE;
 
 void
-on_sheets_dialog_optionmenu_activate   (GtkMenuItem     *menuitem,
-                                        gpointer         user_data)
+on_sheets_dialog_combo_changed (GtkComboBox *widget,
+                                gpointer     udata)
 {
   GtkWidget *wrapbox;
+  SheetMod *mod;
   Sheet *sheet;
   GtkWidget *optionmenu;
   GSList *object_mod_list;
   GtkWidget *hidden_button;
   GList *button_list;
+  GtkTreeIter iter;
 
-  sheet = &(((SheetMod *) (user_data))->sheet);
+  gtk_combo_box_get_active_iter (widget, &iter);
+  gtk_tree_model_get (gtk_combo_box_get_model (widget),
+                      &iter,
+                      SO_COL_MOD, &mod,
+                      -1);
 
-  wrapbox = g_object_get_data (G_OBJECT (menuitem), "wrapbox");
+  sheet = &mod->sheet;
+
+  wrapbox = g_object_get_data (G_OBJECT (widget), "wrapbox");
   g_assert (wrapbox);
 
   /* The hidden button is necessary to keep track of radio_group
      when there are no objects and to force 'toggled' events    */
 
   if (optionmenu_activate_first_pass) {
-    hidden_button = gtk_radio_button_new (NULL);
+    hidden_button = dia_sheet_editor_button_new_newline (NULL, mod);
     optionmenu_activate_first_pass = FALSE;
   } else {
-    hidden_button = gtk_radio_button_new (radio_group);
+    hidden_button = dia_sheet_editor_button_new_newline (radio_group, mod);
     radio_group = gtk_radio_button_get_group (GTK_RADIO_BUTTON (hidden_button));
   }
 
@@ -373,12 +346,11 @@ on_sheets_dialog_optionmenu_activate   (GtkMenuItem     *menuitem,
   g_object_set_data (G_OBJECT (hidden_button), "is_hidden_button",
                      (gpointer) TRUE);
   g_object_set_data (G_OBJECT (wrapbox), "hidden_button", hidden_button);
-  g_object_set_data (G_OBJECT (hidden_button), "sheet_mod", user_data);
 
   if (g_object_get_data (G_OBJECT (wrapbox), "is_left")) {
-    optionmenu = lookup_widget (sheets_dialog, "optionmenu_left");
+    optionmenu = lookup_widget (sheets_dialog, "combo_left");
   } else {
-    optionmenu = lookup_widget (sheets_dialog, "optionmenu_right");
+    optionmenu = lookup_widget (sheets_dialog, "combo_right");
   }
   g_object_set_data (G_OBJECT (optionmenu), "active_sheet_name", sheet->name);
 
@@ -390,7 +362,7 @@ on_sheets_dialog_optionmenu_activate   (GtkMenuItem     *menuitem,
   gtk_wrap_box_set_aspect_ratio (GTK_WRAP_BOX (wrapbox), 4 * 1.0 / 9);
                                                 /* MCNFIXME: calculate this */
 
-  g_object_set_data (G_OBJECT (wrapbox), "sheet_mod", user_data);
+  g_object_set_data (G_OBJECT (wrapbox), "sheet_mod", mod);
 
   for (object_mod_list = sheet->objects; object_mod_list;
        object_mod_list = g_slist_next (object_mod_list)) {
@@ -406,7 +378,7 @@ on_sheets_dialog_optionmenu_activate   (GtkMenuItem     *menuitem,
       sheets_dialog_wrapbox_add_line_break (wrapbox);
     }
 
-    button = sheets_dialog_create_object_button (som, user_data, wrapbox);
+    button = sheets_dialog_create_object_button (som, mod, wrapbox);
 
     gtk_wrap_box_pack_wrapped (GTK_WRAP_BOX (wrapbox), button,
                                FALSE, TRUE, FALSE, TRUE, som->sheet_object.line_break);
@@ -425,6 +397,7 @@ on_sheets_dialog_optionmenu_activate   (GtkMenuItem     *menuitem,
 
   g_list_free (button_list);
 }
+
 
 static void
 sheets_dialog_apply_revert_set_sensitive (gboolean is_sensitive)
@@ -458,8 +431,10 @@ _gtk_wrap_box_set_child_forced_break (GtkWrapBox* box,
                                   vexpand, vfill, wrapped);
 }
 
+
 static void
-sheets_dialog_normalize_line_breaks (GtkWidget *wrapbox, SheetsDialogMoveDir dir)
+sheets_dialog_normalize_line_breaks (GtkWidget           *wrapbox,
+                                     SheetsDialogMoveDir  dir)
 {
   GList *button_list;
   GList *iter_list;
@@ -472,8 +447,9 @@ sheets_dialog_normalize_line_breaks (GtkWidget *wrapbox, SheetsDialogMoveDir dir
     SheetMod *sm;
     SheetObjectMod *som;
 
-    sm = g_object_get_data (G_OBJECT (iter_list->data), "sheet_mod");
-    som = g_object_get_data (G_OBJECT (iter_list->data), "sheet_object_mod");
+    sm = dia_sheet_editor_button_get_sheet (DIA_SHEET_EDITOR_BUTTON (iter_list->data));
+    som = dia_sheet_editor_button_get_object (DIA_SHEET_EDITOR_BUTTON (iter_list->data));
+
     if (som) {
       if (is_line_break) {
         if (som->sheet_object.line_break == FALSE) {
@@ -522,8 +498,8 @@ sheets_dialog_normalize_line_breaks (GtkWidget *wrapbox, SheetsDialogMoveDir dir
   /* We delete a trailing linebreak button in the wrapbox */
 
   iter_list = g_list_last (button_list);
-  if (iter_list && !g_object_get_data (G_OBJECT (iter_list->data),
-                                       "sheet_object_mod")) {
+  if (iter_list &&
+      !dia_sheet_editor_button_get_object (DIA_SHEET_EDITOR_BUTTON (iter_list->data))) {
     gtk_widget_destroy (GTK_WIDGET (iter_list->data));
     if (g_list_previous (iter_list)) {
       gtk_toggle_button_set_active (g_list_previous (iter_list)->data, TRUE);
@@ -534,6 +510,7 @@ sheets_dialog_normalize_line_breaks (GtkWidget *wrapbox, SheetsDialogMoveDir dir
 
   g_list_free (button_list);
 }
+
 
 GtkWidget *
 sheets_dialog_get_active_button (GtkWidget **wrapbox, GList **button_list)
@@ -554,7 +531,7 @@ sheets_dialog_move_up_or_down (SheetsDialogMoveDir dir)
   GtkWidget *wrapbox;
   GList *button_list;
   GtkWidget *active_button;
-  gint button_pos;
+  int button_pos;
   SheetObjectMod *som;
   SheetObjectMod *som_next;
   GList *next_button_list;
@@ -577,12 +554,11 @@ sheets_dialog_move_up_or_down (SheetsDialogMoveDir dir)
   button_list = gtk_container_get_children (GTK_CONTAINER (wrapbox));
   active_button = g_object_get_data (G_OBJECT (wrapbox), "active_button");
 
-  som = g_object_get_data (G_OBJECT (active_button), "sheet_object_mod");
+  som = dia_sheet_editor_button_get_object (DIA_SHEET_EDITOR_BUTTON (active_button));
 
   next_button_list = g_list_next (g_list_find (button_list, active_button));
   if (next_button_list) {
-    som_next = g_object_get_data (G_OBJECT (next_button_list->data),
-                                  "sheet_object_mod");
+    som_next = dia_sheet_editor_button_get_object (DIA_SHEET_EDITOR_BUTTON (next_button_list->data));
   } else {
     som_next = NULL; /* either 1) no button after 'active_button'
                             or 2) button after 'active_button' is line break */
@@ -600,11 +576,11 @@ sheets_dialog_move_up_or_down (SheetsDialogMoveDir dir)
   {
     SheetMod *sm;
     GSList *object_list;
-    gint object_pos;
+    int object_pos;
 
     som->mod = SHEET_OBJECT_MOD_CHANGED;
 
-    sm = g_object_get_data (G_OBJECT (active_button), "sheet_mod");
+    sm = dia_sheet_editor_button_get_sheet (DIA_SHEET_EDITOR_BUTTON (active_button));
     if (sm->mod == SHEETMOD_MOD_NONE) {
       sm->mod = SHEETMOD_MOD_CHANGED;
     }
@@ -644,8 +620,6 @@ on_sheets_dialog_button_close_clicked  (GtkButton       *button,
   sheets_dialog_hide ();
 }
 
-static GtkWidget *sheets_new_dialog;
-
 typedef enum {
   SHEETS_NEW_DIALOG_TYPE_SVG_SHAPE = 1,   /* allows g_assert() */
   SHEETS_NEW_DIALOG_TYPE_LINE_BREAK,
@@ -656,6 +630,7 @@ void
 on_sheets_dialog_button_new_clicked    (GtkButton       *button,
                                         gpointer         user_data)
 {
+  GtkWidget *sheets_new_dialog;
   GtkWidget *wrapbox;
   GList *button_list;
   GtkWidget *active_button;
@@ -663,14 +638,14 @@ on_sheets_dialog_button_new_clicked    (GtkButton       *button,
 
   sheets_new_dialog = create_sheets_new_dialog ();
 
-  /* Deterine if a line break button can be put after the active button */
+  /* Determine if a line break button can be put after the active button */
 
   active_button = sheets_dialog_get_active_button (&wrapbox, &button_list);
   is_line_break_sensitive = TRUE;
-  if (g_object_get_data (G_OBJECT (active_button), "sheet_mod")) {
+  if (dia_sheet_editor_button_get_sheet (DIA_SHEET_EDITOR_BUTTON (active_button))) {
     button_list = g_list_next (g_list_find (button_list, active_button));
-    if (!button_list || !g_object_get_data (G_OBJECT (button_list->data),
-                                            "sheet_mod")) {
+    if (!button_list ||
+        !dia_sheet_editor_button_get_sheet (DIA_SHEET_EDITOR_BUTTON (button_list->data))) {
       is_line_break_sensitive = FALSE;
     }
     g_list_free (button_list);
@@ -681,26 +656,16 @@ on_sheets_dialog_button_new_clicked    (GtkButton       *button,
   active_button = lookup_widget (sheets_new_dialog, "radiobutton_line_break");
   gtk_widget_set_sensitive (active_button, is_line_break_sensitive);
 
-  /* Use the 'ok' button to hold the current 'type' selection */
-
-  active_button = lookup_widget (sheets_new_dialog, "button_ok");
-  g_object_set_data (G_OBJECT (active_button), "active_type",
+  g_object_set_data (G_OBJECT (sheets_new_dialog), "active_type",
                      (gpointer) SHEETS_NEW_DIALOG_TYPE_SVG_SHAPE);
 
   gtk_widget_show (sheets_new_dialog);
 }
 
 void
-on_sheets_new_dialog_button_cancel_clicked (GtkButton       *button,
-                                            gpointer         user_data)
-{
-  gtk_widget_destroy (sheets_new_dialog);
-  sheets_new_dialog = NULL;
-}
-
-void
-on_sheets_new_dialog_button_ok_clicked (GtkButton       *button,
-                                        gpointer         user_data)
+on_sheets_new_dialog_response (GtkWidget       *sheets_new_dialog,
+                               int              response,
+                               gpointer         user_data)
 {
   SheetsNewDialogType active_type;
   GtkWidget *table_sheets;
@@ -708,25 +673,26 @@ on_sheets_new_dialog_button_ok_clicked (GtkButton       *button,
   GList *button_list;
   GtkWidget *active_button;
 
+  if (response != GTK_RESPONSE_OK) {
+    g_clear_pointer (&sheets_new_dialog, gtk_widget_destroy);
+    return;
+  }
+
   table_sheets = lookup_widget (sheets_dialog, "table_sheets");
   wrapbox = g_object_get_data (G_OBJECT (table_sheets), "active_wrapbox");
 
-  active_type = (SheetsNewDialogType) g_object_get_data (G_OBJECT (button),
+  active_type = (SheetsNewDialogType) g_object_get_data (G_OBJECT (sheets_new_dialog),
                                                          "active_type");
   g_assert (active_type);
 
   switch (active_type) {
     GtkWidget *entry;
-    gchar *file_name;
-    gchar *p;
-    struct stat stat_buf;
+    char *file_name;
     GList *plugin_list;
     DiaObjectType *ot;
     typedef gboolean (*CustomObjectLoadFunc) (gchar*, DiaObjectType **);
     CustomObjectLoadFunc custom_object_load_fn;
-    gint pos;
-    GtkWidget *active_button;
-    GList *button_list;
+    int pos;
     SheetObjectMod *som;
     SheetMod *sm;
     SheetObject *sheet_obj;
@@ -736,25 +702,25 @@ on_sheets_new_dialog_button_ok_clicked (GtkButton       *button,
     case SHEETS_NEW_DIALOG_TYPE_SVG_SHAPE:
       entry = lookup_widget (sheets_new_dialog, "file_chooser_button");
       /* Since this is a file name, no utf8 translation is needed */
-      file_name = gtk_file_chooser_get_preview_filename (GTK_FILE_CHOOSER (entry));
+      file_name = gtk_file_chooser_get_filename (GTK_FILE_CHOOSER (entry));
 
       if (!file_name) {
         message_error (_("Please select a .shape file"));
         return;
       }
 
-      p = file_name + strlen (file_name) - 6;
-      if (strcmp (p, ".shape")) {
+      if (!g_str_has_suffix (file_name, ".shape")) {
         message_error (_("Filename must end with '%s': '%s'"),
                        ".shape", dia_message_filename (file_name));
-        g_free (file_name);
+        g_clear_pointer (&file_name, g_free);
         return;
       }
 
-      if (g_stat (file_name, &stat_buf) == -1) {
+      if (!g_file_test (file_name, G_FILE_TEST_IS_REGULAR)) {
         message_error (_("Error examining %s: %s"),
-                         dia_message_filename (file_name), strerror (errno));
-        g_free (file_name);
+                       dia_message_filename (file_name),
+                       g_strerror (errno));
+        g_clear_pointer (&file_name, g_free);
         return;
       }
 
@@ -786,7 +752,7 @@ on_sheets_new_dialog_button_ok_clicked (GtkButton       *button,
         }
         message_error (_("Could not interpret shape file: '%s'"),
                         dia_message_filename (file_name));
-        g_free(file_name);
+        g_clear_pointer (&file_name, g_free);
         return;
       }
       object_register_type (ot);
@@ -794,9 +760,7 @@ on_sheets_new_dialog_button_ok_clicked (GtkButton       *button,
       entry = lookup_widget (sheets_new_dialog, "entry_svg_description");
       sheet_obj = g_new0 (SheetObject, 1);
       sheet_obj->object_type = g_strdup (ot->name);
-      {
-        sheet_obj->description = gtk_editable_get_chars (GTK_EDITABLE (entry), 0, -1);
-      }
+      sheet_obj->description = gtk_editable_get_chars (GTK_EDITABLE (entry), 0, -1);
       sheet_obj->pixmap = ot->pixmap;
       sheet_obj->user_data = ot->default_user_data;
       sheet_obj->user_data_type = USER_DATA_IS_OTHER;
@@ -843,6 +807,7 @@ on_sheets_new_dialog_button_ok_clicked (GtkButton       *button,
       {
         gchar *sheet_name;
         gchar *sheet_descrip;
+        GtkTreeIter iter;
 
         entry = lookup_widget (sheets_new_dialog, "entry_sheet_name");
         sheet_name = gtk_editable_get_chars (GTK_EDITABLE (entry), 0, -1);
@@ -867,11 +832,19 @@ on_sheets_new_dialog_button_ok_clicked (GtkButton       *button,
         sm = sheets_append_sheet_mods (sheet);
         sm->mod = SHEETMOD_MOD_NEW;
 
+        gtk_list_store_append (user_data, &iter);
+        gtk_list_store_set (user_data,
+                            &iter,
+                            SO_COL_NAME, gettext (sm->sheet.name),
+                            SO_COL_LOCATION, _("User"),
+                            SO_COL_MOD, sm,
+                            -1);
+
         table_sheets = lookup_widget (sheets_dialog, "table_sheets");
         optionmenu = g_object_get_data (G_OBJECT (table_sheets),
                                         "active_optionmenu");
         g_assert (optionmenu);
-        sheets_optionmenu_create (optionmenu, wrapbox, sheet_name);
+        select_sheet (optionmenu, sheet_name);
       }
       break;
 
@@ -887,81 +860,36 @@ on_sheets_new_dialog_button_ok_clicked (GtkButton       *button,
                                        GTK_TOGGLE_BUTTON (active_button));
   g_list_free (button_list);
 
-  gtk_widget_destroy (sheets_new_dialog);
-  sheets_new_dialog = NULL;
+  g_clear_pointer (&sheets_new_dialog, gtk_widget_destroy);
 }
-
-static GtkWidget *sheets_shapeselection_dialog;
-
-void
-on_sheets_shapeselection_dialog_button_cancel_clicked (GtkButton       *button,
-                                                       gpointer         user_data)
-{
-  gtk_widget_destroy (sheets_shapeselection_dialog);
-  sheets_shapeselection_dialog = NULL;
-}
-
-void
-on_sheets_shapeselection_dialog_button_ok_clicked (GtkButton       *button,
-                                                   gpointer         user_data)
-{
-  const gchar *filename;
-  GtkWidget *entry;
-
-  filename =
-      gtk_file_selection_get_filename (
-          GTK_FILE_SELECTION (sheets_shapeselection_dialog));
-
-  entry = lookup_widget (sheets_new_dialog, "combo_entry_from_file");
-  /* Since this is a filename entry from the dialog, no utf is needed */
-  gtk_entry_set_text (GTK_ENTRY (entry), filename);
-
-  gtk_widget_destroy (sheets_shapeselection_dialog);
-  sheets_shapeselection_dialog = NULL;
-}
-
-static GtkWidget *sheets_edit_dialog;
 
 void
 on_sheets_dialog_button_edit_clicked (GtkButton       *button,
                                       gpointer         user_data)
 {
+  GtkWidget *sheets_edit_dialog;
   GtkWidget *wrapbox;
   GList *button_list;
   GtkWidget *active_button;
   SheetObjectMod *som;
   gchar *descrip = "";
-  gchar *type = "";
   GtkWidget *entry;
   SheetMod *sm;
   gchar *name = "";
 
-  if (sheets_edit_dialog == NULL) {
-    sheets_edit_dialog = create_sheets_edit_dialog ();
-  }
+  sheets_edit_dialog = create_sheets_edit_dialog ();
 
   active_button = sheets_dialog_get_active_button (&wrapbox, &button_list);
-  som = g_object_get_data (G_OBJECT (active_button), "sheet_object_mod");
-  if (som) {
-    descrip = som->sheet_object.description;
-    type = sheet_object_mod_get_type_string (som);
-  }
+  som = dia_sheet_editor_button_get_object (DIA_SHEET_EDITOR_BUTTON (active_button));
 
   entry = lookup_widget (sheets_edit_dialog, "entry_object_description");
   if (som) {
-    gtk_entry_set_text (GTK_ENTRY (entry), descrip);
+    gtk_entry_set_text (GTK_ENTRY (entry), som->sheet_object.description);
   } else {
     gtk_widget_set_sensitive (entry, FALSE);
   }
 
-  entry = lookup_widget (sheets_edit_dialog, "entry_object_type");
-  if (som) {
-    gtk_entry_set_text (GTK_ENTRY (entry), type);
-  } else {
-    gtk_widget_set_sensitive (entry, FALSE);
-  }
-
-  sm = g_object_get_data (G_OBJECT (active_button), "sheet_mod");
+  sm = dia_sheet_editor_button_get_sheet (DIA_SHEET_EDITOR_BUTTON (active_button));
   if (sm) {
     name = sm->sheet.name;
     descrip = sm->sheet.description;
@@ -969,26 +897,13 @@ on_sheets_dialog_button_edit_clicked (GtkButton       *button,
 
   entry = lookup_widget (sheets_edit_dialog, "entry_sheet_name");
   gtk_entry_set_text (GTK_ENTRY (entry), name);
-#if CAN_EDIT_SHEET_NAME
-  if (sm->sheet.scope == SHEET_SCOPE_SYSTEM)
-#endif
-    gtk_widget_set_sensitive (entry, FALSE);
+  gtk_widget_set_sensitive (entry, FALSE);
 
   entry = lookup_widget (sheets_edit_dialog, "entry_sheet_description");
   gtk_entry_set_text (GTK_ENTRY (entry), descrip);
 
   gtk_widget_show (sheets_edit_dialog);
 }
-
-void
-on_sheets_edit_dialog_button_cancel_clicked (GtkButton       *button,
-                                             gpointer         user_data)
-{
-  gtk_widget_destroy (sheets_edit_dialog);
-  sheets_edit_dialog = NULL;
-}
-
-static GtkWidget *sheets_remove_dialog;
 
 typedef enum {
   SHEETS_REMOVE_DIALOG_TYPE_OBJECT = 1,
@@ -999,6 +914,7 @@ void
 on_sheets_dialog_button_remove_clicked (GtkButton       *button,
                                         gpointer         user_data)
 {
+  GtkWidget *sheets_remove_dialog;
   GtkWidget *wrapbox;
   GList *button_list;
   GtkWidget *active_button;
@@ -1024,7 +940,7 @@ on_sheets_dialog_button_remove_clicked (GtkButton       *button,
   } else {
     SheetObjectMod *som;
 
-    som = g_object_get_data (G_OBJECT (active_button), "sheet_object_mod");
+    som = dia_sheet_editor_button_get_object (DIA_SHEET_EDITOR_BUTTON (active_button));
     if (!som) {
       gtk_entry_set_text (GTK_ENTRY (entry), _("Line Break"));
     } else {
@@ -1036,7 +952,7 @@ on_sheets_dialog_button_remove_clicked (GtkButton       *button,
   }
 
   entry = lookup_widget (sheets_remove_dialog, "entry_sheet");
-  sm = g_object_get_data (G_OBJECT (active_button), "sheet_mod");
+  sm = dia_sheet_editor_button_get_sheet (DIA_SHEET_EDITOR_BUTTON (active_button));
 
   /* Note:  It is currently impossible to remove a user sheet that has
             been shadowed by a more recent system sheet--the logic is just
@@ -1046,8 +962,6 @@ on_sheets_dialog_button_remove_clicked (GtkButton       *button,
             be rare, to say the least... */
 
   if (sm->sheet.shadowing == NULL && sm->sheet.scope == SHEET_SCOPE_SYSTEM) {
-    GtkWidget *radio_button;
-
     radio_button = lookup_widget (sheets_remove_dialog, "radiobutton_sheet");
     gtk_widget_set_sensitive (radio_button, FALSE);
     gtk_widget_set_sensitive (entry, FALSE);
@@ -1057,18 +971,11 @@ on_sheets_dialog_button_remove_clicked (GtkButton       *button,
   gtk_widget_show (sheets_remove_dialog);
 }
 
-void
-on_sheets_remove_dialog_button_cancel_clicked (GtkButton *button,
-                                               gpointer   user_data)
-{
-  gtk_widget_destroy (sheets_remove_dialog);
-  sheets_remove_dialog = NULL;
-}
-
 static void
 sheets_dialog_togglebutton_set_sensitive (GtkToggleButton *togglebutton,
-                                          GtkWidget *dialog,
-                                          gchar *widget_names[], gint type)
+                                          GtkWidget       *dialog,
+                                          char            *widget_names[],
+                                          int              type)
 {
   gboolean is_sensitive;
   guint i;
@@ -1076,8 +983,7 @@ sheets_dialog_togglebutton_set_sensitive (GtkToggleButton *togglebutton,
 
   is_sensitive = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (togglebutton));
   if (is_sensitive) {
-    tmp = lookup_widget (dialog, "button_ok");
-    g_object_set_data (G_OBJECT (tmp), "active_type", GINT_TO_POINTER (type));
+    g_object_set_data (G_OBJECT (dialog), "active_type", GINT_TO_POINTER (type));
   }
 
   for (i = 0; widget_names[i]; i++) {
@@ -1096,7 +1002,7 @@ on_sheets_new_dialog_radiobutton_svg_shape_toggled (GtkToggleButton *togglebutto
     NULL
   };
 
-  sheets_dialog_togglebutton_set_sensitive (togglebutton, sheets_new_dialog,
+  sheets_dialog_togglebutton_set_sensitive (togglebutton, GTK_WIDGET (user_data),
                                             widget_names,
                                             SHEETS_NEW_DIALOG_TYPE_SVG_SHAPE);
 }
@@ -1112,7 +1018,7 @@ on_sheets_new_dialog_radiobutton_sheet_toggled (GtkToggleButton *togglebutton,
     NULL
   };
 
-  sheets_dialog_togglebutton_set_sensitive (togglebutton, sheets_new_dialog,
+  sheets_dialog_togglebutton_set_sensitive (togglebutton, GTK_WIDGET (user_data),
                                             widget_names,
                                             SHEETS_NEW_DIALOG_TYPE_SHEET);
 }
@@ -1123,7 +1029,7 @@ on_sheets_new_dialog_radiobutton_line_break_toggled (GtkToggleButton *togglebutt
 {
   static gchar *widget_names[] = { NULL };
 
-  sheets_dialog_togglebutton_set_sensitive (togglebutton, sheets_new_dialog,
+  sheets_dialog_togglebutton_set_sensitive (togglebutton, GTK_WIDGET (user_data),
                                             widget_names,
                                             SHEETS_NEW_DIALOG_TYPE_LINE_BREAK);
 }
@@ -1134,7 +1040,7 @@ on_sheets_remove_dialog_radiobutton_object_toggled (GtkToggleButton *togglebutto
 {
   gchar *widget_names[] = { "pixmap_object", "entry_object", NULL };
 
-  sheets_dialog_togglebutton_set_sensitive (togglebutton, sheets_remove_dialog,
+  sheets_dialog_togglebutton_set_sensitive (togglebutton, GTK_WIDGET (user_data),
                                             widget_names,
                                             SHEETS_REMOVE_DIALOG_TYPE_OBJECT);
 }
@@ -1145,7 +1051,7 @@ on_sheets_remove_dialog_radiobutton_sheet_toggled (GtkToggleButton *togglebutton
 {
   gchar *widget_names[] = { "entry_sheet", NULL };
 
-  sheets_dialog_togglebutton_set_sensitive (togglebutton, sheets_remove_dialog,
+  sheets_dialog_togglebutton_set_sensitive (togglebutton, GTK_WIDGET (user_data),
                                             widget_names,
                                             SHEETS_REMOVE_DIALOG_TYPE_SHEET);
 }
@@ -1179,15 +1085,21 @@ sheets_dialog_set_new_active_button (void)
 }
 
 void
-on_sheets_remove_dialog_button_ok_clicked (GtkButton *button,
-                                           gpointer   user_data)
+on_sheets_remove_dialog_response (GtkWidget *sheets_remove_dialog,
+                                  int        response,
+                                  gpointer   user_data)
 {
   SheetsRemoveDialogType type;
   GtkWidget *wrapbox;
   GList *button_list;
   GtkWidget *active_button;
 
-  type = (SheetsRemoveDialogType) g_object_get_data (G_OBJECT (button),
+  if (response != GTK_RESPONSE_OK) {
+    g_clear_pointer (&sheets_remove_dialog, gtk_widget_destroy);
+    return;
+  }
+
+  type = (SheetsRemoveDialogType) g_object_get_data (G_OBJECT (sheets_remove_dialog),
                                                      "active_type");
 
   active_button = sheets_dialog_get_active_button (&wrapbox, &button_list);
@@ -1200,9 +1112,9 @@ on_sheets_remove_dialog_button_ok_clicked (GtkButton *button,
     GtkWidget *optionmenu;
 
     case SHEETS_REMOVE_DIALOG_TYPE_OBJECT:
-      som = g_object_get_data (G_OBJECT (active_button), "sheet_object_mod");
+      som = dia_sheet_editor_button_get_object (DIA_SHEET_EDITOR_BUTTON (active_button));
       if (som) {
-        sm = g_object_get_data (G_OBJECT (active_button), "sheet_mod");
+        sm = dia_sheet_editor_button_get_sheet (DIA_SHEET_EDITOR_BUTTON (active_button));
         sm->mod = SHEETMOD_MOD_CHANGED;
         som->mod = SHEET_OBJECT_MOD_DELETED;
       }
@@ -1215,7 +1127,7 @@ on_sheets_remove_dialog_button_ok_clicked (GtkButton *button,
       break;
 
     case SHEETS_REMOVE_DIALOG_TYPE_SHEET:
-      sm = g_object_get_data (G_OBJECT (active_button), "sheet_mod");
+      sm = dia_sheet_editor_button_get_sheet (DIA_SHEET_EDITOR_BUTTON (active_button));
       sm->mod = SHEETMOD_MOD_DELETED;
 
       if (sm->sheet.shadowing && sm->sheet.scope == SHEET_SCOPE_USER) {
@@ -1226,7 +1138,13 @@ on_sheets_remove_dialog_button_ok_clicked (GtkButton *button,
       optionmenu = g_object_get_data (G_OBJECT (table_sheets),
                                       "active_optionmenu");
       g_assert (optionmenu);
-      sheets_optionmenu_create (optionmenu, wrapbox, NULL);
+      select_sheet (optionmenu, NULL);
+
+      /* remove from the combo after, so we don't get an invalid GtkTreeIter
+       * in on_sheets_dialog_combo_changed
+       */
+      gtk_tree_model_foreach (GTK_TREE_MODEL(user_data), remove_target_treeiter, sm->sheet.name);
+
       break;
 
     default:
@@ -1236,19 +1154,24 @@ on_sheets_remove_dialog_button_ok_clicked (GtkButton *button,
   g_list_free (button_list);
 
   sheets_dialog_apply_revert_set_sensitive (TRUE);
-  gtk_widget_destroy (sheets_remove_dialog);
-  sheets_remove_dialog = NULL;
+  g_clear_pointer (&sheets_remove_dialog, gtk_widget_destroy);
 }
 
 void
-on_sheets_edit_dialog_button_ok_clicked (GtkButton *button,
-                                         gpointer   user_data)
+on_sheets_edit_dialog_response (GtkWidget *sheets_edit_dialog,
+                                int        response,
+                                gpointer   user_data)
 {
   GtkWidget *active_button;
   GtkWidget *wrapbox;
   GList *button_list;
   GtkWidget *entry;
   gboolean something_changed = FALSE;
+
+  if (response != GTK_RESPONSE_OK) {
+    g_clear_pointer (&sheets_edit_dialog, gtk_widget_destroy);
+    return;
+  }
 
   active_button = sheets_dialog_get_active_button (&wrapbox, &button_list);
   g_assert (active_button);
@@ -1258,14 +1181,14 @@ on_sheets_edit_dialog_button_ok_clicked (GtkButton *button,
     SheetMod *sm;
     SheetObjectMod *som;
 
-    som = g_object_get_data (G_OBJECT (active_button), "sheet_object_mod");
+    som = dia_sheet_editor_button_get_object (DIA_SHEET_EDITOR_BUTTON (active_button));
     som->sheet_object.description =
       gtk_editable_get_chars (GTK_EDITABLE (entry), 0, -1);
-    sheets_dialog_object_set_tooltip (som, active_button);
+    gtk_widget_set_tooltip_text (active_button, som->sheet_object.description);
 
     som->mod = SHEET_OBJECT_MOD_CHANGED;
 
-    sm = g_object_get_data (G_OBJECT (active_button), "sheet_mod");
+    sm = dia_sheet_editor_button_get_sheet (DIA_SHEET_EDITOR_BUTTON (active_button));
     if (sm->mod == SHEETMOD_MOD_NONE) {
       sm->mod = SHEETMOD_MOD_CHANGED;
     }
@@ -1277,7 +1200,7 @@ on_sheets_edit_dialog_button_ok_clicked (GtkButton *button,
   if (GPOINTER_TO_INT (g_object_get_data (G_OBJECT (entry), "changed")) != 0) {
     SheetMod *sm;
 
-    sm = g_object_get_data (G_OBJECT (active_button), "sheet_mod");
+    sm = dia_sheet_editor_button_get_sheet (DIA_SHEET_EDITOR_BUTTON (active_button));
     sm->sheet.description =
       gtk_editable_get_chars (GTK_EDITABLE (entry), 0, -1);
 
@@ -1287,35 +1210,11 @@ on_sheets_edit_dialog_button_ok_clicked (GtkButton *button,
     something_changed = TRUE;
   }
 
-#ifdef CAN_EDIT_SHEET_NAME
-  /* This must be last because we reload the sheets if changed */
-
-  entry = lookup_widget (sheets_edit_dialog, "entry_sheet_name");
-  if ((gboolean) g_object_get_data (G_OBJECT (entry), "changed") == TRUE) {
-    SheetMod *sm;
-    GtkWidget *table_sheets;
-    GtkWidget *optionmenu;
-
-    sm = g_object_get_data (G_OBJECT (active_button), "sheet_mod");
-    sm->sheet.name = gtk_editable_get_chars (GTK_EDITABLE (entry), 0, -1);
-    if (sm->mod == SHEETMOD_MOD_NONE) {
-      sm->mod = SHEETMOD_MOD_CHANGED;
-    }
-
-    table_sheets = lookup_widget (sheets_dialog, "table_sheets");
-    optionmenu = g_object_get_data (G_OBJECT (table_sheets),
-                                    "active_optionmenu");
-    sheets_optionmenu_create (optionmenu, wrapbox, NULL);
-
-    something_changed = TRUE;
-  }
-#endif
   if (something_changed == TRUE) {
     sheets_dialog_apply_revert_set_sensitive (TRUE);
   }
 
-  gtk_widget_destroy (sheets_edit_dialog);
-  sheets_edit_dialog = NULL;
+  g_clear_pointer (&sheets_edit_dialog, gtk_widget_destroy);
 }
 
 void
@@ -1349,6 +1248,7 @@ sheets_dialog_get_target_wrapbox (GtkWidget *wrapbox)
   }
 }
 
+
 static void
 sheets_dialog_copy_object (GtkWidget *active_button,
                            GtkWidget *target_wrapbox)
@@ -1359,7 +1259,7 @@ sheets_dialog_copy_object (GtkWidget *active_button,
   SheetObjectMod *som_new;
 
   sm = g_object_get_data (G_OBJECT (target_wrapbox), "sheet_mod");
-  som = g_object_get_data (G_OBJECT (active_button), "sheet_object_mod");
+  som = dia_sheet_editor_button_get_object (DIA_SHEET_EDITOR_BUTTON (active_button));
 
   if (!som) {
     return;
@@ -1380,7 +1280,6 @@ sheets_dialog_copy_object (GtkWidget *active_button,
     so->has_icon_on_sheet = som->sheet_object.has_icon_on_sheet;
   }
 
-  som_new->type = som->type;
   som_new->mod = SHEET_OBJECT_MOD_NONE;
 
   sm->sheet.objects = g_slist_append (sm->sheet.objects, som_new);
@@ -1446,13 +1345,13 @@ on_sheets_dialog_button_move_clicked (GtkButton       *button,
 
   sheets_dialog_copy_object (active_button, target_wrapbox);
 
-  som = g_object_get_data (G_OBJECT (active_button), "sheet_object_mod");
+  som = dia_sheet_editor_button_get_object (DIA_SHEET_EDITOR_BUTTON (active_button));
   if (som) {
     SheetMod *sm;
 
     som->mod = SHEET_OBJECT_MOD_DELETED;
     /* also mark the source sheet as changed */
-    sm = g_object_get_data (G_OBJECT (active_button), "sheet_mod");
+    sm = dia_sheet_editor_button_get_sheet (DIA_SHEET_EDITOR_BUTTON (active_button));
     sm->mod = SHEETMOD_MOD_CHANGED;
   }
 
@@ -1481,7 +1380,7 @@ on_sheets_dialog_button_move_all_clicked (GtkButton       *button,
   for (iter_list = button_list; iter_list; iter_list = g_list_next (iter_list)) {
     sheets_dialog_copy_object (iter_list->data, target_wrapbox);
 
-    som = g_object_get_data (G_OBJECT (iter_list->data), "sheet_object_mod");
+    som = dia_sheet_editor_button_get_object (DIA_SHEET_EDITOR_BUTTON (iter_list->data));
     if (som) {
       som->mod = SHEET_OBJECT_MOD_DELETED;
     }
@@ -1526,6 +1425,7 @@ copy_file (gchar *src, gchar *dst)
   return TRUE;
 }
 
+
 /* write a sheet to ~/.dia/sheets */
 static gboolean
 write_user_sheet (Sheet *sheet)
@@ -1537,45 +1437,47 @@ write_user_sheet (Sheet *sheet)
   xmlNodePtr object_node;
   xmlNodePtr desc_node;
   xmlNodePtr icon_node;
-  gchar buf[512];
+  char buf[512];
   time_t time_now;
-  const char *username;
-  gchar *dir_user_sheets;
-  gchar *filename;
+  char *username = NULL;
+  char *dir_user_sheets = NULL;
+  char *filename = NULL;
   SheetObject *sheetobject;
   GSList *sheet_objects;
+  GError *error = NULL;
 
   dir_user_sheets = dia_config_filename ("sheets");
   if (!*(sheet->filename)) {
-    gchar *basename;
+    char *basename;
 
     basename = g_strdup (sheet->name);
     basename = g_strdelimit (basename, G_STR_DELIMITERS G_DIR_SEPARATOR_S, '_');
     filename = g_strdup_printf ("%s%s%s.sheet", dir_user_sheets,
                                 G_DIR_SEPARATOR_S, basename);
-    g_free (basename);
+    g_clear_pointer (&basename, g_free);
   } else {
-    gchar *basename;
+    char *basename;
 
     basename = g_path_get_basename (sheet->filename);
     filename = g_strdup_printf ("%s%s%s", dir_user_sheets,
                                 G_DIR_SEPARATOR_S, basename);
-    g_free (basename);
+    g_clear_pointer (&basename, g_free);
   }
   file = g_fopen (filename, "w");
 
   if (file == NULL) {
     message_error (_("Couldn't open: '%s' for writing"),
                    dia_message_filename(filename));
-    g_free(filename);
+    g_clear_pointer (&filename, g_free);
     return FALSE;
   }
   fclose (file);
 
   time_now = time (NULL);
-  username = g_get_user_name ();
-  if (username == NULL)
-    username = _("a user");
+  username = g_filename_to_utf8 (g_get_real_name (), -1, NULL, NULL, &error);
+  if (error || username == NULL) {
+    username = g_strdup (_("a user"));
+  }
 
   doc = xmlNewDoc ((const xmlChar *) "1.0");
   doc->encoding = xmlStrdup ((const xmlChar *) "UTF-8");
@@ -1586,13 +1488,14 @@ write_user_sheet (Sheet *sheet)
 
   /* comments */
   xmlAddChild (root, xmlNewText ((const xmlChar *) "\n"));
-  xmlAddChild (root, xmlNewComment ((const xmlChar *) "Dia-Version: "VERSION));
+  g_snprintf (buf, sizeof (buf), "Dia-Version: %s", dia_version_string ());
+  xmlAddChild (root, xmlNewComment ((const xmlChar *) buf));
   xmlAddChild (root, xmlNewText ((const xmlChar *) "\n"));
   g_snprintf (buf, sizeof (buf), _("File: %s"), filename);
   xmlAddChild (root, xmlNewComment ((xmlChar *) buf));
   xmlAddChild (root, xmlNewText ((const xmlChar *) "\n"));
   g_snprintf (buf, sizeof (buf), _("Date: %s"), ctime (&time_now));
-  buf[strlen (buf)-1] = '\0'; /* remove the trailing new line */
+  buf[strlen (buf) - 1] = '\0'; /* remove the trailing new line */
   xmlAddChild (root, xmlNewComment ((xmlChar *) buf));
   xmlAddChild (root, xmlNewText ((const xmlChar *) "\n"));
   g_snprintf (buf, sizeof (buf), _("For: %s"), username);
@@ -1630,25 +1533,25 @@ write_user_sheet (Sheet *sheet)
        their current location to ~/.dia/shapes/ */
 
     if (som->mod == SHEET_OBJECT_MOD_NEW) {
-      gchar *dia_user_shapes;
-      gchar *dest;
-      gchar *basename;
+      char *dia_user_shapes = NULL;
+      char *dest = NULL;
+      char *basename = NULL;
 
       dia_user_shapes = dia_config_filename ("shapes");
 
       basename = g_path_get_basename (som->svg_filename);
       dest = g_strdup_printf ("%s%s%s", dia_user_shapes, G_DIR_SEPARATOR_S, basename);
-      g_free (basename);
+      g_clear_pointer (&basename, g_free);
       copy_file (som->svg_filename, dest);
-      g_free (dest);
+      g_clear_pointer (&dest, g_free);
 
       /* avoid crashing when there is no icon */
       if (som->sheet_object.pixmap_file) {
         basename = g_path_get_basename (som->sheet_object.pixmap_file);
         dest = g_strdup_printf ("%s%s%s", dia_user_shapes, G_DIR_SEPARATOR_S, basename);
-        g_free (basename);
+        g_clear_pointer (&basename, g_free);
         copy_file (som->sheet_object.pixmap_file, dest);
-        g_free (dest);
+        g_clear_pointer (&dest, g_free);
       }
     }
 
@@ -1658,11 +1561,11 @@ write_user_sheet (Sheet *sheet)
     xmlSetProp (object_node, (const xmlChar *) "name", (xmlChar *) sheetobject->object_type);
 
     if (sheetobject->user_data_type == USER_DATA_IS_INTDATA) {
-      gchar *user_data;
+      char *user_data = NULL;
 
       user_data = g_strdup_printf ("%u", GPOINTER_TO_UINT (sheetobject->user_data));
       xmlSetProp (object_node, (const xmlChar *) "intdata", (xmlChar *) user_data);
-      g_free (user_data);
+      g_clear_pointer (&user_data, g_free);
     }
 
     xmlAddChild (object_node, xmlNewText ((const xmlChar *) "\n"));
@@ -1671,17 +1574,17 @@ write_user_sheet (Sheet *sheet)
     /*    xmlAddChild(object_node, xmlNewText((const xmlChar *)"\n")); */
 
     if (sheetobject->has_icon_on_sheet == TRUE) {
-      gchar *canonical_icon;
-      gchar *canonical_user_sheets;
-      gchar *canonical_sheets;
-      gchar *icon;
+      char *canonical_icon = NULL;
+      char *canonical_user_sheets = NULL;
+      char *canonical_sheets = NULL;
+      char *icon = NULL;
 
       xmlAddChild (object_node, xmlNewText ((const xmlChar *) "\n"));
       icon_node = xmlNewChild (object_node, NULL, (const xmlChar *) "icon", NULL);
-      canonical_icon = dia_get_canonical_path (sheetobject->pixmap_file);
+      canonical_icon = g_canonicalize_filename (sheetobject->pixmap_file, NULL);
       icon = canonical_icon;
-      canonical_user_sheets = dia_get_canonical_path (dir_user_sheets);
-      canonical_sheets = dia_get_canonical_path (dia_get_data_directory ("sheets"));
+      canonical_user_sheets = g_canonicalize_filename (dir_user_sheets, NULL);
+      canonical_sheets = g_canonicalize_filename (dia_get_data_directory ("sheets"), NULL);
       if (g_str_has_prefix (icon, canonical_user_sheets)) {
         icon += strlen (canonical_user_sheets) + 1;
       }
@@ -1690,21 +1593,28 @@ write_user_sheet (Sheet *sheet)
       }
       xmlAddChild (icon_node, xmlNewText ((xmlChar *) icon));
       xmlAddChild (object_node, xmlNewText ((const xmlChar *) "\n"));
-      g_free (canonical_icon);
-      g_free (canonical_user_sheets);
-      g_free (canonical_sheets);
+
+      g_clear_pointer (&canonical_icon, g_free);
+      g_clear_pointer (&canonical_user_sheets, g_free);
+      g_clear_pointer (&canonical_sheets, g_free);
     }
   }
+
   xmlSetDocCompressMode (doc, 0);
   xmlDiaSaveFile (filename, doc);
   xmlFreeDoc (doc);
+
+  g_clear_pointer (&username, g_free);
+  g_clear_error (&error);
+
   return TRUE;
 }
 
+
 static void
-touch_file (gchar *filename)
+touch_file (char *filename)
 {
-  struct stat stat_buf;
+  GStatBuf stat_buf;
   struct utimbuf utim_buf;
 
   g_stat (filename, &stat_buf);
@@ -1713,10 +1623,11 @@ touch_file (gchar *filename)
   g_utime (filename, &utim_buf);
 }
 
-static gint
+
+static int
 sheets_find_sheet (gconstpointer a, gconstpointer b)
 {
-  if (!strcmp (((Sheet *)a)->name, ((Sheet *)b)->name)) {
+  if (!strcmp (((Sheet *) a)->name, ((Sheet *) b)->name)) {
     return 0;
   } else {
     return 1;
@@ -1823,20 +1734,43 @@ on_sheets_dialog_button_apply_clicked (GtkButton       *button,
         g_assert_not_reached ();
     }
   }
-  {
-    optionmenu_activate_first_pass = TRUE;
-
-    sheets_dialog_apply_revert_set_sensitive (FALSE);
-    sheets_dialog_create ();
-  }
-}
-
-void
-on_sheets_dialog_button_revert_clicked (GtkButton       *button,
-                                        gpointer         user_data)
-{
-  optionmenu_activate_first_pass = TRUE;
 
   sheets_dialog_apply_revert_set_sensitive (FALSE);
-  sheets_dialog_create ();
+}
+
+
+void
+on_sheets_dialog_button_revert_clicked (GtkButton *button,
+                                        gpointer   user_data)
+{
+  GSList *sheets_list;
+  GtkWidget *widget;
+
+  optionmenu_activate_first_pass = TRUE;
+
+  for (sheets_list = sheets_mods_list; sheets_list != NULL; sheets_list = sheets_list->next) {
+    SheetMod *sheet_mod;
+    GSList *sheet_objects_list;
+
+    sheet_mod = sheets_list->data;
+    sheet_mod->mod = SHEETMOD_MOD_NONE;
+    sheet_mod->sheet = *sheet_mod->original;
+
+    /* no need to free, the references aren't ours anyways */
+    sheet_mod->sheet.objects = NULL;
+
+    for (sheet_objects_list = sheet_mod->original->objects;
+         sheet_objects_list;
+         sheet_objects_list = g_slist_next (sheet_objects_list)) {
+      sheets_append_sheet_object_mod (sheet_objects_list->data, sheet_mod);
+    }
+  }
+
+  widget = lookup_widget (sheets_dialog, "combo_left");
+  on_sheets_dialog_combo_changed (GTK_COMBO_BOX (widget), NULL);
+
+  widget = lookup_widget (sheets_dialog, "combo_right");
+  on_sheets_dialog_combo_changed (GTK_COMBO_BOX (widget), NULL);
+
+  sheets_dialog_apply_revert_set_sensitive (FALSE);
 }

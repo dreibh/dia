@@ -44,7 +44,9 @@ for c in theClasses :
 
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <math.h>
 #include <string.h>
@@ -94,22 +96,26 @@ static PropOffset umloperation_offsets[] = {
 
 PropDescDArrayExtra umloperation_extra = {
   { umloperation_props, umloperation_offsets, "umloperation" },
-  (NewRecordFunc)uml_operation_new,
-  (FreeRecordFunc)uml_operation_destroy
+  (NewRecordFunc) uml_operation_new,
+  (FreeRecordFunc) uml_operation_unref
 };
 
+G_DEFINE_BOXED_TYPE (UMLOperation, uml_operation, uml_operation_ref, uml_operation_unref)
+
+
 UMLOperation *
-uml_operation_new(void)
+uml_operation_new (void)
 {
   UMLOperation *op;
   static gint next_id = 1;
 
-  op = g_new0(UMLOperation, 1);
+  op = g_rc_box_new0 (UMLOperation);
   op->internal_id = next_id++;
-  op->name = g_strdup("");
-  op->comment = g_strdup("");
-  op->visibility = UML_PUBLIC;
-  op->inheritance_type = UML_LEAF;
+  op->name = g_strdup ("");
+  op->type = g_strdup ("");
+  op->comment = g_strdup ("");
+  op->visibility = DIA_UML_PUBLIC;
+  op->inheritance_type = DIA_UML_LEAF;
 
 #if 0 /* setup elsewhere */
   op->left_connection = g_new0(ConnectionPoint, 1);
@@ -118,8 +124,9 @@ uml_operation_new(void)
   return op;
 }
 
+
 void
-uml_operation_copy_into(UMLOperation *srcop, UMLOperation *destop)
+uml_operation_copy_into (UMLOperation *srcop, UMLOperation *destop)
 {
   UMLParameter *param;
   UMLParameter *newparam;
@@ -127,79 +134,48 @@ uml_operation_copy_into(UMLOperation *srcop, UMLOperation *destop)
 
   destop->internal_id = srcop->internal_id;
 
-  if (destop->name != NULL) {
-    g_free(destop->name);
-  }
-  destop->name = g_strdup(srcop->name);
+  g_clear_pointer (&destop->name, g_free);
+  destop->name = g_strdup (srcop->name);
 
-  if (destop->type != NULL) {
-    g_free(destop->type);
-  }
-  if (srcop->type != NULL) {
-    destop->type = g_strdup(srcop->type);
-  } else {
-    destop->type = NULL;
-  }
+  g_clear_pointer (&destop->type, g_free);
+  destop->type = g_strdup (srcop->type);
 
-  if (destop->stereotype != NULL) {
-    g_free(destop->stereotype);
-  }
-  if(srcop->stereotype != NULL) {
-    destop->stereotype = g_strdup(srcop->stereotype);
-  } else {
-    destop->stereotype = NULL;
-  }
+  g_clear_pointer (&destop->stereotype, g_free);
+  destop->stereotype = g_strdup (srcop->stereotype);
 
-  if (destop->comment != NULL) {
-    g_free(destop->comment);
-  }
-  if (srcop->comment != NULL) {
-    destop->comment = g_strdup(srcop->comment);
-  } else {
-    destop->comment = NULL;
-  }
+  g_clear_pointer (&destop->comment, g_free);
+  destop->comment = g_strdup (srcop->comment);
 
   destop->visibility = srcop->visibility;
   destop->class_scope = srcop->class_scope;
   destop->inheritance_type = srcop->inheritance_type;
   destop->query = srcop->query;
 
-  list = destop->parameters;
-  while (list != NULL) {
-    param = (UMLParameter *)list->data;
-    uml_parameter_destroy(param);
-    list = g_list_next(list);
-  }
+  g_list_free_full (destop->parameters, (GDestroyNotify) uml_parameter_unref);
   destop->parameters = NULL;
+
   list = srcop->parameters;
   while (list != NULL) {
-    param = (UMLParameter *)list->data;
+    param = (UMLParameter *) list->data;
 
-    newparam = g_new0(UMLParameter, 1);
-    newparam->name = g_strdup(param->name);
-    newparam->type = g_strdup(param->type);
-    newparam->comment = g_strdup(param->comment);
+    // Break the link to the original
+    newparam = uml_parameter_copy (param);
 
-    if (param->value != NULL)
-      newparam->value = g_strdup(param->value);
-    else
-      newparam->value = NULL;
-    newparam->kind = param->kind;
+    destop->parameters = g_list_append (destop->parameters, newparam);
 
-    destop->parameters = g_list_append(destop->parameters, newparam);
-
-    list = g_list_next(list);
+    list = g_list_next (list);
   }
 }
 
+
 UMLOperation *
-uml_operation_copy(UMLOperation *op)
+uml_operation_copy (UMLOperation *op)
 {
   UMLOperation *newop;
 
-  newop = g_new0(UMLOperation, 1);
+  newop = uml_operation_new ();
 
-  uml_operation_copy_into(op, newop);
+  uml_operation_copy_into (op, newop);
 #if 0 /* setup elsewhere */
   newop->left_connection = g_new0(ConnectionPoint,1);
   *newop->left_connection = *op->left_connection;
@@ -212,37 +188,44 @@ uml_operation_copy(UMLOperation *op)
   return newop;
 }
 
-void
-uml_operation_destroy(UMLOperation *op)
+
+UMLOperation *
+uml_operation_ref (UMLOperation *self)
 {
-  GList *list;
-  UMLParameter *param;
+  g_return_val_if_fail (self != NULL, NULL);
 
-  g_free(op->name);
-  if (op->type != NULL)
-    g_free(op->type);
-  if (op->stereotype != NULL)
-    g_free(op->stereotype);
+  return g_rc_box_acquire (self);
+}
 
-  g_free(op->comment);
 
-  list = op->parameters;
-  while (list != NULL) {
-    param = (UMLParameter *)list->data;
-    uml_parameter_destroy(param);
-    list = g_list_next(list);
-  }
+static void
+operation_free (UMLOperation *op)
+{
+  g_clear_pointer (&op->name, g_free);
+  g_clear_pointer (&op->type, g_free);
+  g_clear_pointer (&op->stereotype, g_free);
+  g_clear_pointer (&op->comment, g_free);
+
+  g_list_free_full (op->parameters, (GDestroyNotify) uml_parameter_unref);
+
   if (op->wrappos) {
-    g_list_free(op->wrappos);
+    g_list_free (op->wrappos);
   }
 
 #if 0 /* freed elsewhere */
   /* These are merely temporary reminders, don't need to unconnect */
-  g_free(op->left_connection);
-  g_free(op->right_connection);
+  g_clear_pointer (&op->left_connection, g_free);
+  g_clear_pointer (&op->right_connection, g_free);
 #endif
-  g_free(op);
 }
+
+
+void
+uml_operation_unref (UMLOperation *self)
+{
+  g_rc_box_release_full (self, (GDestroyNotify) operation_free);
+}
+
 
 void
 uml_operation_write(AttributeNode attr_node, UMLOperation *op, DiaContext *ctx)
@@ -267,7 +250,7 @@ uml_operation_write(AttributeNode attr_node, UMLOperation *op, DiaContext *ctx)
 		  op->comment, ctx);
   /* Backward compatibility */
   data_add_boolean(composite_add_attribute(composite, "abstract"),
-		   op->inheritance_type == UML_ABSTRACT, ctx);
+		   op->inheritance_type == DIA_UML_ABSTRACT, ctx);
   data_add_enum(composite_add_attribute(composite, "inheritance_type"),
 		op->inheritance_type, ctx);
   data_add_boolean(composite_add_attribute(composite, "query"),
@@ -318,19 +301,19 @@ uml_get_operation_string (UMLOperation *operation)
     param = (UMLParameter  *) list->data;
     list = g_list_next (list);
 
-    switch(param->kind)
-      {
-      case UML_UNDEF_KIND:
-	break;
-      case UML_IN:
-	len += 3;
-	break;
-      case UML_OUT:
-	len += 4;
-	break;
-      case UML_INOUT:
-	len += 6;
-	break;
+    switch (param->kind) {
+      case DIA_UML_IN:
+        len += 3;
+        break;
+      case DIA_UML_OUT:
+        len += 4;
+        break;
+      case DIA_UML_INOUT:
+        len += 6;
+        break;
+      case DIA_UML_UNDEF_KIND:
+      default:
+        break;
       }
     len += (param->name ? strlen (param->name) : 0);
     if (param->type != NULL) {
@@ -357,7 +340,7 @@ uml_get_operation_string (UMLOperation *operation)
   }
 
   /* generate string: */
-  str = g_malloc (sizeof (char) * (len + 1));
+  str = g_new0 (char, len + 1);
 
   str[0] = visible_char[(int) operation->visibility];
   str[1] = 0;
@@ -377,20 +360,20 @@ uml_get_operation_string (UMLOperation *operation)
     param = (UMLParameter  *) list->data;
     list = g_list_next (list);
 
-    switch(param->kind)
-      {
-      case UML_UNDEF_KIND:
-	break;
-      case UML_IN:
-	strcat (str, "in ");
-	break;
-      case UML_OUT:
-	strcat (str, "out ");
-	break;
-      case UML_INOUT:
-	strcat (str, "inout ");
-	break;
-      }
+    switch (param->kind) {
+      case DIA_UML_IN:
+        strcat (str, "in ");
+        break;
+      case DIA_UML_OUT:
+        strcat (str, "out ");
+        break;
+      case DIA_UML_INOUT:
+        strcat (str, "inout ");
+        break;
+      case DIA_UML_UNDEF_KIND:
+      default:
+        break;
+    }
     strcat (str, param->name ? param->name : "");
 
     if (param->type != NULL) {

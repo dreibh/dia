@@ -20,16 +20,16 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
 
 #include <glib.h>
 
-#include "intl.h"
 #include "object.h"
 #include "connection.h"
 #include "diarenderer.h"
@@ -60,8 +60,6 @@ struct _Link {
   Point pm;
   BezPoint line[3];
   Handle pm_handle;
-
-  int init;
 };
 
 #define HANDLE_MOVE_MID_POINT (HANDLE_CUSTOM1)
@@ -81,10 +79,10 @@ struct _Link {
 
 static DiaFont *link_font = NULL;
 
-static ObjectChange* link_move_handle(Link *link, Handle *handle,
+static DiaObjectChange* link_move_handle(Link *link, Handle *handle,
 				   Point *to, ConnectionPoint *cp,
 				   HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* link_move(Link *link, Point *to);
+static DiaObjectChange* link_move(Link *link, Point *to);
 static void link_select(Link *link, Point *clicked_point,
 			      DiaRenderer *interactive_renderer);
 static void link_draw(Link *link, DiaRenderer *renderer);
@@ -121,7 +119,12 @@ DiaObjectType istar_link_type =
   "Istar - link",    /* name */
   0,              /* version */
   istar_link_xpm,  /* pixmap */
-  &link_type_ops      /* ops */
+  &link_type_ops,     /* ops */
+  NULL, /* pixmap_file */
+  NULL, /* default_user_data */
+  NULL, /* prop_descs */
+  NULL, /* prop_offsets */
+  DIA_OBJECT_HAS_VARIANTS /* flags */
 };
 
 
@@ -187,8 +190,6 @@ link_get_props(Link * link, GPtrArray *props)
 static void
 link_set_props(Link *link, GPtrArray *props)
 {
-  if (link->init==-1) { link->init++; return; }
-
   object_set_props_from_offsets(&link->connection.object,
                                 link_offsets, props);
   link_update_data(link);
@@ -208,17 +209,21 @@ link_select(Link *link, Point *clicked_point,
   connection_update_handles(&link->connection);
 }
 
-static ObjectChange*
-link_move_handle(Link *link, Handle *handle,
-		 Point *to, ConnectionPoint *cp,
-		 HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+link_move_handle (Link             *link,
+                  Handle           *handle,
+                  Point            *to,
+                  ConnectionPoint  *cp,
+                  HandleMoveReason  reason,
+                  ModifierKeys      modifiers)
 {
   Point p1, p2;
   Point *endpoints;
 
-  assert(link!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+  g_return_val_if_fail (link != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
   if (handle->id == HANDLE_MOVE_MID_POINT) {
     link->pm = *to;
@@ -237,7 +242,7 @@ link_move_handle(Link *link, Handle *handle,
   return NULL;
 }
 
-static ObjectChange*
+static DiaObjectChange*
 link_move(Link *link, Point *to)
 {
   Point start_to_end;
@@ -451,18 +456,17 @@ compute_line(Point* p1, Point* p2, Point *pm, BezPoint* line) {
 
 /* drawing here -- TBD inverse flow ??  */
 static void
-link_draw(Link *link, DiaRenderer *renderer)
+link_draw (Link *link, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point *endpoints, p1, p2, pa;
   Arrow arrow;
-  gchar *annot;
+  char *annot;
   double w;
   BezPoint bpl[4];
 
   /* some asserts */
-  assert(link != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (link != NULL);
+  g_return_if_fail (renderer != NULL);
 
   /* some point computations */
   endpoints = &link->connection.endpoints[0];
@@ -500,24 +504,37 @@ link_draw(Link *link, DiaRenderer *renderer)
     case UNSPECIFIED: /* use above defaults */
       annot = g_strdup("");
       break;
+    default:
+      g_return_if_reached ();
   }
 
   /** drawing line **/
-  renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
-  renderer_ops->set_linewidth(renderer, w);
-  renderer_ops->draw_bezier_with_arrows(renderer, link->line, 3, w, &LINK_FG_COLOR, NULL, &arrow);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
+  dia_renderer_set_linewidth (renderer, w);
+  dia_renderer_draw_bezier_with_arrows (renderer,
+                                        link->line,
+                                        3,
+                                        w,
+                                        &LINK_FG_COLOR,
+                                        NULL,
+                                        &arrow);
 
   /** drawing decoration **/
-  renderer_ops->set_font(renderer, link_font, LINK_FONTHEIGHT);
-  if ((annot!=NULL)&& strlen(annot) != 0)
-    renderer_ops->draw_string(renderer, annot, &pa, ALIGN_CENTER, &color_black);
-  if (annot!=NULL) g_free(annot);
+  dia_renderer_set_font (renderer, link_font, LINK_FONTHEIGHT);
+  if ((annot != NULL) && strlen (annot) != 0) {
+    dia_renderer_draw_string (renderer,
+                              annot,
+                              &pa,
+                              DIA_ALIGN_CENTRE,
+                              &color_black);
+  }
+  g_clear_pointer (&annot, g_free);
 
   /** special stuff for dependency **/
-  if (link->type==DEPENDENCY) {
-    compute_dependency(link->line,bpl);
-    renderer_ops->draw_bezier(renderer, bpl, 4, &LINK_FG_COLOR);
+  if (link->type == DEPENDENCY) {
+    compute_dependency (link->line,bpl);
+    dia_renderer_draw_bezier (renderer, bpl, 4, &LINK_FG_COLOR);
   }
 }
 
@@ -537,7 +554,7 @@ link_create(Point *startpoint,
     link_font = dia_font_new_from_style(DIA_FONT_SANS, LINK_FONTHEIGHT);
   }
 
-  link = g_malloc0(sizeof(Link));
+  link = g_new0 (Link, 1);
 
   conn = &link->connection;
   conn->endpoints[0] = *startpoint;
@@ -583,9 +600,6 @@ link_create(Point *startpoint,
   *handle1 = obj->handles[0];
   *handle2 = obj->handles[1];
 
-  /* bug workaround */
-  if (GPOINTER_TO_INT(user_data)!=0) link->init=-1; else link->init=0;
-
   return &link->connection.object;
 }
 
@@ -600,7 +614,7 @@ link_update_data(Link *link)
 {
   Connection *conn = &link->connection;
   DiaObject *obj = &conn->object;
-  Rectangle rect;
+  DiaRectangle rect;
   Point p1,p2,p3,p4,pa;
 
 /* Too complex to easily decide */

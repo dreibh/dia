@@ -26,7 +26,10 @@
  * It should be possible to do all those fancy text effects like outline, rotate, ...
  * by converting text to pathes before rendering.
  */
-#include <config.h>
+
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include "object.h"
 #include "diarenderer.h"
@@ -132,15 +135,15 @@ static DiaObjectType outline_type =
   outline_offsets
 };
 
-/* make accesible from the outside for type regristation */
+/* make accessible from the outside for type registration */
 DiaObjectType *_outline_type = (DiaObjectType *) &outline_type;
 
 /* Class definition */
-static ObjectChange* outline_move_handle (Outline *outline,
+static DiaObjectChange* outline_move_handle (Outline *outline,
                                           Handle *handle,
 					  Point *to, ConnectionPoint *cp,
 					  HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* outline_move (Outline *outline, Point *to);
+static DiaObjectChange* outline_move (Outline *outline, Point *to);
 static void outline_select(Outline *outline, Point *clicked_point,
 			   DiaRenderer *interactive_renderer);
 static void outline_draw(Outline *outline, DiaRenderer *renderer);
@@ -332,7 +335,7 @@ outline_update_data (Outline *outline)
  * \memberof Outline
  */
 static void
-outline_draw(Outline *outline, DiaRenderer *renderer)
+outline_draw (Outline *outline, DiaRenderer *renderer)
 {
   DiaObject *obj = &outline->object;
   int i, n = 0, total;
@@ -342,10 +345,11 @@ outline_draw(Outline *outline, DiaRenderer *renderer)
 
   if (!outline->path)
     return;
-  DIA_RENDERER_GET_CLASS (renderer)->set_linewidth (renderer, outline->line_width);
-  DIA_RENDERER_GET_CLASS (renderer)->set_linestyle (renderer, LINESTYLE_SOLID, 0.0);
-  DIA_RENDERER_GET_CLASS (renderer)->set_linejoin(renderer, LINEJOIN_MITER);
-  DIA_RENDERER_GET_CLASS (renderer)->set_linecaps(renderer, LINECAPS_ROUND);
+
+  dia_renderer_set_linewidth (renderer, outline->line_width);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
+  dia_renderer_set_linejoin (renderer, DIA_LINE_JOIN_MITER);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_ROUND);
 
   /* the cairo text path is position independent, Dia's bezier are not */
   x = obj->position.x;
@@ -362,7 +366,7 @@ outline_draw(Outline *outline, DiaRenderer *renderer)
   if (total < 2)
     return;
 
-  pts = g_alloca (sizeof(BezPoint)*(total));
+  pts = g_newa (BezPoint, total);
   for (i=0; i < outline->path->num_data; i += outline->path->data[i].header.length) {
     cairo_path_data_t *data = &outline->path->data[i];
     if (CAIRO_PATH_MOVE_TO == data->header.type) {
@@ -395,16 +399,19 @@ outline_draw(Outline *outline, DiaRenderer *renderer)
   if (pts[n-1].type == BEZ_MOVE_TO)
     --total; /* remove a potential last move which would otherwise be rendered as a dot */
 
-  if (DIA_RENDERER_GET_CLASS (renderer)->is_capable_to(renderer, RENDER_HOLES)) {
-    DIA_RENDERER_GET_CLASS (renderer)->draw_beziergon(renderer, pts, total,
-			    outline->show_background ? &outline->fill_color : NULL,
-			    &outline->line_color);
+  if (dia_renderer_is_capable_of (renderer, RENDER_HOLES)) {
+    dia_renderer_draw_beziergon (renderer,
+                                 pts,
+                                 total,
+                                 outline->show_background ? &outline->fill_color : NULL,
+                                 &outline->line_color);
     return; /* that was easy ;) */
   }
   /* otherwise split the path data into piece which can be handled by Dia's standard bezier rendering */
-  if (outline->show_background)
-    bezier_render_fill (renderer, pts, total, &outline->fill_color);
-  bezier_render_stroke (renderer, pts, total, &outline->line_color);
+  if (outline->show_background) {
+    dia_renderer_bezier_fill (renderer, pts, total, &outline->fill_color);
+  }
+  dia_renderer_bezier_stroke (renderer, pts, total, &outline->line_color);
 }
 /*!
  * \brief Optionally deliver an object specific menu
@@ -429,24 +436,33 @@ outline_set_props (Outline *outline, GPtrArray *props)
   object_set_props_from_offsets(&outline->object, outline_offsets, props);
   outline_update_data (outline);
 }
-/*!
- * \brief Calculate the distance of the whole object to the given point
- * \memberof Outline
+
+
+/**
+ * outline_distance_from:
+ *
+ * Calculate the distance of the whole object to the given point
  */
 static real
 outline_distance_from (Outline *outline, Point *point)
 {
-  return distance_polygon_point (&outline->ink_rect[0], 4, outline->line_width, point);
+  return distance_polygon_point (&outline->ink_rect[0], 4,
+                                 outline->line_width, point);
 }
-/*!
- * \brief Move one of the objects handles
- * \memberof Outline
+
+
+/**
+ * outline_move_handle:
+ *
+ * Move one of the objects handles
  */
-static ObjectChange*
-outline_move_handle (Outline *outline,
-                     Handle *handle,
-		     Point *to, ConnectionPoint *cp,
-		     HandleMoveReason reason, ModifierKeys modifiers)
+static DiaObjectChange*
+outline_move_handle (Outline          *outline,
+                     Handle           *handle,
+                     Point            *to,
+                     ConnectionPoint  *cp,
+                     HandleMoveReason  reason,
+                     ModifierKeys      modifiers)
 {
   DiaObject *obj = &outline->object;
   Point start = obj->position;
@@ -455,17 +471,36 @@ outline_move_handle (Outline *outline,
   Point norm = end;
   point_sub (&norm, &start);
   point_normalize (&norm);
+
   /* we use this to modify angle and scale */
   switch (handle->id) {
-  case HANDLE_RESIZE_NW :
-    start = *to;
-    break;
-  case HANDLE_RESIZE_SE :
-    end = *to;
-    break;
-  default :
-    g_warning ("Outline unknown handle");
+    case HANDLE_RESIZE_NW :
+      start = *to;
+      break;
+    case HANDLE_RESIZE_SE :
+      end = *to;
+      break;
+    case HANDLE_RESIZE_N:
+    case HANDLE_RESIZE_NE:
+    case HANDLE_RESIZE_W:
+    case HANDLE_RESIZE_E:
+    case HANDLE_RESIZE_SW:
+    case HANDLE_RESIZE_S:
+    case HANDLE_MOVE_STARTPOINT:
+    case HANDLE_MOVE_ENDPOINT:
+    case HANDLE_CUSTOM1:
+    case HANDLE_CUSTOM2:
+    case HANDLE_CUSTOM3:
+    case HANDLE_CUSTOM4:
+    case HANDLE_CUSTOM5:
+    case HANDLE_CUSTOM6:
+    case HANDLE_CUSTOM7:
+    case HANDLE_CUSTOM8:
+    case HANDLE_CUSTOM9:
+    default:
+      g_warning ("Outline unknown handle");
   }
+
   dist = distance_point_point (&start, &end);
   /* disallow everything below a certain level, otherwise the font-size could become invalid */
   if (dist > 0.1) {
@@ -475,8 +510,11 @@ outline_move_handle (Outline *outline,
 
     outline_update_data (outline);
   }
+
   return NULL;
 }
+
+
 /*!
  * \brief Move the whole object to the given position
  *
@@ -485,7 +523,7 @@ outline_move_handle (Outline *outline,
  *
  * \memberof Outline
  */
-static ObjectChange*
+static DiaObjectChange*
 outline_move (Outline *outline, Point *to)
 {
   DiaObject *obj = &outline->object;
@@ -529,7 +567,7 @@ outline_destroy (Outline *outline)
 {
   if (outline->path)
     cairo_path_destroy (outline->path);
-  g_free (outline->name);
+  g_clear_pointer (&outline->name, g_free);
   object_destroy(&outline->object);
   /* but not the object itself? */
 }

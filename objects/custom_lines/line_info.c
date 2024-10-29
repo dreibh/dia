@@ -22,6 +22,10 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
+
 #include <stdlib.h>
 #include <libxml/tree.h>
 #include <libxml/parser.h>
@@ -58,11 +62,11 @@ custom_get_relative_filename(const gchar *current, const gchar *relative)
     return g_strdup(relative);
   dirname = g_path_get_dirname(current);
   tmp = g_build_filename(dirname, relative, NULL);
-  g_free(dirname);
+  g_clear_pointer (&dirname, g_free);
   return tmp;
 }
 
-static guint 
+static guint
 line_info_get_line_type( const gchar* filename, xmlNodePtr node )
 {
   guint res = CUSTOM_LINETYPE_ZIGZAGLINE;
@@ -76,52 +80,55 @@ line_info_get_line_type( const gchar* filename, xmlNodePtr node )
   	res = CUSTOM_LINETYPE_BEZIERLINE;
   else if( !strcmp((char*)tmp, "All") )
   	res = CUSTOM_LINETYPE_ALL;
-  else
-  	g_warning("%s: `%s' is not a valid line type",filename,tmp);
-	
+  else {
+    g_warning ("%s: “%s” is not a valid line type", filename, tmp);
+  }
+
   xmlFree(tmp);
-  
+
   return( res );
 }
 
 
-static guint 
-line_info_get_line_style( const gchar* filename, xmlNodePtr node )
+static guint
+line_info_get_line_style (const char* filename, xmlNodePtr node)
 {
-  guint res = LINESTYLE_SOLID;
+  guint res = DIA_LINE_STYLE_SOLID;
   xmlChar* tmp = xmlNodeGetContent(node);
 
-  if( !strcmp((char*)tmp, "Solid") )
-  	res = LINESTYLE_SOLID;
-  else if( !strcmp((char*)tmp, "Dashed") )
-  	res = LINESTYLE_DASHED;
-  else if( !strcmp((char*)tmp, "Dash-Dot") )
-  	res = LINESTYLE_DASH_DOT;
-  else if( !strcmp((char*)tmp, "Dash-Dot-Dot") )
-  	res = LINESTYLE_DASH_DOT_DOT;
-  else if( !strcmp((char*)tmp, "Dotted") )
-  	res = LINESTYLE_DOTTED;
-  else
-  	g_warning("%s: `%s' is not a valid line style", filename, tmp);
-	
-  xmlFree(tmp);
-  
-  return( res );
+  if (!g_strcmp0((char*) tmp, "Solid")) {
+    res = DIA_LINE_STYLE_SOLID;
+  } else if (!g_strcmp0((char*) tmp, "Dashed")) {
+    res = DIA_LINE_STYLE_DASHED;
+  } else if (!g_strcmp0((char*) tmp, "Dash-Dot")) {
+    res = DIA_LINE_STYLE_DASH_DOT;
+  } else if (!g_strcmp0((char*) tmp, "Dash-Dot-Dot")) {
+    res = DIA_LINE_STYLE_DASH_DOT_DOT;
+  } else if (!g_strcmp0((char*) tmp, "Dotted")) {
+    res = DIA_LINE_STYLE_DOTTED;
+  } else {
+    g_warning ("%s: “%s” is not a valid line style", filename, tmp);
+  }
+
+  dia_clear_xml_string (&tmp);
+
+  return res ;
 }
 
-static gfloat 
+
+static gfloat
 line_info_get_as_float( const gchar* filename, xmlNodePtr node )
 {
   gfloat res = 1.0f;
   xmlChar* tmp = xmlNodeGetContent(node);
 
   res = g_ascii_strtod( (char*)tmp, NULL );
-    
+
   xmlFree(tmp);
-  return( res );  
+  return( res );
 }
 
-static guint 
+static guint
 line_info_get_arrow_type( const gchar* filename, xmlNodePtr node )
 {
   guint res = ARROW_NONE;
@@ -195,15 +202,16 @@ line_info_get_arrow_type( const gchar* filename, xmlNodePtr node )
   	res = ARROW_BACKSLASH;
   else if( !strcmp((char*)tmp, "Three-Dots") )
   	res = ARROW_THREE_DOTS;
-  else
-  	g_warning("%s: `%s' is not a valid arrow style", filename, tmp);
-	
+  else {
+    g_warning ("%s: “%s” is not a valid arrow style", filename, tmp);
+  }
+
   xmlFree(tmp);
-  
+
   return( res );
 }
 
-static void 
+static void
 line_info_get_arrow( const gchar* filename, xmlNodePtr node, Arrow* arrow )
 {
   xmlNodePtr child_node = NULL;
@@ -222,7 +230,7 @@ line_info_get_arrow( const gchar* filename, xmlNodePtr node, Arrow* arrow )
   }
 }
 
-static void 
+static void
 line_info_get_arrows( const gchar* filename, xmlNodePtr node, LineInfo* info )
 {
   xmlNodePtr child_node = NULL;
@@ -240,7 +248,7 @@ line_info_get_arrows( const gchar* filename, xmlNodePtr node, LineInfo* info )
 }
 
 
-static void 
+static void
 line_info_get_line_color( const gchar* filename, xmlNodePtr node, LineInfo* info )
 {
   xmlNodePtr child_node = NULL;
@@ -265,7 +273,7 @@ LineInfo* line_info_load_and_apply_from_xmlfile(const gchar *filename, LineInfo*
 LineInfo* line_info_load(const gchar *filename)
 {
   LineInfo* res = g_new0(LineInfo, 1);
-  
+
   res->line_info_filename = g_strdup(filename);
 
   res->name = "CustomLines - Default";
@@ -275,7 +283,7 @@ LineInfo* line_info_load(const gchar *filename)
   res->line_color.green = 0.0f;
   res->line_color.blue  = 0.0f;
   res->line_color.alpha = 1.0f;
-  res->line_style = LINESTYLE_SOLID;
+  res->line_style = DIA_LINE_STYLE_SOLID;
   res->dashlength = 1.0f;
   res->line_width = 0.1f;
   res->corner_radius = 0.0f;
@@ -283,15 +291,15 @@ LineInfo* line_info_load(const gchar *filename)
   res->end_arrow.type = ARROW_NONE;
 
   /* warning: possible memory leak */
-  res = line_info_load_and_apply_from_xmlfile( filename, res );
-  
-  return( res );
+  res = line_info_load_and_apply_from_xmlfile (filename, res);
+
+  return res;
 }
 
 LineInfo* line_info_clone(LineInfo* info)
 {
   LineInfo* res = g_new0(LineInfo, 1);
-  
+
   res->line_info_filename = g_strdup(info->line_info_filename);
 
   res->name 		  = info->name;
@@ -308,21 +316,21 @@ LineInfo* line_info_clone(LineInfo* info)
   res->start_arrow.type   = info->start_arrow.type;
   res->start_arrow.length = (info->start_arrow.length > 0) ?
                                   info->start_arrow.length : 1.0;
-  res->start_arrow.width  = (info->start_arrow.width > 0) ? 
+  res->start_arrow.width  = (info->start_arrow.width > 0) ?
                                   info->start_arrow.width : 1.0;
   res->end_arrow.type     = info->end_arrow.type;
-  res->end_arrow.length   = (info->end_arrow.length > 0) ? 
+  res->end_arrow.length   = (info->end_arrow.length > 0) ?
                                   info->end_arrow.length : 1.0;
-  res->end_arrow.width 	  = (info->end_arrow.width > 0) ? 
+  res->end_arrow.width 	  = (info->end_arrow.width > 0) ?
                                   info->end_arrow.width : 1.0;
 
   return( res );
 }
 
-LineInfo* 
+LineInfo*
 line_info_load_and_apply_from_xmlfile(const gchar *filename, LineInfo* info)
 {
-  xmlErrorPtr error_xml = NULL;
+  const xmlError *error_xml = NULL;
   xmlDocPtr doc = xmlDoParseFile(filename, &error_xml);
   xmlNodePtr node, root;
   xmlChar *tmp;
@@ -345,13 +353,13 @@ line_info_load_and_apply_from_xmlfile(const gchar *filename, LineInfo* info)
       continue;
     else if (!strcmp((char*)node->name, "name")) {
       tmp = xmlNodeGetContent(node);
-/*      g_free(info->name);*/
+/*      g_clear_pointer (&info->name, g_free);*/
       info->name = g_strdup((char*)tmp);
 /*	  fprintf( stderr, "New shape of type: `%s'\n", info->name ); */
       xmlFree(tmp);
     } else if ( !strcmp((char*)node->name, "icon")) {
       tmp = xmlNodeGetContent(node);
-      g_free(info->icon_filename);
+      g_clear_pointer (&info->icon_filename, g_free);
       info->icon_filename = custom_get_relative_filename(filename, (char*)tmp);
       xmlFree(tmp);
     } else if ( !strcmp((char*)node->name, "type")) {

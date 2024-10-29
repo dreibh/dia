@@ -19,8 +19,13 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
+
 #include <glib.h>
-#include <dynamic_obj.h>
+
+#include "dynamic_obj.h"
 
 typedef struct {
     DiaObject* obj;
@@ -40,21 +45,25 @@ void dynobj_list_add_object(DiaObject* obj, guint timeout) {
 static gint dor_found(gconstpointer data, gconstpointer user_data) {
     const DynobjRec* dor = (const DynobjRec*)data;
     const DiaObject* obj = (const DiaObject*)user_data;
-    
+
     if ((!dor) || (!obj)) return 1;
     if (dor->obj != obj) return 1;
     return 0;
 }
-                          
-void dynobj_list_remove_object(DiaObject* obj) {
-    GList* item = g_list_find_custom(dyn_obj_list,obj,dor_found);
 
-    if (item) {
-        DynobjRec* dor = item->data;
-        dyn_obj_list = g_list_remove(dyn_obj_list,dor);
-        g_free(dor);
-    }
+
+void
+dynobj_list_remove_object (DiaObject *obj)
+{
+  GList* item = g_list_find_custom (dyn_obj_list, obj, dor_found);
+
+  if (item) {
+    DynobjRec* dor = item->data;
+    dyn_obj_list = g_list_remove(dyn_obj_list,dor);
+    g_clear_pointer (&dor, g_free);
+  }
 }
+
 
 typedef struct {
     ObjectDynobjFunc odf;
@@ -80,7 +89,7 @@ static void accum_timeout(gpointer data, gpointer user_data) {
     DynobjRec* dor = (DynobjRec*)data;
 
     if (!dor) return;
-    
+
     *accum = MAX(*accum,dor->timeout);
 }
 

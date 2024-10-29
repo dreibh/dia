@@ -21,7 +21,9 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include "cgm.h"
 
@@ -33,12 +35,13 @@
 
 #include <glib/gstdio.h>
 
-#include "intl.h"
 #include "geometry.h"
 #include "filter.h"
 #include "plug-ins.h"
 #include "diarenderer.h"
 #include "dia_image.h"
+#include "font.h"
+#include "dia-version-info.h"
 
 #include <gdk/gdk.h>
 
@@ -47,6 +50,14 @@
 #define CGM_RENDERER_CLASS(klass)   (G_TYPE_CHECK_CLASS_CAST ((klass), CGM_TYPE_RENDERER, CgmRendererClass))
 #define CGM_IS_RENDERER(obj)        (G_TYPE_CHECK_INSTANCE_TYPE ((obj), CGM_TYPE_RENDERER))
 #define CGM_RENDERER_GET_CLASS(obj) (G_TYPE_INSTANCE_GET_CLASS ((obj), CGM_TYPE_RENDERER, CgmRendererClass))
+
+enum {
+  PROP_0,
+  PROP_FONT,
+  PROP_FONT_HEIGHT,
+  LAST_PROP
+};
+
 
 /* Noise reduction for
  * return value of 'fwrite', declared with attribute warn_unused_result
@@ -67,7 +78,6 @@ struct _CgmRendererClass
   DiaRendererClass parent_class;
 };
 
-static const gchar *dia_version_string = "Dia-" VERSION;
 #define IS_ODD(n) (n & 0x01)
 
 /* --- routines to write various quantities to the CGM stream. --- */
@@ -546,7 +556,7 @@ TextAttrCGM    *tnew, *told;
 
 
 static void
-begin_render(DiaRenderer *self, const Rectangle *update)
+begin_render(DiaRenderer *self, const DiaRectangle *update)
 {
 }
 
@@ -572,94 +582,97 @@ set_linewidth(DiaRenderer *self, real linewidth)
     renderer->lcurrent.width = renderer->fcurrent.width = linewidth;
 }
 
-static void
-set_linecaps(DiaRenderer *self, LineCaps mode)
-{
-    CgmRenderer *renderer = CGM_RENDERER(self);
-    int  cap;
 
-    switch(mode)
-    {
-    case LINECAPS_DEFAULT:
-    case LINECAPS_BUTT:
-	cap = 2;
-	break;
-    case LINECAPS_ROUND:
-	cap = 3;
-	break;
-    case LINECAPS_PROJECTING:
-	cap = 4;
-	break;
+static void
+set_linecaps (DiaRenderer *self, DiaLineCaps mode)
+{
+  CgmRenderer *renderer = CGM_RENDERER (self);
+  int cap;
+
+  switch (mode) {
+    case DIA_LINE_CAPS_DEFAULT:
+    case DIA_LINE_CAPS_BUTT:
+      cap = 2;
+      break;
+    case DIA_LINE_CAPS_ROUND:
+      cap = 3;
+      break;
+    case DIA_LINE_CAPS_PROJECTING:
+      cap = 4;
+      break;
     default:
-	cap = 2;
-        break;
-    }
-    renderer->lcurrent.cap = renderer->fcurrent.cap = cap;
+      cap = 2;
+      break;
+  }
+
+  renderer->lcurrent.cap = renderer->fcurrent.cap = cap;
 }
 
-static void
-set_linejoin(DiaRenderer *self, LineJoin mode)
-{
-    CgmRenderer *renderer = CGM_RENDERER(self);
-    int    join;
 
-    switch(mode)
-    {
-    case LINEJOIN_DEFAULT:
-    case LINEJOIN_MITER:
-	join = 2;
-	break;
-    case LINEJOIN_ROUND:
-	join = 3;
-	break;
-    case LINEJOIN_BEVEL:
-        join = 4;
-	break;
+static void
+set_linejoin (DiaRenderer *self, DiaLineJoin mode)
+{
+  CgmRenderer *renderer = CGM_RENDERER (self);
+  int join;
+
+  switch (mode) {
+    case DIA_LINE_JOIN_DEFAULT:
+    case DIA_LINE_JOIN_MITER:
+      join = 2;
+      break;
+    case DIA_LINE_JOIN_ROUND:
+      join = 3;
+      break;
+    case DIA_LINE_JOIN_BEVEL:
+      join = 4;
+      break;
     default:
-	join = 2;
-        break;
-    }
-    renderer->lcurrent.join = renderer->fcurrent.join = join;
+      join = 2;
+      break;
+  }
+
+  renderer->lcurrent.join = renderer->fcurrent.join = join;
 }
 
-static void
-set_linestyle(DiaRenderer *self, LineStyle mode, real dash_length)
-{
-    CgmRenderer *renderer = CGM_RENDERER(self);
-    gint16   style;
 
-    /* XXX: According to specs (mil-std-2301) and tests with OpenOffice only
-     *      solid=1 and dashed=2 are supported.
-     */
-    switch(mode)
-    {
-    case LINESTYLE_DASHED:
-       style = 2;
-       break;
-    case LINESTYLE_DASH_DOT:
-       style = 4;
-       break;
-    case LINESTYLE_DASH_DOT_DOT:
-       style = 5;
-       break;
-    case LINESTYLE_DOTTED:
-       style = 3;
-       break;
-    case LINESTYLE_DEFAULT:
-    case LINESTYLE_SOLID:
+static void
+set_linestyle (DiaRenderer *self, DiaLineStyle mode, double dash_length)
+{
+  CgmRenderer *renderer = CGM_RENDERER (self);
+  gint16   style;
+
+  /* XXX: According to specs (mil-std-2301) and tests with OpenOffice only
+    *      solid=1 and dashed=2 are supported.
+    */
+  switch (mode) {
+    case DIA_LINE_STYLE_DASHED:
+      style = 2;
+      break;
+    case DIA_LINE_STYLE_DASH_DOT:
+      style = 4;
+      break;
+    case DIA_LINE_STYLE_DASH_DOT_DOT:
+      style = 5;
+      break;
+    case DIA_LINE_STYLE_DOTTED:
+      style = 3;
+      break;
+    case DIA_LINE_STYLE_DEFAULT:
+    case DIA_LINE_STYLE_SOLID:
     default:
-       style = 1;
-       break;
-    }
-    renderer->lcurrent.style = renderer->fcurrent.style = style;
+      style = 1;
+      break;
+  }
+  renderer->lcurrent.style = renderer->fcurrent.style = style;
 }
 
+
 static void
-set_fillstyle(DiaRenderer *self, FillStyle mode)
+set_fillstyle (DiaRenderer *self, DiaFillStyle mode)
 {
 #if 0
     switch(mode) {
-    case FILLSTYLE_SOLID:
+    case DIA_FILL_STYLE_SOLID:
 	write_elhead(renderer->file, CGM_ATTRIB, CGM_INTERIOR_STYLE, 2);
 	write_int16(renderer->file, 1);
 	break;
@@ -669,34 +682,36 @@ set_fillstyle(DiaRenderer *self, FillStyle mode)
 #endif
 }
 
-static void
-set_font(DiaRenderer *self, DiaFont *font, real height)
-{
-    CgmRenderer *renderer = CGM_RENDERER(self);
-    DiaFont *oldfont = renderer->font;
-
-    renderer->font = dia_font_ref(font);
-    if (oldfont != NULL)
-	dia_font_unref(oldfont);
-    renderer->tcurrent.font_num = FONT_NUM(font);
-    renderer->tcurrent.font_height = height;
-}
 
 static void
-draw_line(DiaRenderer *self,
-	  Point *start, Point *end,
-	  Color *line_colour)
+wpg_renderer_set_font (DiaRenderer *self, DiaFont *font, double height)
 {
-    CgmRenderer *renderer = CGM_RENDERER(self);
+  CgmRenderer *renderer = CGM_RENDERER(self);
 
-    write_line_attributes(renderer, line_colour);
+  g_set_object (&renderer->font, font);
 
-    write_elhead(renderer->file, CGM_ELEMENT, CGM_POLYLINE, 2 * 2 * REALSIZE);
-    write_real(renderer->file, start->x);
-    write_real(renderer->file, swap_y(renderer, start->y));
-    write_real(renderer->file, end->x);
-    write_real(renderer->file, swap_y(renderer, end->y));
+  renderer->tcurrent.font_num = FONT_NUM (font);
+  renderer->tcurrent.font_height = height;
 }
+
+
+static void
+draw_line (DiaRenderer *self,
+           Point       *start,
+           Point       *end,
+           Color       *line_colour)
+{
+  CgmRenderer *renderer = CGM_RENDERER (self);
+
+  write_line_attributes (renderer, line_colour);
+  write_elhead (renderer->file, CGM_ELEMENT, CGM_POLYLINE, 2 * 2 * REALSIZE);
+
+  write_real (renderer->file, start->x);
+  write_real (renderer->file, swap_y (renderer, start->y));
+  write_real (renderer->file, end->x);
+  write_real (renderer->file, swap_y (renderer, end->y));
+}
+
 
 static void
 draw_polyline(DiaRenderer *self,
@@ -853,43 +868,43 @@ write_bezier(CgmRenderer *renderer,
     int     i;
     Point   current;
 
-    if (points[0].type != BEZ_MOVE_TO)
-	g_warning("first BezPoint must be a BEZ_MOVE_TO");
+    if (points[0].type != BEZ_MOVE_TO) {
+      g_warning("first BezPoint must be a BEZ_MOVE_TO");
+    }
 
     current.x = points[0].p1.x;
     current.y = swap_y(renderer, points[0].p1.y);
 
-    for (i = 1; i < numpoints; i++)
-    {
-	switch (points[i].type)
-        {
-	case BEZ_MOVE_TO:
-	    g_warning("only first BezPoint can be a BEZ_MOVE_TO");
-	    break;
-	case BEZ_LINE_TO:
-            write_elhead(renderer->file, CGM_ELEMENT, CGM_POLYLINE, 4 * REALSIZE);
-            write_real(renderer->file, current.x);
-            write_real(renderer->file, current.y);
-            write_real(renderer->file, points[i].p1.x);
-            write_real(renderer->file, swap_y(renderer, points[i].p1.y));
-            current.x = points[i].p1.x;
-            current.y = swap_y(renderer, points[i].p1.y);
-            break;
-	case BEZ_CURVE_TO:
-            write_elhead(renderer->file, CGM_ELEMENT, CGM_POLYBEZIER, 8 * REALSIZE + 2);
-            write_int16(renderer->file, 1);
-            write_real(renderer->file, current.x);
-            write_real(renderer->file, current.y);
-            write_real(renderer->file, points[i].p1.x);
-            write_real(renderer->file, swap_y(renderer, points[i].p1.y));
-            write_real(renderer->file, points[i].p2.x);
-            write_real(renderer->file, swap_y(renderer, points[i].p2.y));
-            write_real(renderer->file, points[i].p3.x);
-            write_real(renderer->file, swap_y(renderer, points[i].p3.y));
-            current.x = points[i].p3.x;
-            current.y = swap_y(renderer, points[i].p3.y);
-            break;
-        }
+    for (i = 1; i < numpoints; i++) {
+      switch (points[i].type) {
+        case BEZ_LINE_TO:
+          write_elhead(renderer->file, CGM_ELEMENT, CGM_POLYLINE, 4 * REALSIZE);
+          write_real(renderer->file, current.x);
+          write_real(renderer->file, current.y);
+          write_real(renderer->file, points[i].p1.x);
+          write_real(renderer->file, swap_y(renderer, points[i].p1.y));
+          current.x = points[i].p1.x;
+          current.y = swap_y(renderer, points[i].p1.y);
+          break;
+        case BEZ_CURVE_TO:
+          write_elhead(renderer->file, CGM_ELEMENT, CGM_POLYBEZIER, 8 * REALSIZE + 2);
+          write_int16(renderer->file, 1);
+          write_real(renderer->file, current.x);
+          write_real(renderer->file, current.y);
+          write_real(renderer->file, points[i].p1.x);
+          write_real(renderer->file, swap_y(renderer, points[i].p1.y));
+          write_real(renderer->file, points[i].p2.x);
+          write_real(renderer->file, swap_y(renderer, points[i].p2.y));
+          write_real(renderer->file, points[i].p3.x);
+          write_real(renderer->file, swap_y(renderer, points[i].p3.y));
+          current.x = points[i].p3.x;
+          current.y = swap_y(renderer, points[i].p3.y);
+          break;
+        case BEZ_MOVE_TO:
+        default:
+          g_warning ("only first BezPoint can be a BEZ_MOVE_TO");
+          break;
+      }
     }
 }
 
@@ -933,64 +948,69 @@ draw_beziergon (DiaRenderer *self,
 }
 
 
-
 static void
-draw_string(DiaRenderer *self,
-	    const char *text,
-	    Point *pos, Alignment alignment,
-	    Color *colour)
+draw_string (DiaRenderer  *self,
+             const char   *text,
+             Point        *pos,
+             DiaAlignment  alignment,
+             Color        *colour)
 {
-    CgmRenderer *renderer = CGM_RENDERER(self);
-    double x = pos->x, y = swap_y(renderer, pos->y);
-    gint len, chunk;
-    const gint maxfirstchunk = 255 - 2 * REALSIZE - 2 - 1;
-    const gint maxappendchunk = 255 - 2 - 1;
+  CgmRenderer *renderer = CGM_RENDERER (self);
+  double x = pos->x, y = swap_y (renderer, pos->y);
+  int len, chunk;
+  const int maxfirstchunk = 255 - 2 * REALSIZE - 2 - 1;
+  const int maxappendchunk = 255 - 2 - 1;
 
-    /* check for empty strings */
-    len = strlen(text);
-    if ( len == 0 )
-        return;
+  /* check for empty strings */
+  len = strlen (text);
+  if (len == 0) {
+    return;
+  }
 
-    write_text_attributes(renderer, colour);
+  write_text_attributes (renderer, colour);
 
-    switch (alignment) {
-    case ALIGN_LEFT:
-        break;
-    case ALIGN_CENTER:
-        x -= dia_font_string_width(text, renderer->font,
-                                   renderer->tcurrent.font_height)/2;
-        break;
-    case ALIGN_RIGHT:
-        x -= dia_font_string_width(text, renderer->font,
-                                   renderer->tcurrent.font_height);
-        break;
-    }
-    /* work out size of first chunk of text */
-    chunk = MIN(maxfirstchunk, len);
-    write_elhead(renderer->file, CGM_ELEMENT, CGM_TEXT, 2 * REALSIZE + 2 + 1 + chunk);
-    write_real(renderer->file, x);
-    write_real(renderer->file, y);
-    write_int16(renderer->file, (len == chunk)); /* last chunk? */
-    putc(chunk, renderer->file);
-    fwrite(text, sizeof(char), chunk, renderer->file);
-    if (!IS_ODD(chunk))
-	putc(0, renderer->file);
+  switch (alignment) {
+    case DIA_ALIGN_LEFT:
+      break;
+    case DIA_ALIGN_CENTRE:
+      x -= dia_font_string_width (text, renderer->font,
+                                  renderer->tcurrent.font_height) / 2;
+      break;
+    case DIA_ALIGN_RIGHT:
+      x -= dia_font_string_width (text, renderer->font,
+                                  renderer->tcurrent.font_height);
+      break;
+    default:
+      g_return_if_reached ();
+  }
+
+  /* work out size of first chunk of text */
+  chunk = MIN (maxfirstchunk, len);
+  write_elhead (renderer->file, CGM_ELEMENT, CGM_TEXT, 2 * REALSIZE + 2 + 1 + chunk);
+  write_real (renderer->file, x);
+  write_real (renderer->file, y);
+  write_int16 (renderer->file, (len == chunk)); /* last chunk? */
+  putc (chunk, renderer->file);
+  fwrite (text, sizeof(char), chunk, renderer->file);
+  if (!IS_ODD (chunk)) {
+    putc (0, renderer->file);
+  }
+
+  len -= chunk;
+  text += chunk;
+  while (len > 0) {
+    /* append text */
+    chunk = MIN (maxappendchunk, len);
+    write_elhead (renderer->file, CGM_ELEMENT, CGM_APPEND_TEXT, 2 + 1 + chunk);
+    write_int16 (renderer->file, (len == chunk));
+    putc (chunk, renderer->file);
+    fwrite (text, sizeof(char), chunk, renderer->file);
+    if (!IS_ODD (chunk))
+        putc (0, renderer->file);
 
     len -= chunk;
     text += chunk;
-    while (len > 0) {
-	/* append text */
-	chunk = MIN(maxappendchunk, len);
-	write_elhead(renderer->file, CGM_ELEMENT, CGM_APPEND_TEXT, 2 + 1 + chunk);
-	write_int16(renderer->file, (len == chunk));
-	putc(chunk, renderer->file);
-	fwrite(text, sizeof(char), chunk, renderer->file);
-	if (!IS_ODD(chunk))
-	    putc(0, renderer->file);
-
-	len -= chunk;
-	text += chunk;
-    }
+  }
 }
 
 
@@ -1075,7 +1095,7 @@ export_cgm(DiagramData *data, DiaContext *ctx,
 {
     CgmRenderer *renderer;
     FILE *file;
-    Rectangle *extent;
+    DiaRectangle *extent;
     gint len;
 
     file = g_fopen(filename, "wb");
@@ -1092,10 +1112,10 @@ export_cgm(DiagramData *data, DiaContext *ctx,
     renderer->ctx = ctx;
 
     /* write BEGMF */
-    len = strlen(dia_version_string);
+    len = strlen(dia_version_string());
     write_elhead(file, CGM_DELIM, CGM_BEGIN_METAFILE, len + 1);
     putc(len, file);
-    fwrite(dia_version_string, sizeof(char), len, file);
+    fwrite(dia_version_string(), sizeof(char), len, file);
     if (!IS_ODD(len))
 	putc(0, file);
 
@@ -1195,15 +1215,13 @@ export_cgm(DiagramData *data, DiaContext *ctx,
     write_real(file, 0.0);
     write_real(file, 0.0);
 
-    init_attributes(renderer);
+  init_attributes (renderer);
 
-    data_render(data, DIA_RENDERER(renderer), NULL, NULL, NULL);
+  data_render (data, DIA_RENDERER (renderer), NULL, NULL, NULL);
 
-    if (renderer->font != NULL)
-      dia_font_unref(renderer->font);
-    g_object_unref(renderer);
+  g_clear_object (&renderer);
 
-    return TRUE;
+  return TRUE;
 }
 
 /* GObject stuff */
@@ -1240,48 +1258,102 @@ cgm_renderer_get_type (void)
 }
 
 static void
+cgm_renderer_set_property (GObject      *object,
+                           guint         property_id,
+                           const GValue *value,
+                           GParamSpec   *pspec)
+{
+  CgmRenderer *self = CGM_RENDERER (object);
+
+  switch (property_id) {
+    case PROP_FONT:
+      wpg_renderer_set_font (DIA_RENDERER (self),
+                             g_value_get_object (value),
+                             self->tcurrent.font_height);
+      break;
+    case PROP_FONT_HEIGHT:
+      wpg_renderer_set_font (DIA_RENDERER (self),
+                             self->font,
+                             g_value_get_double (value));
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
+      break;
+  }
+}
+
+static void
+cgm_renderer_get_property (GObject    *object,
+                           guint       property_id,
+                           GValue     *value,
+                           GParamSpec *pspec)
+{
+  CgmRenderer *self = CGM_RENDERER (object);
+
+  switch (property_id) {
+    case PROP_FONT:
+      g_value_set_object (value, self->font);
+      break;
+    case PROP_FONT_HEIGHT:
+      g_value_set_double (value, self->tcurrent.font_height);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
+      break;
+  }
+}
+
+static void
 cgm_renderer_finalize (GObject *object)
 {
+  CgmRenderer *self = CGM_RENDERER (object);
+
+  g_clear_object (&self->font);
+
   G_OBJECT_CLASS (parent_class)->finalize (object);
 }
 
 static void
 cgm_renderer_class_init (CgmRendererClass *klass)
 {
-    GObjectClass *object_class = G_OBJECT_CLASS (klass);
-    DiaRendererClass *renderer_class = DIA_RENDERER_CLASS (klass);
+  GObjectClass *object_class = G_OBJECT_CLASS (klass);
+  DiaRendererClass *renderer_class = DIA_RENDERER_CLASS (klass);
 
-    parent_class = g_type_class_peek_parent (klass);
+  parent_class = g_type_class_peek_parent (klass);
 
-    object_class->finalize = cgm_renderer_finalize;
+  object_class->set_property = cgm_renderer_set_property;
+  object_class->get_property = cgm_renderer_get_property;
+  object_class->finalize = cgm_renderer_finalize;
 
-    renderer_class->begin_render = begin_render;
-    renderer_class->end_render = end_render;
+  renderer_class->begin_render = begin_render;
+  renderer_class->end_render = end_render;
 
-    renderer_class->set_linewidth = set_linewidth;
-    renderer_class->set_linecaps = set_linecaps;
-    renderer_class->set_linejoin = set_linejoin;
-    renderer_class->set_linestyle = set_linestyle;
-    renderer_class->set_fillstyle = set_fillstyle;
-    renderer_class->set_font = set_font;
+  renderer_class->set_linewidth = set_linewidth;
+  renderer_class->set_linecaps = set_linecaps;
+  renderer_class->set_linejoin = set_linejoin;
+  renderer_class->set_linestyle = set_linestyle;
+  renderer_class->set_fillstyle = set_fillstyle;
 
-    renderer_class->draw_line = draw_line;
-    renderer_class->draw_polyline = draw_polyline;
+  renderer_class->draw_line = draw_line;
+  renderer_class->draw_polyline = draw_polyline;
 
-    renderer_class->draw_polygon = draw_polygon;
+  renderer_class->draw_polygon = draw_polygon;
 
-    renderer_class->draw_rect = draw_rect;
+  renderer_class->draw_rect = draw_rect;
 
-    renderer_class->draw_arc = draw_arc;
-    renderer_class->fill_arc = fill_arc;
-    renderer_class->draw_ellipse = draw_ellipse;
+  renderer_class->draw_arc = draw_arc;
+  renderer_class->fill_arc = fill_arc;
+  renderer_class->draw_ellipse = draw_ellipse;
 
-    renderer_class->draw_bezier = draw_bezier;
-    renderer_class->draw_beziergon = draw_beziergon;
+  renderer_class->draw_bezier = draw_bezier;
+  renderer_class->draw_beziergon = draw_beziergon;
 
-    renderer_class->draw_string = draw_string;
+  renderer_class->draw_string = draw_string;
 
-    renderer_class->draw_image = draw_image;
+  renderer_class->draw_image = draw_image;
+
+  g_object_class_override_property (object_class, PROP_FONT, "font");
+  g_object_class_override_property (object_class, PROP_FONT_HEIGHT, "font-height");
 }
 
 

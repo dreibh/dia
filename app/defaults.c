@@ -16,12 +16,13 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <gtk/gtk.h>
 
 #include "defaults.h"
-#include "intl.h"
 #include "properties-dialog.h"
 #include "object_ops.h"
 #include "connectionpoint_ops.h"
@@ -36,37 +37,39 @@ static DiaObject *current_object = NULL;
 
 static GtkWidget *no_defaults_dialog = NULL;
 
-static gint defaults_respond(GtkWidget *widget, gint response_id, gpointer data);
+static int defaults_respond (GtkWidget *widget, int response_id, gpointer data);
 
-static void create_dialog()
+
+static void
+create_dialog (void)
 {
-  dialog = gtk_dialog_new_with_buttons(
-             _("Object defaults"),
-             NULL, 0,
-             GTK_STOCK_CLOSE, GTK_RESPONSE_CLOSE,
-             GTK_STOCK_APPLY, GTK_RESPONSE_APPLY,
-             GTK_STOCK_OK, GTK_RESPONSE_OK,
-             NULL);
+  dialog = gtk_dialog_new_with_buttons (_("Object defaults"),
+                                        NULL, 0,
+                                        _("_Close"), GTK_RESPONSE_CLOSE,
+                                        _("_Apply"), GTK_RESPONSE_APPLY,
+                                        _("_OK"), GTK_RESPONSE_OK,
+                                        NULL);
 
   gtk_dialog_set_default_response (GTK_DIALOG(dialog), GTK_RESPONSE_OK);
 
   dialog_vbox = gtk_dialog_get_content_area (GTK_DIALOG (dialog));
-  
+
   gtk_window_set_role (GTK_WINDOW (dialog), "defaults_window");
 
-  g_signal_connect(G_OBJECT (dialog), "response",
-		   G_CALLBACK(defaults_respond), NULL);
-  g_signal_connect(G_OBJECT(dialog), "delete_event",
-		   G_CALLBACK(gtk_widget_hide), NULL);
+  g_signal_connect (G_OBJECT (dialog), "response",
+                    G_CALLBACK (defaults_respond), NULL);
+  g_signal_connect (G_OBJECT (dialog), "delete_event",
+                    G_CALLBACK (gtk_widget_hide), NULL);
 
-  no_defaults_dialog = gtk_label_new(_("This object has no defaults."));
+  no_defaults_dialog = gtk_label_new (_("This object has no defaults."));
   gtk_widget_show (no_defaults_dialog);
 
-  g_object_ref_sink(G_OBJECT(no_defaults_dialog));
+  g_object_ref_sink (G_OBJECT (no_defaults_dialog));
 }
 
-static gint
-defaults_dialog_destroyed(GtkWidget *widget, gpointer data)
+
+static int
+defaults_dialog_destroyed (GtkWidget *widget, gpointer data)
 {
   if (widget == object_part) {
     object_part = NULL;
@@ -77,8 +80,9 @@ defaults_dialog_destroyed(GtkWidget *widget, gpointer data)
   return 0;
 }
 
-static gint
-defaults_respond(GtkWidget *widget, gint response_id, gpointer data)
+
+static int
+defaults_respond (GtkWidget *widget, int response_id, gpointer data)
 {
   if (response_id == GTK_RESPONSE_OK ||
       response_id == GTK_RESPONSE_APPLY) {
@@ -112,12 +116,12 @@ defaults_show(DiaObjectType *objtype, gpointer user_data)
   } else {
     defaults = NULL;
   }
-  
+
   if (dialog == NULL)
     create_dialog();
   g_assert(dialog != NULL); /* valid by create_dialog() */
 
-  if ((objtype==NULL) || (defaults == NULL)) { 
+  if ((objtype==NULL) || (defaults == NULL)) {
     /* No defaults or no object */
     defaults = no_defaults_dialog;
     objtype = NULL;
@@ -138,13 +142,12 @@ defaults_show(DiaObjectType *objtype, gpointer user_data)
   gtk_box_pack_start(GTK_BOX(dialog_vbox), defaults, TRUE, TRUE, 0);
   gtk_widget_show (defaults);
 
-  if (title)
-    {
-      gtk_window_set_title(GTK_WINDOW(dialog), title);
-      g_free(title);
-    }
-  else
-      gtk_window_set_title (GTK_WINDOW (dialog), _("Object defaults"));
+  if (title) {
+    gtk_window_set_title (GTK_WINDOW (dialog), title);
+    g_clear_pointer (&title, g_free);
+  } else {
+    gtk_window_set_title (GTK_WINDOW (dialog), _("Object defaults"));
+  }
 
   if (object_part != defaults) {
     gtk_window_resize (GTK_WINDOW(dialog), 1, 1); /* shrink to default */

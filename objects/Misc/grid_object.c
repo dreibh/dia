@@ -19,16 +19,16 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 #include <glib.h>
 #include <time.h>
 #include <stdio.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "connectionpoint.h"
@@ -65,11 +65,11 @@ static real grid_object_distance_from(Grid_Object *grid_object,
 static void grid_object_select(Grid_Object *grid_object,
                                 Point *clicked_point,
                                 DiaRenderer *interactive_renderer);
-static ObjectChange* grid_object_move_handle(Grid_Object *grid_object,
+static DiaObjectChange* grid_object_move_handle(Grid_Object *grid_object,
 					      Handle *handle, Point *to,
 					      ConnectionPoint *cp, HandleMoveReason reason,
                                      ModifierKeys modifiers);
-static ObjectChange* grid_object_move(Grid_Object *grid_object, Point *to);
+static DiaObjectChange* grid_object_move(Grid_Object *grid_object, Point *to);
 static void grid_object_draw(Grid_Object *grid_object, DiaRenderer *renderer);
 static void grid_object_update_data(Grid_Object *grid_object);
 static DiaObject *grid_object_create(Point *startpoint,
@@ -200,7 +200,7 @@ grid_object_select(Grid_Object *grid_object, Point *clicked_point,
   element_update_handles(&grid_object->element);
 }
 
-static ObjectChange*
+static DiaObjectChange*
 grid_object_move_handle(Grid_Object *grid_object, Handle *handle,
 			 Point *to, ConnectionPoint *cp,
 			 HandleMoveReason reason, ModifierKeys modifiers)
@@ -216,7 +216,7 @@ grid_object_move_handle(Grid_Object *grid_object, Handle *handle,
   return NULL;
 }
 
-static ObjectChange*
+static DiaObjectChange*
 grid_object_move(Grid_Object *grid_object, Point *to)
 {
   grid_object->element.corner = *to;
@@ -242,7 +242,7 @@ grid_object_update_data(Grid_Object *grid_object)
   real cell_width = (elem->width - 2.0 * inset) / grid_object->grid_cols;
   real cell_height = (elem->height - 2.0 * inset) / grid_object->grid_rows;
   int i, j;
-  coord left, top;
+  double left, top;
 
   extra->border_trans = grid_object->border_line_width / 2.0;
   element_update_boundingbox(elem);
@@ -264,10 +264,10 @@ grid_object_update_data(Grid_Object *grid_object)
 }
 
 static void
-grid_object_draw_gridlines (Grid_Object *grid_object, DiaRenderer *renderer,
-    		Point* lr_corner)
+grid_object_draw_gridlines (Grid_Object *grid_object,
+                            DiaRenderer *renderer,
+                            Point       *lr_corner)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Element *elem;
   Point st, fn;
   real cell_size;
@@ -294,7 +294,7 @@ grid_object_draw_gridlines (Grid_Object *grid_object, DiaRenderer *renderer,
   for (i = 1; i < grid_object->grid_rows; ++i) {
     st.y += cell_size;
     fn.y += cell_size;
-    renderer_ops->draw_line(renderer,&st,&fn,&grid_object->gridline_color);
+    dia_renderer_draw_line (renderer,&st,&fn,&grid_object->gridline_color);
   }
 
   /* vertical gridlines */
@@ -310,14 +310,13 @@ grid_object_draw_gridlines (Grid_Object *grid_object, DiaRenderer *renderer,
   for (i = 1; i < grid_object->grid_cols; ++i) {
     st.x += cell_size;
     fn.x += cell_size;
-    renderer_ops->draw_line(renderer,&st,&fn,&grid_object->gridline_color);
+    dia_renderer_draw_line (renderer, &st, &fn, &grid_object->gridline_color);
   }
 }
 
 static void
-grid_object_draw(Grid_Object *grid_object, DiaRenderer *renderer)
+grid_object_draw (Grid_Object *grid_object, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Element *elem;
   Point lr_corner;
 
@@ -329,19 +328,24 @@ grid_object_draw(Grid_Object *grid_object, DiaRenderer *renderer)
   lr_corner.x = elem->corner.x + elem->width;
   lr_corner.y = elem->corner.y + elem->height;
 
-  renderer_ops->set_linejoin(renderer, LINEJOIN_MITER);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
+  dia_renderer_set_linejoin (renderer, DIA_LINE_JOIN_MITER);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
 
   /* draw gridlines */
-  renderer_ops->set_linewidth(renderer, grid_object->gridline_width);
-  grid_object_draw_gridlines(grid_object, renderer, &lr_corner);
+  dia_renderer_set_linewidth (renderer,
+                              grid_object->gridline_width);
+  grid_object_draw_gridlines (grid_object,
+                              renderer,
+                              &lr_corner);
 
   /* draw outline */
-  renderer_ops->set_linewidth(renderer, grid_object->border_line_width);
-  renderer_ops->draw_rect(renderer,&elem->corner,
-			  &lr_corner,
-			  (grid_object->show_background) ? &grid_object->inner_color : NULL,
-			  &grid_object->border_color);
+  dia_renderer_set_linewidth (renderer,
+                              grid_object->border_line_width);
+  dia_renderer_draw_rect (renderer,
+                          &elem->corner,
+                          &lr_corner,
+                          (grid_object->show_background) ? &grid_object->inner_color : NULL,
+                          &grid_object->border_color);
 }
 
 
@@ -473,13 +477,14 @@ grid_object_reallocate_cells (Grid_Object* grid_object)
   /* obj->connections doesn't own the pointers, so just realloc; values
    * will be updated later */
   obj->num_connections = GRID_OBJECT_BASE_CONNECTION_POINTS + new_rows*new_cols;
-  obj->connections = (ConnectionPoint **) g_realloc(obj->connections,
-      		obj->num_connections * sizeof(ConnectionPoint *));
+  obj->connections = g_renew (ConnectionPoint *,
+                              obj->connections,
+                              obj->num_connections);
 
   /* Can't use realloc; if grid has different dims, memory lays out
    * differently.  Must copy by hand. */
 
-  new_cells = g_malloc(new_rows * new_cols * sizeof(ConnectionPoint));
+  new_cells = g_new0 (ConnectionPoint, new_rows * new_cols);
   for (i = 0; i < new_cols; ++i)
     for (j = 0; j < new_rows; ++j)
     {
@@ -494,7 +499,7 @@ grid_object_reallocate_cells (Grid_Object* grid_object)
       }
     }
 
-  g_free(grid_object->cells);
+  g_clear_pointer (&grid_object->cells, g_free);
   grid_object->cells = new_cells;
   grid_object->cells_rows = new_rows;
   grid_object->cells_cols = new_cols;
@@ -504,7 +509,7 @@ static void
 grid_object_destroy(Grid_Object *grid_object)
 {
   element_destroy(&grid_object->element);
-  g_free(grid_object->cells);
+  g_clear_pointer (&grid_object->cells, g_free);
 }
 
 static DiaObject *

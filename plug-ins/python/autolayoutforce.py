@@ -22,6 +22,9 @@
 #   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 import math, dia
 
+import gettext
+_ = gettext.gettext
+
 def bbox_area (o) :
 	r = o.bounding_box
 	return (r.bottom - r.top) * (r.right - r.left)
@@ -41,7 +44,7 @@ def repulsion (rconst, node, other) :
 
 	m2 = bbox_area (other)
 	m1 = bbox_area (node)
-	
+
 	dx = p1.x - p2.x
 	dy = p1.y - p2.y
 
@@ -52,11 +55,11 @@ def repulsion (rconst, node, other) :
 		fx = (numer * dx) / denom
 		fy = (numer * dy) / denom
 	except ZeroDivisionError :
-		print "ZeroDivisionError"
+		print("ZeroDivisionError")
 		return (0,0)
 
 	return (fx,fy)
-	
+
 def layout_force (nodes, rconst, aconst, timestep, damping) :
 	energy = [0.0, 0.0]
 	for o in nodes :
@@ -96,9 +99,8 @@ def layout_force (nodes, rconst, aconst, timestep, damping) :
 		energy[1] += mass * math.pow (velocity[1], 2) / 2
 	return energy
 
-def layout_force_cb (data, flags) :
-	diagram = dia.active_display().diagram
-	# the things (nodes) we are moving around are all connected 'elements', 
+def layout_force_cb(data, flags):
+	# the things (nodes) we are moving around are all connected 'elements',
 	# connection objects are only moving as a side effect
 	nodes = []
 	for o in data.selected :
@@ -114,12 +116,12 @@ def layout_force_cb (data, flags) :
 		e = layout_force (nodes, 2.0, 3.0, 2e-1, 5e-1)
 		n += 1
 	for o in nodes :
-		diagram.update_connections (o)
+		data.update_connections (o)
 	data.active_layer.update_extents() # data/diagram _update_extents don't recalculate?
-	diagram.update_extents ()
-	diagram.flush()
-	print n, "iterations"
+	data.update_extents ()
+	data.flush()
+	print(n, "iterations")
 
-dia.register_action ("LayoutForcePy", "Layout (force)", 
-                     "/DisplayMenu/Test/TestExtensionStart", 
+dia.register_action ("LayoutForcePy", _("_Layout (force)"),
+                     "/DisplayMenu/Test/TestExtensionStart",
                      layout_force_cb)

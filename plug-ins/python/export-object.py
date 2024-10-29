@@ -1,5 +1,8 @@
 import sys, dia
 
+import gettext
+_ = gettext.gettext
+
 # sys.path.insert(0, 'd:/graph/dia/dia')
 
 class ObjRenderer :
@@ -26,7 +29,7 @@ class ObjRenderer :
 				self.f.write ("\t"*2 + "</connections>\n")
 
 				self.f.write ("\t"*2 + str(o.properties) + "\n")
-				keys = o.properties.keys()
+				keys = list(o.properties.keys())
 				for s in keys :
 					self.f.write ("\t"*3 + str(o.properties[s]) + "\n")
 					if o.properties[s].type == "string" :
@@ -39,4 +42,4 @@ class ObjRenderer :
 		self.f.close()
 
 # dia-python keeps a reference to the renderer class and uses it on demand
-dia.register_export ("PyDia Object Export", "diapyo", ObjRenderer())
+dia.register_export (_("PyDia Object Export"), "diapyo", ObjRenderer())

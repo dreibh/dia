@@ -19,7 +19,10 @@
 #   along with this program; if not, write to the Free Software
 #   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
-import sys, dia, string
+import sys, dia
+
+import gettext
+_ = gettext.gettext
 
 def _log(s, append=1) :
 	pass
@@ -32,15 +35,15 @@ def _log(s, append=1) :
 
 def otypes_cb(data, flags) :
 
-	if data :
+	if data:
 		diagram = None # we may be running w/o GUI
 	else :
 		diagram = dia.new("Object Types.dia")
-		data = diagram.data
+		data = diagram
 	layer = data.active_layer
 
 	otypes = dia.registered_types()
-	keys = otypes.keys()
+	keys = list(otypes.keys())
 	keys.sort()
 
 	# property keys w/o overlap
@@ -54,8 +57,8 @@ def otypes_cb(data, flags) :
 	text_props = ["text_colour", "text_font", "text_height", "text"] # "text_alignment", "text_pos"
 
 	packages = {}
-	for s in keys :
-		kt = string.split(s, " - ")
+	for s in keys:
+		kt = s.split(" - ")
 		if len(kt) == 2 :
 			if len(kt[0]) == 0 :
 				sp = "<unnamed>"
@@ -65,10 +68,10 @@ def otypes_cb(data, flags) :
 		else :
 			sp = "<broken>"
 			st = kt[0]
-		if packages.has_key(sp) :
+		if sp in packages:
 			packages[sp].append(st)
 		else :
-			packages[sp] = [st] 
+			packages[sp] = [st]
 
 	dtp = dia.get_object_type("UML - LargePackage")
 	dtc = dia.get_object_type("UML - Class")
@@ -76,7 +79,7 @@ def otypes_cb(data, flags) :
 	maxy = 0
 	maxx = 0
 
-	for sp in packages.keys() :
+	for sp in list(packages.keys()):
 		pkg = packages[sp]
 		op, h1, h2 = dtp.create(0.0, cy + 1.0)
 		op.properties["name"] = sp
@@ -96,16 +99,16 @@ def otypes_cb(data, flags) :
 			n_line = 0
 			n_fill = 0
 			n_text = 0
-			if otypes.has_key(st) :
+			if st in otypes:
 				o_real, h5, h6 = dia.get_object_type(st).create(0,0)
-			elif otypes.has_key(sp + " - " + st) :
+			elif sp + " - " + st in otypes:
 				o_real, h5, h6 = dia.get_object_type(sp + " - " + st).create(0,0)
 			else :
 				o_real = None
-				print "Failed to create object", sp, st
+				print("Failed to create object", sp, st)
 			formal_params = []
 			if not o_real is None :
-				for p in o_real.properties.keys() :
+				for p in list(o_real.properties.keys()):
 					if p in object_props : n_object = n_object + 1
 					elif p in orthconn_props : n_orthconn = n_orthconn + 1
 					elif p in element_props : n_element = n_element + 1
@@ -118,20 +121,20 @@ def otypes_cb(data, flags) :
 				if n_line == len(line_props) :
 					formal_params.append(('Line', ''))
 				else : # need to add the incomplete set
-					for pp in line_props : 
-						if o_real.properties.has_key(pp) :
+					for pp in line_props :
+						if pp in o_real.properties:
 							attrs.append((pp, o_real.properties[pp].type, '', '', 0, 0, 0))
 				if n_fill == len(fill_props) :
 					formal_params.append(('Fill', ''))
 				else :
-					for pp in fill_props : 
-						if o_real.properties.has_key(pp) :
+					for pp in fill_props :
+						if pp in o_real.properties:
 							attrs.append((pp, o_real.properties[pp].type, '', '', 0, 0, 0))
 				if n_text == len(text_props) :
 					formal_params.append(('Text', ''))
 				else :
-					for pp in text_props : 
-						if o_real.properties.has_key(pp) :
+					for pp in text_props :
+						if pp in o_real.properties:
 							attrs.append((pp, o_real.properties[pp].type, '', '', 0, 0, 0))
 			if n_orthconn == len(orthconn_props) :
 				oc.properties["stereotype"] = "OrthConn"
@@ -145,7 +148,7 @@ def otypes_cb(data, flags) :
 			elif n_object == len(object_props) :
 				oc.properties["stereotype"] = "Object"
 			else :
-				print "Huh?", st
+				print("Huh?", st)
 				oc.properties["fill_colour"] = "red"
 			oc.properties["attributes"] = attrs
 			if len(formal_params) > 0 :
@@ -153,7 +156,7 @@ def otypes_cb(data, flags) :
 				oc.properties["templates"] = formal_params
 			layer.add_object(oc)
 			# XXX: there really should be a way to safely delete an object. This one will crash:
-			# - when the object got added somewhere 
+			# - when the object got added somewhere
 			# - any object method gets called afterwards
 			if not o_real is None :
 				o_real.destroy()
@@ -179,6 +182,6 @@ def otypes_cb(data, flags) :
 	# make it work standalone
 	return data
 
-dia.register_action ("HelpOtypes", "Dia Object Types",
-                     "/ToolboxMenu/Help/HelpExtensionStart", 
+dia.register_action ("HelpOtypes", _("Dia Object _Types"),
+                     "/ToolboxMenu/Help/HelpExtensionStart",
                      otypes_cb)

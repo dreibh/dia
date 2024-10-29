@@ -16,14 +16,14 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "diarenderer.h"
@@ -69,10 +69,10 @@ enum CLassIconStereotype {
 static real classicon_distance_from(Classicon *cicon, Point *point);
 static void classicon_select(Classicon *cicon, Point *clicked_point,
 			     DiaRenderer *interactive_renderer);
-static ObjectChange* classicon_move_handle(Classicon *cicon, Handle *handle,
+static DiaObjectChange* classicon_move_handle(Classicon *cicon, Handle *handle,
 					   Point *to, ConnectionPoint *cp,
 					   HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* classicon_move(Classicon *cicon, Point *to);
+static DiaObjectChange* classicon_move(Classicon *cicon, Point *to);
 static void classicon_draw(Classicon *cicon, DiaRenderer *renderer);
 static DiaObject *classicon_create(Point *startpoint,
 				void *user_data,
@@ -205,21 +205,26 @@ classicon_select(Classicon *cicon, Point *clicked_point,
   element_update_handles(&cicon->element);
 }
 
-static ObjectChange*
-classicon_move_handle(Classicon *cicon, Handle *handle,
-		      Point *to, ConnectionPoint *cp,
-		      HandleMoveReason reason, ModifierKeys modifiers)
-{
-  assert(cicon!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
 
-  assert(handle->id < 8);
+static DiaObjectChange *
+classicon_move_handle (Classicon        *cicon,
+                       Handle           *handle,
+                       Point            *to,
+                       ConnectionPoint  *cp,
+                       HandleMoveReason  reason,
+                       ModifierKeys      modifiers)
+{
+  g_return_val_if_fail (cicon != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
+
+  g_return_val_if_fail (handle->id < 8, NULL);
 
   return NULL;
 }
 
-static ObjectChange*
+
+static DiaObjectChange*
 classicon_move(Classicon *cicon, Point *to)
 {
   Element *elem = &cicon->element;
@@ -237,16 +242,15 @@ classicon_move(Classicon *cicon, Point *to)
 }
 
 static void
-classicon_draw(Classicon *icon, DiaRenderer *renderer)
+classicon_draw (Classicon *icon, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Element *elem;
-  real r, x, y, w;
+  double r, x, y, w;
   Point center, p1, p2;
   int i;
 
-  assert(icon != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (icon != NULL);
+  g_return_if_fail (renderer != NULL);
 
   elem = &icon->element;
 
@@ -258,74 +262,77 @@ classicon_draw(Classicon *icon, DiaRenderer *renderer)
   center.x = x + elem->width/2;
   center.y = y + r + CLASSICON_ARROW;
 
-  if (icon->stereotype==CLASSICON_BOUNDARY)
-      center.x += r/2.0;
+  if (icon->stereotype==CLASSICON_BOUNDARY) {
+    center.x += r/2.0;
+  }
 
-  renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
-  renderer_ops->set_linewidth(renderer, icon->line_width);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
+  dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+  dia_renderer_set_linewidth (renderer, icon->line_width);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
 
-  renderer_ops->draw_ellipse(renderer,
-			      &center,
-			      2*r, 2*r,
-			      &icon->fill_color,
-			      &icon->line_color);
-
+  dia_renderer_draw_ellipse (renderer,
+                             &center,
+                             2*r, 2*r,
+                             &icon->fill_color,
+                             &icon->line_color);
 
   switch (icon->stereotype) {
-  case CLASSICON_CONTROL:
+    case CLASSICON_CONTROL:
       p1.x = center.x - r*0.258819045102521;
       p1.y = center.y-r*0.965925826289068;
 
       p2.x = p1.x + CLASSICON_ARROW;
       p2.y = p1.y + CLASSICON_ARROW/1.5;
-      renderer_ops->draw_line(renderer,
-			       &p1, &p2,
-			       &icon->line_color);
+      dia_renderer_draw_line (renderer,
+                              &p1, &p2,
+                              &icon->line_color);
       p2.x = p1.x + CLASSICON_ARROW;
       p2.y = p1.y - CLASSICON_ARROW/1.5;
-      renderer_ops->draw_line(renderer,
-			       &p1, &p2,
-			       &icon->line_color);
+      dia_renderer_draw_line (renderer,
+                              &p1, &p2,
+                              &icon->line_color);
       break;
 
-  case CLASSICON_BOUNDARY:
+    case CLASSICON_BOUNDARY:
       p1.x = center.x - r;
       p2.x = p1.x - r;
       p1.y = p2.y = center.y;
-      renderer_ops->draw_line(renderer,
-			       &p1, &p2,
-			       &icon->line_color);
+      dia_renderer_draw_line (renderer,
+                              &p1, &p2,
+                              &icon->line_color);
       p1.x = p2.x;
       p1.y = center.y - r;
       p2.y = center.y + r;
-      renderer_ops->draw_line(renderer,
-			       &p1, &p2,
-			       &icon->line_color);
+      dia_renderer_draw_line (renderer,
+                              &p1, &p2,
+                              &icon->line_color);
       break;
-  case CLASSICON_ENTITY:
+    case CLASSICON_ENTITY:
       p1.x = center.x - r;
       p2.x = center.x + r;
       p1.y = p2.y = center.y + r;
-      renderer_ops->draw_line(renderer,
-			       &p1, &p2,
-			       &icon->line_color);
+      dia_renderer_draw_line (renderer,
+                              &p1, &p2,
+                              &icon->line_color);
       break;
+    default:
+      g_return_if_reached ();
   }
 
-  text_draw(icon->text, renderer);
+  text_draw (icon->text, renderer);
 
   if (icon->is_object) {
-    renderer_ops->set_linewidth(renderer, 0.01);
-    if (icon->stereotype==CLASSICON_BOUNDARY)
+    dia_renderer_set_linewidth (renderer, 0.01);
+    if (icon->stereotype==CLASSICON_BOUNDARY) {
       x += r/2.0;
-    p1.y = p2.y = icon->text->position.y + text_get_descent(icon->text);
+    }
+    p1.y = p2.y = icon->text->position.y + text_get_descent (icon->text);
     for (i=0; i<icon->text->numlines; i++) {
-      p1.x = x + (w - text_get_line_width(icon->text, i))/2;
-      p2.x = p1.x + text_get_line_width(icon->text, i);
-      renderer_ops->draw_line(renderer,
-			       &p1, &p2,
-			       &icon->line_color);
+      p1.x = x + (w - text_get_line_width (icon->text, i))/2;
+      p2.x = p1.x + text_get_line_width (icon->text, i);
+      dia_renderer_draw_line (renderer,
+                              &p1, &p2,
+                              &icon->line_color);
       p1.y = p2.y += icon->text->height;
     }
   }
@@ -425,7 +432,7 @@ classicon_create(Point *startpoint,
   DiaFont *font;
   int i;
 
-  cicon = g_malloc0(sizeof(Classicon));
+  cicon = g_new0 (Classicon, 1);
 
   /* old default */
   cicon->line_width = 0.1;
@@ -449,9 +456,9 @@ classicon_create(Point *startpoint,
   /* The text position is recalculated later */
   p.x = 0.0;
   p.y = 0.0;
-  cicon->text = new_text("", font, 0.8, &p, &color_black, ALIGN_CENTER);
+  cicon->text = new_text ("", font, 0.8, &p, &color_black, DIA_ALIGN_CENTRE);
 
-  dia_font_unref(font);
+  g_clear_object (&font);
 
   element_init(elem, 8, NUM_CONNECTIONS);
 

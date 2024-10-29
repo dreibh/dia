@@ -1,5 +1,5 @@
-/* 
- * SADT diagram support for dia 
+/*
+ * SADT diagram support for dia
  * Copyright(C) 2000 Cyrille Chepelov
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,32 +17,55 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <string.h>
 #include "connpoint_line.h"
 #include "connectionpoint.h"
 #include "dia_xml.h"
 
+
 #define DEBUG_PARENT 0
 #define DEBUG_ORDER 0
 
+
+/**
+ * SECTION:connpoint_line
+ * @Title: ConnPointLine
+ *
+ * Connection point line is a helper struct, to hold a few connection points
+ * on a line segment. There can be a variable number of these connection
+ * points. The user should be made able to add or remove some connection
+ * points.
+ *
+ * #ConnPointLine can be used to implement dynamic #ConnectionPoints for
+ * a #DiaObject. It supports undo/redo, load/save to standard props
+ * and obviously connections to it.
+ */
+
 static void cpl_reorder_connections(ConnPointLine *cpl);
 
-inline static ConnectionPoint *new_connpoint(DiaObject *obj)
+
+inline static ConnectionPoint *
+new_connpoint (DiaObject *obj)
 {
-  ConnectionPoint *cp = g_new0(ConnectionPoint,1);
+  ConnectionPoint *cp = g_new0 (ConnectionPoint,1);
   cp->object = obj;
   return cp;
 }
 
-inline static void del_connpoint(ConnectionPoint *cp)
+
+inline static void
+del_connpoint (ConnectionPoint *cp)
 {
-  g_free(cp);
+  g_clear_pointer (&cp, g_free);
 }
 
+
 static ConnectionPoint *
-cpl_remove_connpoint(ConnPointLine *cpl,int pos) 
+cpl_remove_connpoint(ConnPointLine *cpl,int pos)
 {
   ConnectionPoint *cp;
 
@@ -59,7 +82,7 @@ cpl_remove_connpoint(ConnPointLine *cpl,int pos)
 
   cpl->connections = g_slist_remove(cpl->connections,(gpointer)cp);
   object_remove_connectionpoint(cpl->parent,cp);
-  
+
   cpl->num_connections--;
   /* removing a point doesn't change the order of the remaining ones, so we
      don't need to call cpl_reorder_connections. */
@@ -68,10 +91,10 @@ cpl_remove_connpoint(ConnPointLine *cpl,int pos)
 }
 
 static void
-cpl_add_connectionpoint_at(ConnPointLine *cpl, int pos,ConnectionPoint *cp) 
+cpl_add_connectionpoint_at(ConnPointLine *cpl, int pos,ConnectionPoint *cp)
 {
   if (pos == 0) {
-    /* special case handling so that the order of CPL groups in 
+    /* special case handling so that the order of CPL groups in
        the parent's CP list is preserved. */
     int fpos,i;
     ConnectionPoint *fcp;
@@ -106,21 +129,21 @@ cpl_add_connectionpoint_at(ConnPointLine *cpl, int pos,ConnectionPoint *cp)
      several CP's are added at once (initialisation). */
 }
 
-inline static void 
+inline static void
 cpl_add_connectionpoint(ConnPointLine *cpl,ConnectionPoint *cp)
 {
   cpl_add_connectionpoint_at(cpl,-1,cp);
 }
 
 ConnPointLine *
-connpointline_create(DiaObject *parent, int num_connections) 
+connpointline_create(DiaObject *parent, int num_connections)
 {
   ConnPointLine *cpl;
   int i;
 
   cpl = g_new0(ConnPointLine,1);
   cpl->parent = parent;
-  
+
   cpl->connections = NULL;
   for (i=0; i<num_connections; i++) {
     cpl_add_connectionpoint(cpl,new_connpoint(cpl->parent));
@@ -129,12 +152,17 @@ connpointline_create(DiaObject *parent, int num_connections)
   return cpl;
 }
 
-void 
-connpointline_destroy(ConnPointLine *cpl)
+
+void
+connpointline_destroy (ConnPointLine *cpl)
 {
-  while (cpl->num_connections > 0) del_connpoint(cpl_remove_connpoint(cpl,0));
-  g_free(cpl);
+  while (cpl->num_connections > 0) {
+    del_connpoint (cpl_remove_connpoint (cpl, 0));
+  }
+
+  g_clear_pointer (&cpl, g_free);
 }
+
 
 static ConnPointLine *
 cpl_inplacecreate(DiaObject *obj, int nc, int *realconncount)
@@ -147,7 +175,7 @@ cpl_inplacecreate(DiaObject *obj, int nc, int *realconncount)
      connection points to the parent object. */
   newcpl = g_new0(ConnPointLine,1);
   newcpl->parent = obj;
-  
+
   for (i=0; i < nc; i++,(*realconncount)++) {
     cp = g_new0(ConnectionPoint,1);
     cp->object = newcpl->parent;
@@ -174,14 +202,14 @@ connpointline_load(DiaObject *obj,ObjectNode obj_node,
 
   if (realconncount) (*realconncount) += cpl->num_connections;
   return cpl;
-  /* NOT this ! 
+  /* NOT this !
   return cpl_inplacecreate(obj,
 			   load_int(obj_node,name,default_nc),
 			   realconncount);
   */
 }
 
-void 
+void
 connpointline_save(ConnPointLine *cpl,ObjectNode obj_node,
 		   const gchar *name, DiaContext *ctx)
 {
@@ -200,7 +228,7 @@ void connpointline_update(ConnPointLine *cpl)
 
 }
 
-void 
+void
 connpointline_putonaline(ConnPointLine *cpl,Point *start,Point *end, gint dirs)
 {
   Point se_vector;
@@ -210,26 +238,26 @@ connpointline_putonaline(ConnPointLine *cpl,Point *start,Point *end, gint dirs)
 
   point_copy(&se_vector, end);
   point_sub(&se_vector, start);
-  
+
   se_len = point_len(&se_vector);
-  
+
   if (se_len > 0)
     point_normalize(&se_vector);
-  
+
   cpl->start = *start;
   cpl->end = *end;
-  
+
   if (dirs != DIR_NONE)
-    /* use the oone givne by the caller */;
+    /* use the one given by the caller */;
   else if (fabs(se_vector.x) > fabs(se_vector.y))
     dirs = DIR_NORTH|DIR_SOUTH;
   else
     dirs = DIR_EAST|DIR_WEST;
 
-  pseudopoints = cpl->num_connections + 1; /* here, we count the start and end 
+  pseudopoints = cpl->num_connections + 1; /* here, we count the start and end
 					    points as eating real positions. */
-  for (i=0, elem=cpl->connections; 
-       i<cpl->num_connections; 
+  for (i=0, elem=cpl->connections;
+       i<cpl->num_connections;
        i++,elem=g_slist_next(elem)) {
     ConnectionPoint *cp = (ConnectionPoint *)(elem->data);
     cp->pos = se_vector;
@@ -242,7 +270,7 @@ connpointline_putonaline(ConnPointLine *cpl,Point *start,Point *end, gint dirs)
 
 /* These object_* functions are useful to me, because of what they do, I think
    they belong to lib/object.c ; should I move them ? */
-static void 
+static void
 object_move_connection(DiaObject *obj,int sourcepos,int destpos)
 {
   ConnectionPoint *cp;
@@ -283,8 +311,8 @@ static void cpl_dump_connections(ConnPointLine *cpl)
   ConnectionPoint *cp;
 
   g_message("CPL order dump");
-  for (i=0,elem = cpl->connections; 
-       i<cpl->num_connections; 
+  for (i=0,elem = cpl->connections;
+       i<cpl->num_connections;
        i++,elem = g_slist_next(elem)) {
     cp = (ConnectionPoint *)(elem->data);
     g_message("connection %p %d@CPL %d@OBJ",
@@ -293,18 +321,18 @@ static void cpl_dump_connections(ConnPointLine *cpl)
 }
 #endif
 
-static void 
+static void
 cpl_reorder_connections(ConnPointLine *cpl)
 {
   /* This is needed, so that we don't mess up the loaded connections if
      we save after the user has removed and added some connection points.
-     Normally, if an object owns several CPL, the order of the groups of 
+     Normally, if an object owns several CPL, the order of the groups of
      connectionpoints in its connectionpoint list should not change, as long
-     as we call this function whenever we do something. 
-  
-     The CPL has two big responsiblities here : first, it messes with 
-     the parent object's structures (ugh), second, it must ensure that its 
-     first CP is inserted so that it is found first in the parent's CP list, 
+     as we call this function whenever we do something.
+
+     The CPL has two big responsibilities here : first, it messes with
+     the parent object's structures (ugh), second, it must ensure that its
+     first CP is inserted so that it is found first in the parent's CP list,
      and that the order of CP groups in the parent's CP list is respected (so
      that the parent could have several different CPL and rely on the order).
   */
@@ -330,11 +358,11 @@ cpl_reorder_connections(ConnPointLine *cpl)
     }
   }
   g_assert(first >= 0); /* otherwise things went loose badly. */
-  for (i=0,j=first,elem=cpl->connections; 
-       i<cpl->num_connections; 
+  for (i=0,j=first,elem=cpl->connections;
+       i<cpl->num_connections;
        elem=g_slist_next(elem),i++,j++) {
     cp = (ConnectionPoint *)(elem->data); /* = cpl->connections[i] */
-    if ( cp != obj->connections[j]) { /* first time will always be false. 
+    if ( cp != obj->connections[j]) { /* first time will always be false.
 					 Is GCC that smart ? Probably not. */
       object_move_connection(obj,object_find_connection(obj,cp,j),j);
     }
@@ -345,16 +373,15 @@ cpl_reorder_connections(ConnPointLine *cpl)
 #endif
 #if DEBUG_PARENT
   j = 0;
-  for (i=0; i<cpl->parent->num_connections;i++) 
+  for (i=0; i<cpl->parent->num_connections;i++)
     if (!cpl->parent->connections[i]) j++;
   /* We should never make such holes !*/
   if (j) g_warning("in cpl_reorder_connections there are %d holes in the parent's ConnectionPoint list !",j);
 #endif
 }
-  
-  
 
-int 
+
+int
 connpointline_can_add_point(ConnPointLine *cpl, Point *clicked)
 {
   return 1;
@@ -369,8 +396,8 @@ connpointline_can_remove_point(ConnPointLine *cpl, Point *clicked)
     return 1;
 }
 
-static int 
-cpl_get_pointbefore(ConnPointLine *cpl, Point *clickedpoint) 
+static int
+cpl_get_pointbefore(ConnPointLine *cpl, Point *clickedpoint)
 {
   int i, pos = -1;
   GSList *elem;
@@ -381,7 +408,7 @@ cpl_get_pointbefore(ConnPointLine *cpl, Point *clickedpoint)
   if (!clickedpoint) return 0;
 
   for (i=0,elem=cpl->connections;
-       i<cpl->num_connections; 
+       i<cpl->num_connections;
        i++,elem=g_slist_next(elem)) {
     cp = (ConnectionPoint *)(elem->data);
 
@@ -398,120 +425,143 @@ cpl_get_pointbefore(ConnPointLine *cpl, Point *clickedpoint)
   }
   return pos;
 }
- 
-typedef struct {
-  ObjectChange obj_change;
-  
+
+
+struct _DiaConnPointLineObjectChange {
+  DiaObjectChange obj_change;
+
   int add; /* How much to add or remove */
   int applied; /* 1 if the event has been applied. */
 
   ConnPointLine *cpl;
   int pos; /* Position where the change happened. */
   ConnectionPoint **cp; /* The removed connection point. */
-} CPLChange;
+};
 
-static void 
-cpl_change_addremove(CPLChange *change, ConnPointLine *cpl,
-		     int action, int resultingapplied)
+
+DIA_DEFINE_OBJECT_CHANGE (DiaConnPointLineObjectChange,
+                          dia_conn_point_line_object_change)
+
+
+static void
+dia_conn_point_line_object_change_addremove (DiaConnPointLineObjectChange *change,
+                                             ConnPointLine                *cpl,
+                                             int                           action,
+                                             int                           resultingapplied)
 {
   if (action != 0) {
     if (action > 0) { /* We should add */
       while (action--) {
-	cpl_add_connectionpoint_at(cpl,change->pos,change->cp[action]);
-	change->cp[action] = NULL;
+        cpl_add_connectionpoint_at (cpl, change->pos, change->cp[action]);
+        change->cp[action] = NULL;
       }
       cpl_reorder_connections(cpl);
     } else { /* We should remove. Warning, action is negative. */
       while (action++) {
-	change->cp[-action] = cpl_remove_connpoint(cpl,change->pos);
+        change->cp[-action] = cpl_remove_connpoint (cpl, change->pos);
       }
     }
   } else {
-    g_warning("cpl_change_addremove(): null action !");
+    g_warning ("cpl_change_addremove(): null action !");
   }
-  change->applied = resultingapplied; 
+  change->applied = resultingapplied;
 }
 
-static void 
-cpl_change_apply(CPLChange *change, ConnPointLine *probablynotcpl) 
+
+static void
+dia_conn_point_line_object_change_apply (DiaObjectChange *self, DiaObject *probablynotcpl)
 {
-  cpl_change_addremove(change,change->cpl,change->add,1);
+  DiaConnPointLineObjectChange *change = DIA_CONN_POINT_LINE_OBJECT_CHANGE (self);
+
+  dia_conn_point_line_object_change_addremove (change, change->cpl, change->add, 1);
 }
 
-static void 
-cpl_change_revert(CPLChange *change, ConnPointLine *probablynotcpl) 
+
+static void
+dia_conn_point_line_object_change_revert (DiaObjectChange *self, DiaObject *probablynotcpl)
 {
-  cpl_change_addremove(change,change->cpl,-(change->add),0);
+  DiaConnPointLineObjectChange *change = DIA_CONN_POINT_LINE_OBJECT_CHANGE (self);
+
+  dia_conn_point_line_object_change_addremove (change, change->cpl, -(change->add), 0);
 }
 
-static void cpl_change_free(CPLChange *change)
+
+static void
+dia_conn_point_line_object_change_free (DiaObjectChange *self)
 {
-  int i = ABS(change->add);
+  DiaConnPointLineObjectChange *change = DIA_CONN_POINT_LINE_OBJECT_CHANGE (self);
+  int i = ABS (change->add);
 
   while (i--) {
     if (change->cp[i]) {
-      del_connpoint(change->cp[i]);
+      del_connpoint (change->cp[i]);
     }
   }
-  g_free(change->cp); change->cp = (ConnectionPoint **)(0xDEADBEEF);
+  g_clear_pointer (&change->cp, g_free);
+
+  change->cp = (ConnectionPoint **)(0xDEADBEEF);
 }
 
-static ObjectChange *
-cpl_create_change(ConnPointLine *cpl, int pos, int add) 
-{
-  CPLChange *change;
 
-  change = g_new0(CPLChange,1);
-  
-  change->obj_change.apply = (ObjectChangeApplyFunc) cpl_change_apply;
-  change->obj_change.revert = (ObjectChangeRevertFunc) cpl_change_revert;
-  change->obj_change.free = (ObjectChangeFreeFunc) cpl_change_free;
+static DiaObjectChange *
+dia_conn_point_line_object_change_new (ConnPointLine *cpl, int pos, int add)
+{
+  DiaConnPointLineObjectChange *change;
+
+  change = dia_object_change_new (DIA_TYPE_CONN_POINT_LINE_OBJECT_CHANGE);
 
   change->cpl = cpl;
   change->applied = 0;
   change->add = add;
   change->pos = pos;
 
-  change->cp = g_malloc0(sizeof(ConnectionPoint *) * ABS(add));
+  change->cp = g_new0 (ConnectionPoint *, ABS (add));
   while (add-- > 0) {
-    change->cp[add] = new_connpoint(cpl->parent);
+    change->cp[add] = new_connpoint (cpl->parent);
   }
-  
-  return (ObjectChange *)change;
+
+  return DIA_OBJECT_CHANGE (change);
 }
 
-ObjectChange *
-connpointline_add_points(ConnPointLine *cpl, 
-			  Point *clickedpoint, int count)
+
+DiaObjectChange *
+connpointline_add_points (ConnPointLine *cpl,
+                          Point         *clickedpoint,
+                          int            count)
 {
   int pos;
-  ObjectChange *change;
+  DiaObjectChange *change;
 
-  pos = cpl_get_pointbefore(cpl,clickedpoint);
-  change = cpl_create_change(cpl,pos,count);
+  pos = cpl_get_pointbefore (cpl, clickedpoint);
+  change = dia_conn_point_line_object_change_new (cpl, pos, count);
 
-  change->apply(change, (DiaObject *)cpl);
+  dia_object_change_apply (change, DIA_OBJECT (cpl));
+
   return change;
 }
 
 
-ObjectChange *
-connpointline_remove_points(ConnPointLine *cpl, 
-			     Point *clickedpoint, int count)
+DiaObjectChange *
+connpointline_remove_points (ConnPointLine *cpl,
+                             Point         *clickedpoint,
+                             int            count)
 {
   int pos;
-  ObjectChange *change;
+  DiaObjectChange *change;
 
-  pos = cpl_get_pointbefore(cpl,clickedpoint);
-  change = cpl_create_change(cpl,pos,-count);
+  pos = cpl_get_pointbefore (cpl, clickedpoint);
+  change = dia_conn_point_line_object_change_new (cpl, pos, -count);
 
-  change->apply(change, (DiaObject *)cpl);
+  dia_object_change_apply (change, DIA_OBJECT (cpl));
+
   return change;
 }
 
-int 
-connpointline_adjust_count(ConnPointLine *cpl,
-			   int newcount, Point *where)
+
+int
+connpointline_adjust_count (ConnPointLine *cpl,
+                            int            newcount,
+                            Point         *where)
 {
   int oldcount,delta;
 
@@ -521,19 +571,18 @@ connpointline_adjust_count(ConnPointLine *cpl,
 
   delta = newcount - oldcount;
   if (delta != 0) {
-    ObjectChange *change;
+    DiaObjectChange *change;
     /*g_message("going to adjust %d (to be %d)",delta,shouldbe);*/
-   
-    if (delta > 0) {
-      change = connpointline_add_points(cpl, where, delta);
-    } else { 
-      change = connpointline_remove_points(cpl, where, -delta);
-    }
-    if (change->free) change->free(change);
-    g_free(change); /* we don't really need this change object. */
-  }    
 
+    if (delta > 0) {
+      change = connpointline_add_points (cpl, where, delta);
+    } else {
+      change = connpointline_remove_points (cpl, where, -delta);
+    }
+
+    g_clear_pointer (&change, dia_object_change_unref);
+    /* we don't really need this change object. */
+  }
 
   return oldcount;
 }
-

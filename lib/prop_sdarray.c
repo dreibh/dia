@@ -24,11 +24,13 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <config.h>
+
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <gtk/gtk.h>
 #define WIDGET GtkWidget
-#include "widgets.h"
 #include "properties.h"
 #include "propinternals.h"
 #include "prop_sdarray_widget.h"
@@ -63,7 +65,7 @@ arrayprop_free(ArrayProperty *prop)
 {
   arrayprop_freerecords(prop);
   g_ptr_array_free(prop->records,TRUE);
-  g_free(prop);
+  g_clear_pointer (&prop, g_free);
 }
 
 static ArrayProperty *

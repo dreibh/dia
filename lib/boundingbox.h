@@ -1,5 +1,5 @@
 /* Dia -- an diagram creation/manipulation program
- * Support for computing bounding boxes 
+ * Support for computing bounding boxes
  * Copyright (C) 2001 Cyrille Chepelov
  *
  * This program is free software; you can redistribute it and/or modify
@@ -34,9 +34,9 @@
  * \ingroup ObjectBBox
  */
 struct _PolyBBExtras {
-  real start_long, start_trans;
-  real middle_trans;
-  real end_long, end_trans;
+  double start_long, start_trans;
+  double middle_trans;
+  double end_long, end_trans;
 };
 
 /*!
@@ -44,8 +44,8 @@ struct _PolyBBExtras {
  * \ingroup ObjectBBox
  */
 struct _LineBBExtras {
-  real start_long, start_trans;
-  real end_long, end_trans;
+  double start_long, start_trans;
+  double end_long, end_trans;
 };
 
 /*!
@@ -53,60 +53,68 @@ struct _LineBBExtras {
  * \ingroup ObjectBBox
  */
 struct _ElementBBExtras {
-  real border_trans;
+  double border_trans;
 };
 
 void bicubicbezier2D_bbox(const Point *p0,const Point *p1,
                           const Point *p2,const Point *p3,
                           const PolyBBExtras *extra,
-                          Rectangle *rect);
+                          DiaRectangle       *rect);
 
 /*!
  * \brief Bounding box calculation for a straight line
- * The calcualtion includes line width and arrwos with the right extra
+ * The calculation includes line width and arrows with the right extra
  * \ingroup ObjectBBox
  */
 void line_bbox(const Point *p1, const Point *p2,
                const LineBBExtras *extra,
-               Rectangle *rect);
+               DiaRectangle       *rect);
 
 /*!
  * \brief Bounding box calculation for a rectangle
- * The calcualtion includes line width with the right extra
+ * The calculation includes line width with the right extra
  * \ingroup ObjectBBox
  */
-void rectangle_bbox(const Rectangle *rin,
+void rectangle_bbox(const DiaRectangle    *rin,
                     const ElementBBExtras *extra,
-                    Rectangle *rout);
+                    DiaRectangle          *rout);
 
 /*!
  * \brief Bounding box calculation for an ellipse
- * The calcualtion includes line width with the right extra
+ * The calculation includes line width with the right extra
  * \ingroup ObjectBBox
  */
-void ellipse_bbox(const Point *centre, real width, real height,
-                  const ElementBBExtras *extra,
-                  Rectangle *rect);
+void ellipse_bbox (const Point           *centre,
+                   double                 width,
+                   double                 height,
+                   const ElementBBExtras *extra,
+                   DiaRectangle          *rect);
 /*!
  * \brief Bounding box calculation for a polyline
- * The calcualtion includes line width and arrwos with the right extra
+ * The calculation includes line width and arrows with the right extra
  * \ingroup ObjectBBox
  */
 void polyline_bbox(const Point *pts, int numpoints,
                    const PolyBBExtras *extra, gboolean closed,
-                   Rectangle *rect);
+                   DiaRectangle       *rect);
 /*!
  * \brief Bounding box calculation for a bezier
- * The calcualtion includes line width and arrwos with the right extra
+ * The calculation includes line width and arrows with the right extra
  * \ingroup ObjectBBox
  */
 void polybezier_bbox(const BezPoint *pts, int numpoints,
                      const PolyBBExtras *extra, gboolean closed,
-                     Rectangle *rect);
+                     DiaRectangle       *rect);
 
 /* helpers for bezier curve calculation */
-void bernstein_develop(const real p[4],real *A,real *B,real *C,real *D);
-real bezier_eval(const real p[4],real u);
-real bezier_eval_tangent(const real p[4],real u);
+void   bernstein_develop   (const double  p[4],
+                            double       *A,
+                            double       *B,
+                            double       *C,
+                            double       *D);
+double bezier_eval         (const double  p[4],
+                            double        u);
+double bezier_eval_tangent (const double  p[4],
+                            double        u);
 
 #endif /* BOUNDINGBOX_H */

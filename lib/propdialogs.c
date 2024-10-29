@@ -6,6 +6,10 @@
  * Copyright (C) 2001 Cyrille Chepelov
  * Major restructuration done in August 2001 by C. Chepelov
  *
+ * © 2023 Hubert Figuière <hub@figuiere.net>
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Routines for the construction of a property dialog.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,13 +26,15 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <config.h>
+
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <string.h>
 
 #include <gtk/gtk.h>
 #define WIDGET GtkWidget
-#include "widgets.h"
 #include "properties.h"
 #include "propinternals.h"
 #include "object.h"
@@ -43,7 +49,7 @@ prop_dialog_new(GList *objects, gboolean is_default)
 {
   PropDialog *dialog = g_new0(PropDialog,1);
   dialog->props = NULL;
-  dialog->widget = gtk_vbox_new(FALSE,1);
+  dialog->widget = gtk_box_new(GTK_ORIENTATION_VERTICAL, 1);
   dialog->prop_widgets = g_array_new(FALSE,TRUE,sizeof(PropWidgetAssoc));
   dialog->copies = NULL;
   dialog->curtable = NULL;
@@ -110,9 +116,9 @@ prop_dialog_add_raw_with_flags(PropDialog *dialog, GtkWidget *widget,
 static void
 prop_dialog_make_curtable(PropDialog *dialog)
 {
-  GtkWidget *table = gtk_table_new(1,2,FALSE);
-  gtk_table_set_row_spacings(GTK_TABLE(table), 2);
-  gtk_table_set_col_spacings(GTK_TABLE(table), 5);
+  GtkWidget *table = gtk_grid_new();
+  gtk_grid_set_row_spacing(GTK_GRID(table), 6);
+  gtk_grid_set_column_spacing(GTK_GRID(table), 6);
   gtk_widget_show(table);
   prop_dialog_add_raw(dialog,table);
 
@@ -125,17 +131,23 @@ prop_dialog_add_widget(PropDialog *dialog, GtkWidget *label, GtkWidget *widget)
 {
   gtk_misc_set_alignment(GTK_MISC(label), 0.0, 0.5);
 
-  if (!dialog->curtable) prop_dialog_make_curtable(dialog);
-  gtk_table_attach(GTK_TABLE(dialog->curtable),label,
-                   0,1,
-                   dialog->currow, dialog->currow+1,
-                   GTK_FILL, GTK_FILL|GTK_EXPAND,
-                   0,0);
-  gtk_table_attach(GTK_TABLE(dialog->curtable),widget,
-                   1,2,
-                   dialog->currow, dialog->currow+1,
-                   GTK_FILL|GTK_EXPAND, GTK_FILL|GTK_EXPAND,
-                   0,0);
+  if (!dialog->curtable)
+    prop_dialog_make_curtable(dialog);
+  gtk_grid_attach(GTK_GRID(dialog->curtable), label,
+                  0, dialog->currow, 1, 1);
+  gtk_widget_set_vexpand(label, FALSE);
+
+  if (GTK_IS_SWITCH (widget)) {
+    GtkWidget *box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_box_pack_start (GTK_BOX (box), widget, FALSE, TRUE, 0);
+    gtk_widget_show (widget);
+    widget = box;
+  }
+
+  gtk_widget_set_hexpand(widget, TRUE);
+
+  gtk_grid_attach(GTK_GRID(dialog->curtable), widget,
+                  1, dialog->currow, 1, 1);
   gtk_widget_show(label);
   gtk_widget_show(widget);
   dialog->currow++;
@@ -189,10 +201,10 @@ property_signal_handler(GObject *obj,
     prop_get_data_from_widgets(dialog);
 
     for (tmp = list; tmp != NULL; tmp = tmp->next) {
-      DiaObject *obj = (DiaObject*)tmp->data;
-      obj->ops->set_props(obj,dialog->props);
-      prop->event_handler(obj,prop);
-      obj->ops->get_props(obj,dialog->props);
+      DiaObject *item = (DiaObject*) tmp->data;
+      dia_object_set_properties (item, dialog->props);
+      prop->event_handler (item, prop);
+      dia_object_get_properties (item, dialog->props);
     }
 
     for (j = 0; j < dialog->prop_widgets->len; j++) {
@@ -220,10 +232,19 @@ property_signal_handler(GObject *obj,
   }
 }
 
-void
-prophandler_connect(const Property *prop,
-                    GObject *object,
-                    const gchar *signal)
+static void
+property_notify_forward(GObject *obj,
+               GParamSpec *pspec,
+               gpointer func_data)
+{
+  property_signal_handler(obj, func_data);
+}
+
+static void
+_prophandler_connect(const Property *prop,
+                     GObject *object,
+                     const gchar *signal,
+                     GCallback handler)
 {
   if (0==strcmp(signal,"FIXME")) {
     g_warning("signal type unknown for this kind of property (name is %s), \n"
@@ -233,8 +254,24 @@ prophandler_connect(const Property *prop,
 
   g_signal_connect (G_OBJECT (object),
                     signal,
-                    G_CALLBACK (property_signal_handler),
+                    handler,
                     (gpointer)(&prop->self_event_data));
+}
+
+void
+prophandler_connect_notify(const Property *prop,
+                    GObject *object,
+                    const gchar *signal)
+{
+  _prophandler_connect(prop, object, signal, G_CALLBACK (property_notify_forward));
+}
+
+void
+prophandler_connect(const Property *prop,
+                    GObject *object,
+                    const gchar *signal)
+{
+  _prophandler_connect(prop, object, signal, G_CALLBACK (property_signal_handler));
 }
 
 void
@@ -281,10 +318,10 @@ prop_dialog_add_properties(PropDialog *dialog, GPtrArray *props)
 
   if (scrollable) {
     GtkWidget *swin = gtk_scrolled_window_new (NULL, NULL);
-    GtkWidget *vbox = gtk_vbox_new(FALSE,2);
+    GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
     gtk_box_pack_start(GTK_BOX (dialog->widget), swin, TRUE, TRUE, 0);
     gtk_widget_show (swin);
-    gtk_scrolled_window_add_with_viewport (GTK_SCROLLED_WINDOW (swin), vbox);
+    gtk_container_add (GTK_CONTAINER (swin), vbox);
     gtk_viewport_set_shadow_type(GTK_VIEWPORT(gtk_bin_get_child(GTK_BIN(swin))), GTK_SHADOW_NONE);
     gtk_widget_show (vbox);
     gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (swin), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
@@ -305,7 +342,7 @@ prop_dialog_add_properties(PropDialog *dialog, GPtrArray *props)
     GdkScreen *screen = gtk_widget_get_screen(swin);
     gint sheight = screen ? (2 * gdk_screen_get_height(screen)) / 3 : 400;
 
-    gtk_widget_size_request (vbox, &requisition);
+    gtk_widget_get_preferred_size (vbox, NULL, &requisition);
     /* I'd say default size calculation for scrollable is quite broken */
     gtk_widget_set_size_request (swin, -1, requisition.height > sheight ? sheight : requisition.height);
   }

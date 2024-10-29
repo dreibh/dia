@@ -26,16 +26,16 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
 
 #include <glib.h>
 
-#include "intl.h"
 #include "object.h"
 #include "connection.h"
 #include "diarenderer.h"
@@ -71,8 +71,6 @@ struct _Mbr {
   Handle pm_handle;
 
   double text_width,text_ascent;
-
-  int init;
 };
 
 #define HANDLE_MOVE_MID_POINT (HANDLE_CUSTOM1)
@@ -93,10 +91,10 @@ static Color color_red = { 1.0f, 0.0f, 0.0f, 1.0f };
 
 static DiaFont *mbr_font = NULL;
 
-static ObjectChange* mbr_move_handle(Mbr *mbr, Handle *handle,
+static DiaObjectChange* mbr_move_handle(Mbr *mbr, Handle *handle,
 				   Point *to, ConnectionPoint *cp,
 				   HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* mbr_move(Mbr *mbr, Point *to);
+static DiaObjectChange* mbr_move(Mbr *mbr, Point *to);
 static void mbr_select(Mbr *mbr, Point *clicked_point,
 			      DiaRenderer *interactive_renderer);
 static void mbr_draw(Mbr *mbr, DiaRenderer *renderer);
@@ -129,7 +127,12 @@ DiaObjectType kaos_mbr_type =
   "KAOS - mbr",      /* name */
   0,              /* version */
   contributes_xpm, /* pixmap */
-  &mbr_type_ops       /* ops */
+  &mbr_type_ops,      /* ops */
+  NULL, /* pixmap_file */
+  NULL, /* default_user_data */
+  NULL, /* prop_descs */
+  NULL, /* prop_offsets */
+  DIA_OBJECT_HAS_VARIANTS /* flags */
 };
 
 static ObjectOps mbr_ops = {
@@ -198,8 +201,6 @@ mbr_get_props(Mbr * mbr, GPtrArray *props)
 static void
 mbr_set_props(Mbr *mbr, GPtrArray *props)
 {
- if (mbr->init==-1) { mbr->init++; return; }
-
   object_set_props_from_offsets(&mbr->connection.object,
                                 mbr_offsets, props);
   mbr_update_data(mbr);
@@ -219,17 +220,21 @@ mbr_select(Mbr *mbr, Point *clicked_point,
   connection_update_handles(&mbr->connection);
 }
 
-static ObjectChange*
-mbr_move_handle(Mbr *mbr, Handle *handle,
-		 Point *to, ConnectionPoint *cp,
-		 HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+mbr_move_handle (Mbr              *mbr,
+                 Handle           *handle,
+                 Point            *to,
+                 ConnectionPoint  *cp,
+                 HandleMoveReason  reason,
+                 ModifierKeys      modifiers)
 {
   Point p1, p2;
   Point *endpoints;
 
-  assert(mbr!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+  g_return_val_if_fail (mbr != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
   if (handle->id == HANDLE_MOVE_MID_POINT) {
     mbr->pm = *to;
@@ -248,7 +253,7 @@ mbr_move_handle(Mbr *mbr, Handle *handle,
   return NULL;
 }
 
-static ObjectChange*
+static DiaObjectChange*
 mbr_move(Mbr *mbr, Point *to)
 {
   Point start_to_end;
@@ -331,42 +336,66 @@ compute_line(Point* p1, Point* p2, Point *pm, BezPoint* line) {
   line[2].p2.y=p2->y-dy2*OFF;
 }
 
-static gchar* compute_text(Mbr *mbr) {
-  gchar* annot;
+
+static char *
+compute_text (Mbr *mbr)
+{
+  char *annot;
   switch (mbr->type) {
-    case MBR_RESP:      annot = g_strdup("Resp"); break;
-    case MBR_MONITORS:  annot = g_strdup("Mon"); break;
-    case MBR_CONTROLS:  annot = g_strdup("Ctrl"); break;
-    case MBR_CAPABLEOF: annot = g_strdup("CapOf"); break;
-    case MBR_PERFORMS:  annot = g_strdup("Perf"); break;
-    case MBR_INPUT:     annot = g_strdup("In"); break;
-    case MBR_OUTPUT:    annot = g_strdup("Out"); break;
-    default:            annot = g_strdup("");
+    case MBR_RESP:
+      annot = g_strdup ("Resp");
+      break;
+    case MBR_MONITORS:
+      annot = g_strdup ("Mon");
+      break;
+    case MBR_CONTROLS:
+      annot = g_strdup ("Ctrl");
+      break;
+    case MBR_CAPABLEOF:
+      annot = g_strdup ("CapOf");
+      break;
+    case MBR_PERFORMS:
+      annot = g_strdup ("Perf");
+      break;
+    case MBR_INPUT:
+      annot = g_strdup ("In");
+      break;
+    case MBR_OUTPUT:
+      annot = g_strdup ("Out");
+      break;
+    // TODO: Are we sure these are ""
+    case MBR_CONTRIBUTES:
+    case MBR_OBSTRUCTS:
+    case MBR_CONFLICTS:
+    default:
+      annot = g_strdup ("");
+      break;
   }
   return annot;
 }
 
+
 /* drawing here -- TBD inverse flow ??  */
 static void
-mbr_draw(Mbr *mbr, DiaRenderer *renderer)
+mbr_draw (Mbr *mbr, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point *endpoints;
   Point p1,p2,pm1,pm2;
   Point pa1,pa2;
   Arrow arrow;
-  gchar *annot;
+  char *annot;
   double k,dx,dy,dxn,dyn,dxp,dyp;
 
   /* some asserts */
-  assert(mbr != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (mbr != NULL);
+  g_return_if_fail (renderer != NULL);
 
   /* arrow type */
-  if (mbr->type!=MBR_CONFLICTS)
+  if (mbr->type!=MBR_CONFLICTS) {
     arrow.type = ARROW_FILLED_TRIANGLE;
-  else
+  } else {
     arrow.type = ARROW_NONE;
+  }
   arrow.length = MBR_ARROWLEN;
   arrow.width = MBR_ARROWWIDTH;
 
@@ -377,18 +406,18 @@ mbr_draw(Mbr *mbr, DiaRenderer *renderer)
   p2 = endpoints[1];
 
   /** drawing directed line **/
-  renderer_ops->set_linewidth(renderer, MBR_WIDTH);
-  renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
+  dia_renderer_set_linewidth (renderer, MBR_WIDTH);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
 
   dx=p1.x-p2.x;
   dy=p1.y-p2.y;
   k=sqrt(dx*dx+dy*dy)*2/MBR_DEC_SIZE;
 
   if (k<0.05) {  /* bug fix for closed bezier */
-    renderer_ops->draw_line_with_arrows(renderer,&p1,&p2,MBR_WIDTH,&MBR_FG_COLOR,NULL, &arrow);
+    dia_renderer_draw_line_with_arrows (renderer,&p1,&p2,MBR_WIDTH,&MBR_FG_COLOR,NULL, &arrow);
   } else {
-    renderer_ops->draw_bezier_with_arrows(renderer, mbr->line, 3, MBR_WIDTH, &MBR_FG_COLOR, NULL, &arrow);
+    dia_renderer_draw_bezier_with_arrows (renderer, mbr->line, 3, MBR_WIDTH, &MBR_FG_COLOR, NULL, &arrow);
   }
 
   /** drawing vector decoration  **/
@@ -406,8 +435,8 @@ mbr_draw(Mbr *mbr, DiaRenderer *renderer)
     pm2.x=mbr->pm.x+dxp;
     pm2.y=mbr->pm.y+dyp;
 
-    renderer_ops->set_linewidth(renderer, MBR_WIDTH*2);
-    renderer_ops->draw_line_with_arrows(renderer,&pm1,&pm2,MBR_WIDTH,&MBR_RED_COLOR,NULL,NULL);
+    dia_renderer_set_linewidth (renderer, MBR_WIDTH*2);
+    dia_renderer_draw_line_with_arrows (renderer,&pm1,&pm2,MBR_WIDTH,&MBR_RED_COLOR,NULL,NULL);
   }
 
   if (mbr->type==MBR_CONFLICTS) {
@@ -416,32 +445,36 @@ mbr_draw(Mbr *mbr, DiaRenderer *renderer)
     pm2.x=mbr->pm.x+dxn+dxp;
     pm2.y=mbr->pm.y+dyn+dyp;
 
-    renderer_ops->set_linewidth(renderer, MBR_WIDTH*2);
-    renderer_ops->draw_line_with_arrows(renderer,&pm1,&pm2,MBR_WIDTH,&MBR_RED_COLOR,NULL,NULL);
+    dia_renderer_set_linewidth (renderer, MBR_WIDTH*2);
+    dia_renderer_draw_line_with_arrows (renderer,&pm1,&pm2,MBR_WIDTH,&MBR_RED_COLOR,NULL,NULL);
 
     pm1.x=mbr->pm.x-dxn+dxp;
     pm1.y=mbr->pm.y-dyn+dyp;
     pm2.x=mbr->pm.x+dxn-dxp;
     pm2.y=mbr->pm.y+dyn-dyp;
 
-    renderer_ops->draw_line_with_arrows(renderer,&pm1,&pm2,MBR_WIDTH,&MBR_RED_COLOR,NULL,NULL);
+    dia_renderer_draw_line_with_arrows (renderer,&pm1,&pm2,MBR_WIDTH,&MBR_RED_COLOR,NULL,NULL);
   }
 
 
   /** writing decoration text **/
-  annot=compute_text(mbr);
-  renderer_ops->set_font(renderer, mbr_font, MBR_DECFONTHEIGHT);
+  annot = compute_text (mbr);
+  dia_renderer_set_font (renderer, mbr_font, MBR_DECFONTHEIGHT);
 
-  if (annot && strlen(annot) != 0) {
-      pa1.x=mbr->pm.x-mbr->text_width/2;
-      pa1.y=mbr->pm.y-mbr->text_ascent +0.1;  /* with some fix... */
-      pa2.x=pa1.x+mbr->text_width;
-      pa2.y=pa1.y+MBR_DECFONTHEIGHT    +0.1;  /* with some fix... */
-      renderer_ops->draw_rect(renderer,&pa1,&pa2,&color_white, NULL);
-      renderer_ops->draw_string(renderer,annot,&mbr->pm,ALIGN_CENTER,&MBR_FG_COLOR);
+  if (annot && strlen (annot) != 0) {
+    pa1.x = mbr->pm.x - mbr->text_width / 2;
+    pa1.y = mbr->pm.y - mbr->text_ascent + 0.1;  /* with some fix... */
+    pa2.x = pa1.x + mbr->text_width;
+    pa2.y = pa1.y + MBR_DECFONTHEIGHT + 0.1;  /* with some fix... */
+    dia_renderer_draw_rect (renderer, &pa1, &pa2, &color_white, NULL);
+    dia_renderer_draw_string (renderer,
+                              annot,
+                              &mbr->pm,
+                              DIA_ALIGN_CENTRE,
+                              &MBR_FG_COLOR);
   }
 
-  g_free(annot);
+  g_clear_pointer (&annot, g_free);
 }
 
 /* creation here */
@@ -457,7 +490,7 @@ mbr_create(Point *startpoint, void *user_data, Handle **handle1, Handle **handle
     mbr_font = dia_font_new_from_style(DIA_FONT_SANS, MBR_DECFONTHEIGHT);
   }
 
-  mbr = g_malloc0(sizeof(Mbr));
+  mbr = g_new0 (Mbr, 1);
 
   conn = &mbr->connection;
   conn->endpoints[0] = *startpoint;
@@ -509,9 +542,6 @@ mbr_create(Point *startpoint, void *user_data, Handle **handle1, Handle **handle
   *handle1 = obj->handles[0];
   *handle2 = obj->handles[1];
 
-  /* bug workaround */
-  if (GPOINTER_TO_INT(user_data)!=0) mbr->init=-1; else mbr->init=0;
-
   return &mbr->connection.object;
 }
 
@@ -526,10 +556,10 @@ mbr_update_data(Mbr *mbr)
 {
   Connection *conn = &mbr->connection;
   DiaObject *obj = &conn->object;
-  Rectangle rect;
+  DiaRectangle rect;
   Point p1,p2;
   Point p3,p4;
-  gchar *text;
+  char *text;
 
 /* Too complex to easily decide -- this is essentially a bezier curve */
 /*
@@ -575,7 +605,7 @@ mbr_update_data(Mbr *mbr)
   rect.bottom = rect.top + MBR_DECFONTHEIGHT;
   rectangle_union(&obj->bounding_box, &rect);
 
-  g_free(text);   /* free auxilliary text */
+  g_clear_pointer (&text, g_free);   /* free auxilliary text */
 }
 
 static DiaObject *

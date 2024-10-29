@@ -19,7 +19,9 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <gdk/gdkkeysyms.h>
 
@@ -34,10 +36,9 @@
 #include "diagram.h"
 #include "display.h"
 #include "interface.h"
-#include "layer_dialog.h"
+#include "layer-editor/layer_dialog.h"
 #include "preferences.h"
 #include "../lib/filter.h"
-#include "../lib/intl.h"
 #include "message.h"
 #include "persistence.h"
 
@@ -45,21 +46,26 @@ static void open_recent_file_callback (GtkWidget *widget, gpointer data);
 void recent_file_history_remove (const char *fname);
 
 static void
-recent_file_history_clear_menu()
+recent_file_history_clear_menu (void)
 {
   menus_clear_recent ();
 }
 
+
 /**
+ * recent_file_history_make_menu:
+ *
  * Build and insert the recent files menu.
+ *
+ * Since: dawn-of-time
  */
 static void
-recent_file_history_make_menu()
+recent_file_history_make_menu (void)
 {
   GList *items;
   GtkActionGroup *group;
   GtkAction *action;
-  gint i = 0;
+  int i = 0;
 
   items = persistent_list_get_glist ("recent-files");
   if (!items)
@@ -88,36 +94,46 @@ recent_file_history_make_menu()
 
     gtk_action_group_add_action_with_accel (group, action, accel);
 
-    g_free (name);
-    g_free (file);
+    g_clear_pointer (&name, g_free);
+    g_clear_pointer (&file, g_free);
     g_strfreev (split);
-    g_free (file_escaped);
-    g_free (label);
-    g_free (accel);
+    g_clear_pointer (&file_escaped, g_free);
+    g_clear_pointer (&label, g_free);
+    g_clear_pointer (&accel, g_free);
   }
   menus_set_recent (group);
 }
 
-/** Add a new item to the file history list.
- * Can also handle the addition of an already exisiting file. The whole recent menu is rebuild every time but
+
+/**
+ * recent_file_history_add:
+ * @fname: filename to add
+ *
+ * Add a new item to the file history list.
+ * Can also handle the addition of an already existing file. The whole recent menu is rebuild every time but
  * it should be fast enough to favor simplicity of the code.
+ *
+ * Since: dawn-of-time
  */
 void
-recent_file_history_add(const char *fname)
+recent_file_history_add (const char *fname)
 {
-  gchar *absname = dia_get_absolute_filename(fname);
-  gchar *filename = g_filename_to_utf8(absname, -1, NULL, NULL, NULL);
-  recent_file_history_clear_menu();
-  persistent_list_add("recent-files", filename);
-  g_free(absname);
-  g_free(filename);
+  char *absname = g_canonicalize_filename (fname, NULL);
+  char *filename = g_filename_to_utf8 (absname, -1, NULL, NULL, NULL);
 
-  recent_file_history_make_menu();
+  recent_file_history_clear_menu ();
+  persistent_list_add ("recent-files", filename);
+
+  g_clear_pointer (&absname, g_free);
+  g_clear_pointer (&filename, g_free);
+
+  recent_file_history_make_menu ();
 }
+
 
 /* load the recent file history */
 void
-recent_file_history_init()
+recent_file_history_init (void)
 {
   prefs.recent_documents_list_size = CLAMP(prefs.recent_documents_list_size, 0, 16);
 
@@ -126,22 +142,33 @@ recent_file_history_init()
   recent_file_history_make_menu();
 }
 
-/* remove a broken file from the history and update menu accordingly
- * Xing Wang, 2002.06 */
+
+/**
+ * recent_file_history_remove:
+ * @fname: filename to remove
+ *
+ * Remove a broken file from the history and update menu accordingly
+ *
+ * Xing Wang, 2002.06
+ *
+ * Since: dawn-of-time
+ */
 void
 recent_file_history_remove (const char *fname)
 {
-  gchar *absname = dia_get_absolute_filename(fname);
-  gchar *filename = g_filename_to_utf8(absname, -1, NULL, NULL, NULL);
+  char *absname = g_canonicalize_filename (fname, NULL);
+  char *filename = g_filename_to_utf8 (absname, -1, NULL, NULL, NULL);
 
-  recent_file_history_clear_menu();
+  recent_file_history_clear_menu ();
 
-  persistent_list_remove("recent-files", filename);
-  g_free(absname);
-  g_free(filename);
+  persistent_list_remove ("recent-files", filename);
 
-  recent_file_history_make_menu();
+  g_clear_pointer (&absname, g_free);
+  g_clear_pointer (&filename, g_free);
+
+  recent_file_history_make_menu ();
 }
+
 
 static void
 open_recent_file_callback(GtkWidget *widget, gpointer data)
@@ -159,7 +186,9 @@ open_recent_file_callback(GtkWidget *widget, gpointer data)
     if (diagram->displays == NULL) {
       new_display(diagram);
     }
-  } else
+  } else {
     recent_file_history_remove (filename);
-  g_free(filename);
+  }
+
+  g_clear_pointer (&filename, g_free);
 }

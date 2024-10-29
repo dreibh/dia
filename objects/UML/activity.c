@@ -19,13 +19,13 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "diarenderer.h"
@@ -61,10 +61,10 @@ struct _State {
 static real state_distance_from(State *state, Point *point);
 static void state_select(State *state, Point *clicked_point,
 			DiaRenderer *interactive_renderer);
-static ObjectChange* state_move_handle(State *state, Handle *handle,
+static DiaObjectChange* state_move_handle(State *state, Handle *handle,
 				       Point *to, ConnectionPoint *cp,
 				       HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* state_move(State *state, Point *to);
+static DiaObjectChange* state_move(State *state, Point *to);
 static void state_draw(State *state, DiaRenderer *renderer);
 static DiaObject *state_create_activity(Point *startpoint,
 			   void *user_data,
@@ -180,39 +180,44 @@ state_select(State *state, Point *clicked_point,
   element_update_handles(&state->element);
 }
 
-static ObjectChange*
-state_move_handle(State *state, Handle *handle,
-		  Point *to, ConnectionPoint *cp,
-		  HandleMoveReason reason, ModifierKeys modifiers)
-{
-  assert(state!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
 
-  assert(handle->id < 8);
+static DiaObjectChange *
+state_move_handle (State            *state,
+                   Handle           *handle,
+                   Point            *to,
+                   ConnectionPoint  *cp,
+                   HandleMoveReason  reason,
+                   ModifierKeys      modifiers)
+{
+  g_return_val_if_fail (state != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
+
+  g_return_val_if_fail (handle->id < 8, NULL);
 
   return NULL;
 }
 
-static ObjectChange*
-state_move(State *state, Point *to)
+
+static DiaObjectChange *
+state_move (State *state, Point *to)
 {
   state->element.corner = *to;
-  state_update_data(state);
+  state_update_data (state);
 
   return NULL;
 }
 
+
 static void
-state_draw(State *state, DiaRenderer *renderer)
+state_draw (State *state, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Element *elem;
-  real x, y, w, h;
+  double x, y, w, h;
   Point p1, p2;
 
-  assert(state != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (state != NULL);
+  g_return_if_fail (renderer != NULL);
 
   elem = &state->element;
 
@@ -221,17 +226,21 @@ state_draw(State *state, DiaRenderer *renderer)
   w = elem->width;
   h = elem->height;
 
-  renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
-  renderer_ops->set_linewidth(renderer, STATE_LINEWIDTH);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
+  dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+  dia_renderer_set_linewidth (renderer, STATE_LINEWIDTH);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
 
   p1.x = x;
   p1.y = y;
   p2.x = x + w;
   p2.y = y + h;
-  renderer_ops->draw_rounded_rect(renderer, &p1, &p2,
-				  &state->fill_color, &state->line_color, 1.0);
-  text_draw(state->text, renderer);
+  dia_renderer_draw_rounded_rect (renderer,
+                                  &p1,
+                                  &p2,
+                                  &state->fill_color,
+                                  &state->line_color,
+                                  1.0);
+  text_draw (state->text, renderer);
 }
 
 
@@ -282,7 +291,7 @@ state_create_activity(Point *startpoint,
   DiaFont *font;
   int i;
 
-  state = g_malloc0(sizeof(State));
+  state = g_new0 (State, 1);
   elem = &state->element;
   obj = &elem->object;
 
@@ -300,9 +309,9 @@ state_create_activity(Point *startpoint,
   p.x += STATE_WIDTH/2.0;
   p.y += STATE_HEIGHT/2.0;
 
-  state->text = new_text("", font, 0.8, &p, &color_black, ALIGN_CENTER);
-  dia_font_unref(font);
-  element_init(elem, 8, NUM_CONNECTIONS);
+  state->text = new_text ("", font, 0.8, &p, &color_black, DIA_ALIGN_CENTRE);
+  g_clear_object (&font);
+  element_init (elem, 8, NUM_CONNECTIONS);
 
   for (i=0;i<NUM_CONNECTIONS;i++) {
     obj->connections[i] = &state->connections[i];

@@ -19,7 +19,9 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <stdio.h>
 #include <errno.h>
@@ -33,17 +35,14 @@
 #include <libxml/parser.h>
 #include <libxml/xmlmemory.h>
 #include <float.h>
-#include <sys/stat.h>
 #include <locale.h>
 
-#include "intl.h"
 #include "geometry.h"
 #include "filter.h"
 #include "object.h"
 #include "properties.h"
 #include "propinternals.h"
 #include "dia_xml_libxml.h"
-#include "intl.h"
 #include "create.h"
 #include "group.h"
 #include "font.h"
@@ -51,6 +50,7 @@
 #include "visio-types.h"
 #include "bezier_conn.h"
 #include "connection.h"
+#include "dia-layer.h"
 
 void static vdx_get_colors(xmlNodePtr cur, VDXDocument* theDoc, DiaContext *ctx);
 void static vdx_get_facenames(xmlNodePtr cur, VDXDocument* theDoc, DiaContext *ctx);
@@ -150,7 +150,7 @@ create_vdx_beziergon(int num_points,
     new_obj = otype->ops->create(NULL, bcd,
 				 &h1, &h2);
 
-    g_free(bcd);
+    g_clear_pointer (&bcd, g_free);
 
     /* Convert all points to cusps - not in API */
 
@@ -444,7 +444,7 @@ free_children(void *p)
         {
             if (!list->data) continue;
             free_children(list->data);
-            g_free(list->data);
+            g_clear_pointer (&list->data, g_free);
         }
         g_slist_free(list);
     }
@@ -594,7 +594,9 @@ dia_length(double length, const VDXDocument* theDoc)
     return vdx_Point_Scale*length;
 }
 
-/** Sets simple props
+
+/*
+ * Sets simple props
  * @param obj the object
  * @param Fill any fill
  * @param Line any line
@@ -603,52 +605,57 @@ dia_length(double length, const VDXDocument* theDoc)
  * @todo dash length not yet done - much other work needed
  */
 static void
-vdx_simple_properties(DiaObject *obj,
-                      const struct vdx_Fill *Fill, const struct vdx_Line *Line,
-                      const VDXDocument* theDoc, DiaContext *ctx)
+vdx_simple_properties (DiaObject             *obj,
+                       const struct vdx_Fill *Fill,
+                       const struct vdx_Line *Line,
+                       const VDXDocument     *theDoc,
+                       DiaContext            *ctx)
 {
-    GPtrArray *props = g_ptr_array_new ();
+  GPtrArray *props = g_ptr_array_new ();
 
-    if (Line)
-    {
-        Color color;
+  if (Line) {
+    Color color;
 
-        prop_list_add_line_width (props,Line->LineWeight * vdx_Line_Scale);
+    prop_list_add_line_width (props,Line->LineWeight * vdx_Line_Scale);
 
-        color = Line->LineColor;
-	color.alpha = 1.0 - Line->LineColorTrans;
+    color = Line->LineColor;
+    color.alpha = 1.0 - Line->LineColorTrans;
 
-        if (!Line->LinePattern)
-	    color = vdx_parse_color("#FFFFFF", theDoc, ctx);
-
-        prop_list_add_line_colour (props, &color);
-
-        if (Line->LinePattern)
-        {
-            LinestyleProperty *lsprop =
-                (LinestyleProperty *)make_new_prop("line_style",
-                                                   PROP_TYPE_LINESTYLE,
-                                                   PROP_FLAG_DONT_SAVE);
-	    if (Line->LinePattern == 2)
-		lsprop->style = LINESTYLE_DASHED;
-	    else if (Line->LinePattern == 4)
-		lsprop->style = LINESTYLE_DASH_DOT;
-	    else if (Line->LinePattern == 3)
-		lsprop->style = LINESTYLE_DOTTED;
-	    else if (Line->LinePattern == 5)
-		lsprop->style = LINESTYLE_DASH_DOT_DOT;
-	    else
-		lsprop->style = LINESTYLE_SOLID;
-
-            lsprop->dash = vdx_Dash_Length;
-
-            g_ptr_array_add(props,lsprop);
-        }
-	if (Line->Rounding > 0.0)
-	{
-	    prop_list_add_real(props, "corner_radius", Line->Rounding * vdx_Line_Scale);
-	}
+    if (!Line->LinePattern) {
+      color = vdx_parse_color("#FFFFFF", theDoc, ctx);
     }
+
+    prop_list_add_line_colour (props, &color);
+
+    if (Line->LinePattern) {
+      LinestyleProperty *lsprop =
+          (LinestyleProperty *) make_new_prop ("line_style",
+                                               PROP_TYPE_LINESTYLE,
+                                               PROP_FLAG_DONT_SAVE);
+
+      if (Line->LinePattern == 2) {
+        lsprop->style = DIA_LINE_STYLE_DASHED;
+      } else if (Line->LinePattern == 4) {
+        lsprop->style = DIA_LINE_STYLE_DASH_DOT;
+      } else if (Line->LinePattern == 3) {
+        lsprop->style = DIA_LINE_STYLE_DOTTED;
+      } else if (Line->LinePattern == 5) {
+        lsprop->style = DIA_LINE_STYLE_DASH_DOT_DOT;
+      } else {
+        lsprop->style = DIA_LINE_STYLE_SOLID;
+      }
+
+      lsprop->dash = vdx_Dash_Length;
+
+      g_ptr_array_add (props,lsprop);
+    }
+
+    if (Line->Rounding > 0.0) {
+      prop_list_add_real (props,
+                          "corner_radius",
+                          Line->Rounding * vdx_Line_Scale);
+    }
+  }
 
     if (Fill && Fill->FillPattern)
     {
@@ -1014,8 +1021,9 @@ plot_polyline(const struct vdx_Geom *Geom, const struct vdx_XForm *XForm,
     }
     if (newobj)
         vdx_simple_properties(newobj, Fill, Line, theDoc, ctx);
-    g_free(end_arrow_p);
-    g_free(start_arrow_p);
+    g_clear_pointer (&points, g_free);
+    g_clear_pointer (&end_arrow_p, g_free);
+    g_clear_pointer (&start_arrow_p, g_free);
     return newobj;
 }
 
@@ -1572,13 +1580,13 @@ plot_bezier(const struct vdx_Geom *Geom, const struct vdx_XForm *XForm,
                     g_debug("Empty polyline");
             }
         }
-        g_free(points);
+        g_clear_pointer (&points, g_free);
     }
-    g_free(bezpoints);
+    g_clear_pointer (&bezpoints, g_free);
     if (newobj)
         vdx_simple_properties(newobj, Fill, Line, theDoc, ctx);
-    g_free(end_arrow_p);
-    g_free(start_arrow_p);
+    g_clear_pointer (&end_arrow_p, g_free);
+    g_clear_pointer (&start_arrow_p, g_free);
     return newobj;
 }
 
@@ -1969,11 +1977,12 @@ plot_nurbs(const struct vdx_Geom *Geom, const struct vdx_XForm *XForm,
 
     newobj = create_standard_polyline(num_points, points, end_arrow_p, start_arrow_p);
 
-    g_free(end_arrow_p);
-    g_free(start_arrow_p);
-    g_free(control);
-    g_free(weight);
-    g_free(knot);
+    g_clear_pointer (&points, g_free);
+    g_clear_pointer (&end_arrow_p, g_free);
+    g_clear_pointer (&start_arrow_p, g_free);
+    g_clear_pointer (&control, g_free);
+    g_clear_pointer (&weight, g_free);
+    g_clear_pointer (&knot, g_free);
 
     vdx_simple_properties(newobj, Fill, Line, theDoc, ctx);
     return newobj;
@@ -2206,7 +2215,7 @@ plot_geom(const struct vdx_Geom *Geom, const struct vdx_XForm *XForm,
  * @returns the new object
  */
 static DiaObject *
-plot_text(const struct vdx_Text *Text, const struct vdx_XForm *XForm,
+plot_text(const struct vdx_Text *vdxText, const struct vdx_XForm *XForm,
           const struct vdx_Char *Char, const struct vdx_Para *Para,
           const struct vdx_TextBlock *TextBlock,
           const struct vdx_TextXForm *TextXForm,
@@ -2216,11 +2225,11 @@ plot_text(const struct vdx_Text *Text, const struct vdx_XForm *XForm,
     GPtrArray *props;
     TextProperty *tprop;
     Valign vert_align;
-    Alignment alignment;
+    DiaAlignment alignment;
     EnumProperty *eprop = 0;
     struct vdx_FontEntry FontEntry;
     struct vdx_FaceName FaceName;
-    struct vdx_text * text = find_child(vdx_types_text, Text);
+    struct vdx_text * text = find_child(vdx_types_text, vdxText);
     Point p;
     int i;
     double height;
@@ -2228,7 +2237,7 @@ plot_text(const struct vdx_Text *Text, const struct vdx_XForm *XForm,
     DiaFontStyle style = 0;
     DiaFont *font = 0;
 
-    if (!Text || !Char || !text || !XForm)
+    if (!vdxText || !Char || !text || !XForm)
     {
         g_debug("Not enough info for text");
         return 0;
@@ -2236,17 +2245,17 @@ plot_text(const struct vdx_Text *Text, const struct vdx_XForm *XForm,
     p.x = 0; p.y = 0;
 
     /* Setup position for horizontal alignment */
-    alignment = ALIGN_LEFT;
-    if (Para && Para->HorzAlign == 1)
-    {
-        alignment = ALIGN_CENTER;
-        p.x += XForm->Width/2.0;
+    alignment = DIA_ALIGN_LEFT;
+    if (Para && Para->HorzAlign == 1) {
+      alignment = DIA_ALIGN_CENTRE;
+      p.x += XForm->Width / 2.0;
     }
-    if (Para && Para->HorzAlign == 2)
-    {
-        alignment = ALIGN_RIGHT;
-        p.x += XForm->Width;
+
+    if (Para && Para->HorzAlign == 2) {
+      alignment = DIA_ALIGN_RIGHT;
+      p.x += XForm->Width;
     }
+
     /* And for vertical */
     vert_align = VALIGN_TOP;
     if (TextBlock && TextBlock->VerticalAlign == 0)
@@ -2296,11 +2305,10 @@ plot_text(const struct vdx_Text *Text, const struct vdx_XForm *XForm,
 
     /* set up the text property by including all children */
     tprop->text_data = g_strdup(text->text);
-    while((text = find_child_next(vdx_types_text, Text, text)))
-    {
-        char *s = tprop->text_data;
-        tprop->text_data = g_strconcat(tprop->text_data, text->text, NULL);
-        g_free(s);
+    while ((text = find_child_next (vdx_types_text, vdxText, text))) {
+      char *s = tprop->text_data;
+      tprop->text_data = g_strconcat (tprop->text_data, text->text, NULL);
+      g_clear_pointer (&s, g_free);
     }
 
     /* Fix Unicode line breaks */
@@ -2411,7 +2419,7 @@ vdx_plot_shape(struct vdx_Shape *Shape, GSList *objects,
     struct vdx_XForm *XForm = 0;
     struct vdx_XForm1D *XForm1D = 0;
     struct vdx_TextXForm *TextXForm = 0;
-    struct vdx_Text *Text = 0;
+    struct vdx_Text *vdxText = 0;
     struct vdx_TextBlock *TextBlock = 0;
     struct vdx_Para *Para = 0;
     struct vdx_Foreign * Foreign = 0;
@@ -2448,7 +2456,7 @@ vdx_plot_shape(struct vdx_Shape *Shape, GSList *objects,
     XForm1D = (struct vdx_XForm1D *)find_child(vdx_types_XForm1D, Shape);
     TextXForm = (struct vdx_TextXForm *)find_child(vdx_types_TextXForm, Shape);
     Geom = (struct vdx_Geom *)find_child(vdx_types_Geom, Shape);
-    Text = (struct vdx_Text *)find_child(vdx_types_Text, Shape);
+    vdxText = (struct vdx_Text *)find_child(vdx_types_Text, Shape);
     TextBlock = (struct vdx_TextBlock *)find_child(vdx_types_TextBlock, Shape);
     Para = (struct vdx_Para *)find_child(vdx_types_Para, Shape);
     Foreign = (struct vdx_Foreign *)find_child(vdx_types_Foreign, Shape);
@@ -2619,40 +2627,38 @@ vdx_plot_shape(struct vdx_Shape *Shape, GSList *objects,
         if (Geom->NoLine) Line = 0;
 
         more = Geom->any.children;
-        do
-        {
-	    DiaObject *object = plot_geom(Geom, XForm, XForm1D, Fill, Line,
-                                          Foreign, ForeignData, theDoc, &more,
-                                          &current, ctx);
+        do {
+          DiaObject *object = plot_geom (Geom, XForm, XForm1D, Fill, Line,
+                                         Foreign, ForeignData, theDoc, &more,
+                                         &current, ctx);
             /* object can be NULL for Text */
-	    if (object)
-	    {
-		gchar *id = g_strdup_printf ("%d", Shape->ID);
-		objects = g_slist_append(objects, object);
-		dia_object_set_meta (object, "id", id);
-		g_free (id);
-	    }
-            if (more && theDoc->debug_comments)
-            {
-                g_debug("Additional Geom");
-            }
+          if (object) {
+            char *id = g_strdup_printf ("%d", Shape->ID);
+            objects = g_slist_append (objects, object);
+            dia_object_set_meta (object, "id", id);
+            g_clear_pointer (&id, g_free);
+          }
+
+          if (more && theDoc->debug_comments) {
+              g_debug ("Additional Geom");
+          }
         } while (more);
+
         /* Yes, you can have multiple (disconnected) Geoms */
         Geom = find_child_next(vdx_types_Geom, Shape, Geom);
     }
+
     /* Text always after the object it's attached to,
        so it appears on top */
-    if (Text && find_child(vdx_types_text, Text))
-    {
-        DiaObject *object = plot_text(Text, XForm, Char, Para,
-                                      TextBlock, TextXForm, theDoc);
-	if (object)
-	{
-	    gchar *id = g_strdup_printf ("%d", Shape->ID);
-            objects = g_slist_append(objects, object);
-	    dia_object_set_meta (object, "id", id);
-	    g_free (id);
-	}
+    if (vdxText && find_child (vdx_types_text, vdxText)) {
+      DiaObject *object = plot_text (vdxText, XForm, Char, Para,
+                                     TextBlock, TextXForm, theDoc);
+      if (object) {
+        char *id = g_strdup_printf ("%d", Shape->ID);
+        objects = g_slist_append (objects, object);
+        dia_object_set_meta (object, "id", id);
+        g_clear_pointer (&id, g_free);
+      }
     }
 
     /* Wipe the child XForm list to avoid double-free */
@@ -2677,7 +2683,7 @@ vdx_parse_shape(xmlNodePtr Shape, struct vdx_PageSheet *PageSheet,
     GSList *object;
     struct vdx_LayerMem *LayerMem = NULL;
     unsigned int dia_layer_num = 0;
-    Layer *diaLayer = NULL;
+    DiaLayer *diaLayer = NULL;
     char *name = NULL;
 
     if (theDoc->PageLayers)
@@ -2733,104 +2739,113 @@ vdx_parse_shape(xmlNodePtr Shape, struct vdx_PageSheet *PageSheet,
                                           layer_num);
         if (theDoc->debug_comments)
             g_debug("Layer %d -> %d", layer_num, dia_layer_num);
-    }
-    else
-    {
-        if (theDoc->debug_comments)
-            g_debug("Layer %d", dia_layer_num);
-    }
-    diaLayer = (Layer *)g_ptr_array_index(dia->layers, dia_layer_num);
+  } else {
+      if (theDoc->debug_comments)
+          g_debug("Layer %d", dia_layer_num);
+  }
+  diaLayer = data_layer_get_nth (dia, dia_layer_num);
 
-    /* Draw the shape (or group) and get list of created objects */
-    objects = vdx_plot_shape(&theShape, objects, 0, theDoc, ctx);
+  /* Draw the shape (or group) and get list of created objects */
+  objects = vdx_plot_shape (&theShape, objects, 0, theDoc, ctx);
 
-    /* Add the objects straight into the diagram */
-    /* This isn't strictly correct as a child object can be on a
-       different layer from its parent. */
-    for (object = objects; object; object = object->next)
-    {
-        if (!object->data) continue;
-        layer_add_object(diaLayer, (DiaObject *)object->data);
-    }
+  /* Add the objects straight into the diagram */
+  /* This isn't strictly correct as a child object can be on a
+      different layer from its parent. */
+  for (object = objects; object; object = object->next) {
+    if (!object->data) continue;
 
-    free_children(&theShape);
-    g_slist_free(objects);
+    dia_layer_add_object (diaLayer, DIA_OBJECT (object->data));
+  }
+
+  free_children (&theShape);
+  g_slist_free (objects);
 }
 
-/** Parse the pages of the VDX
- * @param PageSheet the PageSheet
- * @param theDoc the document
- * @param dia the growing diagram
- * @bug This doesn't handle multi-page diagrams very well
+
+/**
+ * vdx_setup_layers:
+ * @PageSheet: the PageSheet
+ * @theDoc: the document
+ * @dia: the growing diagram
+ *
+ * Parse the pages of the VDX
+ *
+ * Bug: This doesn't handle multi-page diagrams very well
  */
-
 static void
-vdx_setup_layers(struct vdx_PageSheet* PageSheet, VDXDocument* theDoc,
-                 DiagramData *dia)
+vdx_setup_layers (struct vdx_PageSheet *PageSheet,
+                  VDXDocument          *theDoc,
+                  DiagramData          *dia)
 {
-    GSList *child = NULL;
-    GSList *layernames = NULL;
-    GSList *layername = NULL;
-    struct vdx_any* Any;
-    struct vdx_Layer *theLayer;
-    Layer *diaLayer = 0;
-    unsigned int found_layer, page_layer;
-    gboolean found;
+  GSList *child = NULL;
+  GSList *layernames = NULL;
+  GSList *layername = NULL;
+  struct vdx_any* Any;
+  struct vdx_Layer *theLayer;
+  DiaLayer *diaLayer = 0;
+  unsigned int found_layer, page_layer;
+  gboolean found;
 
-    /* What layers are on this page? */
+  /* What layers are on this page? */
 
-    if (!PageSheet)
-    {
-        g_debug("vdx_setup_layers() called with PageSheet=0");
-        return;
+  if (!PageSheet) {
+    g_debug ("vdx_setup_layers() called with PageSheet=0");
+    return;
+  }
+
+  for (child = PageSheet->any.children; child; child = child->next) {
+    if (!child || !child->data) {
+      continue;
     }
 
-    for (child = PageSheet->any.children; child; child = child->next)
-    {
-        if (!child || !child->data) continue;
-        Any = (struct vdx_any *)(child->data);
-        if (Any->type != vdx_types_Layer) continue;
-        theLayer = (struct vdx_Layer *)child->data;
-        layernames = g_slist_prepend(layernames, theLayer->Name);
+    Any = (struct vdx_any *) (child->data);
+    if (Any->type != vdx_types_Layer) {
+      continue;
     }
 
-    /* Add any missing layers to Dia's list
-       Must be back to front
-       Also construct translation table for this page's layers */
+    theLayer = (struct vdx_Layer *) child->data;
+    layernames = g_slist_prepend (layernames, theLayer->Name);
+  }
 
-    if (theDoc->PageLayers) g_array_free(theDoc->PageLayers, TRUE);
-    theDoc->PageLayers = g_array_new(FALSE, TRUE, sizeof (unsigned int));
+  /* Add any missing layers to Dia's list
+     Must be back to front
+     Also construct translation table for this page's layers */
 
-    if (!theDoc->LayerNames)
-        theDoc->LayerNames = g_array_new(FALSE, TRUE, sizeof (char *));
+  if (theDoc->PageLayers) {
+    g_array_free (theDoc->PageLayers, TRUE);
+  }
+  theDoc->PageLayers = g_array_new (FALSE, TRUE, sizeof (unsigned int));
 
-    page_layer = 0;
-    for (layername = layernames; layername; layername = layername->next)
-    {
-        found = FALSE;
-        for (found_layer = 0; found_layer < theDoc->LayerNames->len;
-             found_layer++)
-        {
-            if (layername->data &&
-                g_array_index(theDoc->LayerNames, char *, found_layer) &&
-                !strcmp((char *)layername->data,
-                        g_array_index(theDoc->LayerNames, char *,
-                                      found_layer)))
-            {
-                found = TRUE;
-                break;
-            }
-        }
-        if (!found)
-        {
-            g_array_append_val(theDoc->LayerNames, layername->data);
-            diaLayer = new_layer(g_strdup((char*)layername->data), dia);
-            data_add_layer(dia, diaLayer);
-        }
-        page_layer++;
-        g_array_prepend_val(theDoc->PageLayers, page_layer);
+  if (!theDoc->LayerNames) {
+    theDoc->LayerNames = g_array_new(FALSE, TRUE, sizeof (char *));
+  }
+
+  page_layer = 0;
+  for (layername = layernames; layername; layername = layername->next) {
+    found = FALSE;
+    for (found_layer = 0; found_layer < theDoc->LayerNames->len; found_layer++) {
+      if (layername->data &&
+          g_array_index (theDoc->LayerNames, char *, found_layer) &&
+          !strcmp ((char *) layername->data,
+                   g_array_index (theDoc->LayerNames, char *, found_layer)))
+      {
+        found = TRUE;
+        break;
+      }
     }
-    data_set_active_layer(dia, diaLayer);
+
+    if (!found) {
+      g_array_append_val (theDoc->LayerNames, layername->data);
+      g_clear_object (&diaLayer);
+      diaLayer = dia_layer_new (((char*) layername->data), dia);
+      data_add_layer (dia, diaLayer);
+    }
+    page_layer++;
+    g_array_prepend_val (theDoc->PageLayers, page_layer);
+  }
+
+  data_set_active_layer (dia, diaLayer);
+  g_clear_object (&diaLayer);
 }
 
 /** Parse the pages of the VDX
@@ -2920,7 +2935,8 @@ vdx_free(VDXDocument *theDoc)
     }
     if (theDoc->LayerNames) g_array_free(theDoc->LayerNames, TRUE);
     if (theDoc->PageLayers) g_array_free(theDoc->PageLayers, TRUE);
-    g_free(theDoc->debug_shape_ids);
+    g_clear_pointer (&theDoc->debug_shape_ids, g_free);
+    g_clear_pointer (&theDoc, g_free);
 }
 
 
@@ -2931,9 +2947,9 @@ vdx_free(VDXDocument *theDoc)
  * @returns TRUE if successful, FALSE otherwise
  */
 static gboolean
-import_vdx(const gchar *filename, DiagramData *dia, DiaContext *ctx, void* user_data)
+import_vdx (const char *filename, DiagramData *dia, DiaContext *ctx, void* user_data)
 {
-    xmlErrorPtr error_xml = NULL;
+    const xmlError *error_xml = NULL;
     xmlDocPtr doc = xmlDoParseFile(filename, &error_xml);
     xmlNodePtr root, cur;
     struct VDXDocument *theDoc;
@@ -3043,7 +3059,7 @@ import_vdx(const gchar *filename, DiagramData *dia, DiaContext *ctx, void* user_
 
 /* interface from filter.h */
 
-static const gchar *extensions[] = {"vdx", NULL };
+static const char *extensions[] = {"vdx", NULL };
 DiaImportFilter vdx_import_filter = {
     N_("Visio XML File Format"),
     extensions,

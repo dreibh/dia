@@ -24,13 +24,35 @@
 #include "paper.h"
 #include "diagramdata.h" /* for NewDiagramData */
 
+
+/**
+ * PaperInfo:
+ * @name: name of the paper
+ * @tmargin: margin widths in %DIA_UNIT_CENTIMETER
+ * @bmargin: "
+ * @lmargin: "
+ * @rmargin: "
+ * @is_portrait: page is in portrait orientation?
+ * @scaling: scaling factor for image on page
+ * @fitto: if we want to use the fitto mode for scaling
+ * @fitwidth: how many pages in each direction
+ * @fitheight: "
+ * @width: usable width/height -- calculated from paper type,
+ *         margin widths and paper orientation; the real paper
+ *         size is width*scaling, height*scaling
+ * @height: "
+ *
+ * Since: dawn-of-time
+ */
+
+
 /* Paper definitions stolen from gnome-libs.
  * All measurements are in centimetres. */
 
 static const struct _dia_paper_metrics {
-  gchar *paper;
-  gdouble pswidth, psheight;
-  gdouble lmargin, tmargin, rmargin, bmargin;
+  char *paper;
+  double pswidth, psheight;
+  double lmargin, tmargin, rmargin, bmargin;
 } paper_metrics[] = {
   { "A0", 84.1, 118.9, 2.8222, 2.8222, 2.8222, 2.8222 },
   { "A1", 59.4, 84.1, 2.8222, 2.8222, 2.8222, 2.8222 },
@@ -69,14 +91,15 @@ static const struct _dia_paper_metrics {
   { NULL, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 }
 };
 
+
 int
-find_paper(const gchar *name)
+find_paper (const char *name)
 {
   int i;
 
   if (name == NULL) return -1;
   for (i = 0; paper_metrics[i].paper != NULL; i++) {
-    if (!g_ascii_strncasecmp(paper_metrics[i].paper, name, 
+    if (!g_ascii_strncasecmp(paper_metrics[i].paper, name,
 		             strlen(paper_metrics[i].paper)))
       break;
   }
@@ -95,7 +118,7 @@ get_default_paper(void)
   gint i;
 
   if((env = g_getenv("PAPERCONF")) != NULL) {
-    strncpy(paper, env, sizeof(paper));
+    g_strlcpy(paper, env, sizeof(paper));
   }
   else if((papersize = fopen("/etc/papersize", "r")) != NULL) {
     while(fgets(paper, sizeof(paper), papersize))
@@ -135,11 +158,11 @@ get_paper_info(PaperInfo *paper, int i, NewDiagramData *prefs)
   paper->fitto = FALSE;
   paper->fitwidth = 1;
   paper->fitheight = 1;
-  paper->width = paper_metrics[i].pswidth - 
-    paper_metrics[i].lmargin - 
+  paper->width = paper_metrics[i].pswidth -
+    paper_metrics[i].lmargin -
     paper_metrics[i].rmargin;
-  paper->height = paper_metrics[i].psheight - 
-    paper_metrics[i].tmargin - 
+  paper->height = paper_metrics[i].psheight -
+    paper_metrics[i].tmargin -
     paper_metrics[i].bmargin;
   if (!paper->is_portrait) {
     double tmp = paper->width;
@@ -163,11 +186,13 @@ get_paper_name_list(void)
   return name_list;
 }
 
-const gchar *
-get_paper_name(int i)
+
+const char *
+dia_paper_get_name (int i)
 {
   return paper_metrics[i].paper;
 }
+
 
 gdouble
 get_paper_psheight(int i)

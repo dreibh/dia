@@ -15,21 +15,18 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef APP_PROCS_H
-#define APP_PROCS_H
+
+#pragma once
 
 #include <glib.h>
 
-void app_init (int argc, char **argv);
-/** Exit the application, but asking the user for confirmation
- * if there are changed diagrams.
- * Returns TRUE if the application exits.
- */
-gboolean app_exit (void);
+G_BEGIN_DECLS
 
-void app_splash_init (const gchar* name);
-void app_splash_done (void);
-
+void     app_init           (int          argc,
+                             char       **argv);
+gboolean app_exit           (void);
+void     app_splash_init    (const char  *name);
+void     app_splash_done    (void);
 gboolean app_is_interactive (void);
 
-#endif /* APP_PROCS_H */
+G_END_DECLS

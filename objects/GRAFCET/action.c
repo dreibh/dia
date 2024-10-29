@@ -19,12 +19,12 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 
-#include "intl.h"
 #include "object.h"
 #include "connection.h"
 #include "connectionpoint.h"
@@ -56,16 +56,16 @@ typedef struct _Action {
   real space_width; /* width of a space in the current font
                      Fallacy! space is a very flexible thing in Pango...*/
   real label_width;
-  Rectangle labelbb; /* The bounding box of the label itself */
+  DiaRectangle labelbb; /* The bounding box of the label itself */
   Point labelstart;
 
   ConnPointLine *cps; /* aaahrg ! again one ! */
 } Action;
 
-static ObjectChange* action_move_handle(Action *action, Handle *handle,
+static DiaObjectChange* action_move_handle(Action *action, Handle *handle,
 					Point *to, ConnectionPoint *cp,
 					HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* action_move(Action *action, Point *to);
+static DiaObjectChange* action_move(Action *action, Point *to);
 static void action_select(Action *action, Point *clicked_point,
 			      DiaRenderer *interactive_renderer);
 static void action_draw(Action *action, DiaRenderer *renderer);
@@ -191,7 +191,7 @@ action_select(Action *action, Point *clicked_point,
   text_grab_focus(action->text, &action->connection.object);
 }
 
-static ObjectChange*
+static DiaObjectChange*
 action_move_handle(Action *action, Handle *handle,
 		   Point *to, ConnectionPoint *cp,
 		   HandleMoveReason reason, ModifierKeys modifiers)
@@ -219,7 +219,7 @@ action_move_handle(Action *action, Handle *handle,
 }
 
 
-static ObjectChange*
+static DiaObjectChange*
 action_move(Action *action, Point *to)
 {
   Point start_to_end;
@@ -318,25 +318,25 @@ action_update_data(Action *action)
 
 
 static void
-action_draw(Action *action, DiaRenderer *renderer)
+action_draw (Action *action, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Connection *conn = &action->connection;
   Point ul,br,p1,p2;
   int i;
   real chunksize;
   Color cl;
 
-  renderer_ops->set_linewidth(renderer, ACTION_LINE_WIDTH);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
-  renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
+  dia_renderer_set_linewidth (renderer, ACTION_LINE_WIDTH);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
 
   /* first, draw the line or polyline from the step to the action label */
   if (conn->endpoints[0].y == conn->endpoints[1].y) {
     /* simpler case */
-    renderer_ops->draw_line(renderer,
-			     &conn->endpoints[0],&conn->endpoints[1],
-			     &color_black);
+    dia_renderer_draw_line (renderer,
+                            &conn->endpoints[0],
+                            &conn->endpoints[1],
+                            &color_black);
   } else {
     Point pts[4];
     pts[0] = conn->endpoints[0];
@@ -345,9 +345,10 @@ action_draw(Action *action, DiaRenderer *renderer)
     pts[2].y = pts[3].y;
     pts[1].x = pts[2].x = .5 * (pts[0].x + pts[3].x);
 
-    renderer_ops->draw_polyline(renderer,
-				 pts,sizeof(pts)/sizeof(pts[0]),
-				 &color_black);
+    dia_renderer_draw_polyline (renderer,
+                                pts,
+                                sizeof(pts)/sizeof(pts[0]),
+                                &color_black);
   }
 
   /* Now, draw the action label. */
@@ -356,28 +357,28 @@ action_draw(Action *action, DiaRenderer *renderer)
   br.x = ul.x + action->label_width;
   br.y = ul.y + ACTION_HEIGHT;
 
-  renderer_ops->draw_rect(renderer,&ul,&br,&color_white, NULL);
+  dia_renderer_draw_rect (renderer, &ul, &br, &color_white, NULL);
 
-  action_text_draw(action->text,renderer);
+  action_text_draw (action->text,renderer);
 
   p1.x = p2.x = ul.x;
   p1.y = ul.y; p2.y = br.y;
 
   for (i=0; i<action->text->numlines-1; i++) {
-    chunksize = text_get_line_width(action->text, i);
+    chunksize = text_get_line_width (action->text, i);
     p1.x = p2.x = p1.x + chunksize + 2 * action->space_width;
-    renderer_ops->draw_line(renderer,&p1,&p2,&color_black);
+    dia_renderer_draw_line (renderer, &p1, &p2, &color_black);
   }
 
   if (action->macro_call) {
     p1.x = p2.x = ul.x + 2.0 * action->space_width;
-    renderer_ops->draw_line(renderer,&p1,&p2,&color_black);
+    dia_renderer_draw_line (renderer, &p1, &p2, &color_black);
     p1.x = p2.x = br.x - 2.0 * action->space_width;
-    renderer_ops->draw_line(renderer,&p1,&p2,&color_black);
+    dia_renderer_draw_line (renderer, &p1, &p2, &color_black);
   }
 
   cl.red = 1.0; cl.blue = cl.green = .2; cl.alpha = 1.0;
-  renderer_ops->draw_rect(renderer,&ul,&br,NULL,&color_black);
+  dia_renderer_draw_rect (renderer, &ul, &br, NULL, &color_black);
 }
 
 static DiaObject *
@@ -394,7 +395,7 @@ action_create(Point *startpoint,
 
   DiaFont* action_font;
 
-  action = g_malloc0(sizeof(Action));
+  action = g_new0 (Action, 1);
   conn = &action->connection;
   obj = &conn->object;
   extra = &conn->extra_spacing;
@@ -410,11 +411,14 @@ action_create(Point *startpoint,
   action->cps = connpointline_create(obj,0);
 
   pos = conn->endpoints[1];
-  action_font = dia_font_new_from_style(ACTION_FONT,ACTION_FONT_HEIGHT);
-  action->text = new_text("",action_font, ACTION_FONT_HEIGHT,
-                          &pos, /* never used */
-                          &color_black, ALIGN_LEFT);
-  dia_font_unref(action_font);
+  action_font = dia_font_new_from_style (ACTION_FONT, ACTION_FONT_HEIGHT);
+  action->text = new_text ("",
+                           action_font,
+                           ACTION_FONT_HEIGHT,
+                           &pos, /* never used */
+                           &color_black,
+                           DIA_ALIGN_LEFT);
+  g_clear_object (&action_font);
 
   action->macro_call = FALSE;
 

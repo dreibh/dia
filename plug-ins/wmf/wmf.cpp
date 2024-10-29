@@ -21,6 +21,9 @@
  */
 
 #include "config.h"
+
+#include <glib/gi18n-lib.h>
+
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -28,7 +31,6 @@
 #include <errno.h>
 #include <glib/gstdio.h>
 
-#include "intl.h"
 #include "geometry.h"
 #include "diarenderer.h"
 #include "filter.h"
@@ -58,7 +60,7 @@ typedef W32::LOGFONTW LOGFONTW;
 
 #include <pango/pangowin32.h>
 
-#elif HAVE_LIBEMF
+#elif defined(HAVE_LIBEMF)
 /* We have to define STRICT to make libemf/64 work. Otherwise there is
 wmf.cpp:1383:40: error: cast from 'void*' to 'W32::HDC' loses precision
  */
@@ -101,6 +103,14 @@ G_BEGIN_DECLS
 #define WMF_IS_RENDERER(obj)        (G_TYPE_CHECK_INSTANCE_TYPE ((obj), WMF_TYPE_RENDERER))
 #define WMF_RENDERER_GET_CLASS(obj) (G_TYPE_INSTANCE_GET_CLASS ((obj), WMF_TYPE_RENDERER, WmfRendererClass))
 
+enum {
+  PROP_0,
+  PROP_FONT,
+  PROP_FONT_HEIGHT,
+  LAST_PROP
+};
+
+
 GType wmf_renderer_get_type (void) G_GNUC_CONST;
 
 typedef struct _WmfRenderer WmfRenderer;
@@ -108,32 +118,35 @@ typedef struct _WmfRendererClass WmfRendererClass;
 
 struct _WmfRenderer
 {
-    DiaRenderer parent_instance;
+  DiaRenderer parent_instance;
 
-    W32::HDC  hFileDC;
-    gchar*    sFileName;
+  DiaFont *font;
+  double font_height;
 
-    W32::HDC  hPrintDC;
+  W32::HDC  hFileDC;
+  gchar*    sFileName;
 
-    /* if applicable everything is scaled to 0.01 mm */
-    int nLineWidth;  /* need to cache these, because ... */
-    int fnPenStyle;  /* ... both are needed at the same time */
-    W32::HPEN  hPen; /* ugliness by concept, see DonePen() */
+  W32::HDC  hPrintDC;
 
-    W32::HFONT hFont;
-    PLACEABLEMETAHEADER pmh;
-    double xoff, yoff;
-    double scale;
+  /* if applicable everything is scaled to 0.01 mm */
+  int nLineWidth;  /* need to cache these, because ... */
+  int fnPenStyle;  /* ... both are needed at the same time */
+  W32::HPEN  hPen; /* ugliness by concept, see DonePen() */
 
-    int nDashLen; /* the scaled dash length */
-    gboolean platform_is_nt; /* advanced line styles supported */
-    gboolean target_emf; /* write enhanced metafile */
-    W32::RECT margins;
+  W32::HFONT hFont;
+  PLACEABLEMETAHEADER pmh;
+  double xoff, yoff;
+  double scale;
 
-    gboolean use_pango;
-    PangoContext* pango_context;
+  int nDashLen; /* the scaled dash length */
+  gboolean platform_is_nt; /* advanced line styles supported */
+  gboolean target_emf; /* write enhanced metafile */
+  W32::RECT margins;
 
-    DiaContext* ctx;
+  gboolean use_pango;
+  PangoContext* pango_context;
+
+  DiaContext* ctx;
 };
 
 struct _WmfRendererClass
@@ -164,7 +177,7 @@ UsePen(WmfRenderer* renderer, Color* colour)
     W32::HPEN hOldPen;
     if (colour) {
 	W32::COLORREF rgb = W32COLOR(colour);
-#if defined(G_OS_WIN32) || HAVE_LIBEMF
+#if defined(G_OS_WIN32) || defined(HAVE_LIBEMF)
 	if ((renderer->platform_is_nt && renderer->hPrintDC) || renderer->target_emf) {
           W32::LOGBRUSH logbrush;
 	  W32::DWORD    dashes[6];
@@ -236,13 +249,12 @@ DonePen(WmfRenderer* renderer, W32::HPEN hPen)
     }
 }
 
-static void _nada(WmfRenderer*, const char*, ...) { }
 #ifndef HAVE_LIBEMF
 #  define DIAG_NOTE _nada
+static void _nada(WmfRenderer*, const char*, ...) { }
 #else
 #  define DIAG_NOTE my_log
-#endif
-#ifdef G_OS_WIN32
+
 static void
 my_log(WmfRenderer* renderer, const char* format, ...)
 {
@@ -266,7 +278,7 @@ my_log(WmfRenderer* renderer, const char* format, ...)
  * renderer interface implementation
  */
 static void
-begin_render(DiaRenderer *self, const Rectangle *)
+begin_render(DiaRenderer *self, const DiaRectangle *)
 {
     WmfRenderer *renderer = WMF_RENDERER (self);
 
@@ -397,149 +409,162 @@ set_linewidth(DiaRenderer *self, real linewidth)
     renderer->nLineWidth = SC(linewidth);
 }
 
+
 static void
-set_linecaps(DiaRenderer *self, LineCaps mode)
+set_linecaps (DiaRenderer *self, DiaLineCaps mode)
 {
-    WmfRenderer *renderer = WMF_RENDERER (self);
+  WmfRenderer *renderer = WMF_RENDERER (self);
 
-    DIAG_NOTE(renderer, "set_linecaps %d\n", mode);
+  DIAG_NOTE (renderer, "set_linecaps %d\n", mode);
 
-    // all the advanced line rendering is unsupported on win9x
-    if (!renderer->platform_is_nt)
-      return;
+  // all the advanced line rendering is unsupported on win9x
+  if (!renderer->platform_is_nt) {
+    return;
+  }
 
-    renderer->fnPenStyle &= ~(PS_ENDCAP_MASK);
-    switch(mode) {
-    case LINECAPS_BUTT:
+  renderer->fnPenStyle &= ~(PS_ENDCAP_MASK);
+  switch (mode) {
+    case DIA_LINE_CAPS_BUTT:
       renderer->fnPenStyle |= PS_ENDCAP_FLAT;
       break;
-    case LINECAPS_ROUND:
+    case DIA_LINE_CAPS_ROUND:
       renderer->fnPenStyle |= PS_ENDCAP_ROUND;
       break;
-    case LINECAPS_PROJECTING:
+    case DIA_LINE_CAPS_PROJECTING:
       renderer->fnPenStyle |= PS_ENDCAP_SQUARE;
       break;
     default:
-	g_warning("WmfRenderer : Unsupported fill mode specified!\n");
-    }
+      g_warning ("WmfRenderer : Unsupported fill mode specified!\n");
+  }
 }
 
+
 static void
-set_linejoin(DiaRenderer *self, LineJoin mode)
+set_linejoin (DiaRenderer *self, DiaLineJoin mode)
 {
-    WmfRenderer *renderer = WMF_RENDERER (self);
+  WmfRenderer *renderer = WMF_RENDERER (self);
 
-    DIAG_NOTE(renderer, "set_join %d\n", mode);
+  DIAG_NOTE (renderer, "set_join %d\n", mode);
 
-    if (!renderer->platform_is_nt)
-      return;
+  if (!renderer->platform_is_nt) {
+    return;
+  }
 
-    renderer->fnPenStyle &= ~(PS_JOIN_MASK);
-    switch(mode) {
-    case LINEJOIN_MITER:
+  renderer->fnPenStyle &= ~(PS_JOIN_MASK);
+
+  switch (mode) {
+    case DIA_LINE_JOIN_MITER:
       renderer->fnPenStyle |= PS_JOIN_MITER;
       break;
-    case LINEJOIN_ROUND:
+    case DIA_LINE_JOIN_ROUND:
       renderer->fnPenStyle |= PS_JOIN_ROUND;
       break;
-    case LINEJOIN_BEVEL:
+    case DIA_LINE_JOIN_BEVEL:
       renderer->fnPenStyle |= PS_JOIN_BEVEL;
       break;
     default:
-      g_warning("WmfRenderer : Unsupported fill mode specified!\n");
-    }
+      g_warning ("WmfRenderer : Unsupported fill mode specified!\n");
+  }
 }
 
+
 static void
-set_linestyle(DiaRenderer *self, LineStyle mode, real dash_length)
+set_linestyle (DiaRenderer *self, DiaLineStyle mode, double dash_length)
 {
-    WmfRenderer *renderer = WMF_RENDERER (self);
+  WmfRenderer *renderer = WMF_RENDERER (self);
 
-    DIAG_NOTE(renderer, "set_linestyle %d\n", mode);
+  DIAG_NOTE (renderer, "set_linestyle %d\n", mode);
 
-    /* dot = 10% of len */
-    renderer->nDashLen = SC(dash_length);
-    /* line type */
-    renderer->fnPenStyle &= ~(PS_STYLE_MASK);
-    switch (mode) {
-    case LINESTYLE_DEFAULT:
-    case LINESTYLE_SOLID:
+  /* dot = 10% of len */
+  renderer->nDashLen = SC (dash_length);
+  /* line type */
+  renderer->fnPenStyle &= ~(PS_STYLE_MASK);
+
+  switch (mode) {
+    case DIA_LINE_STYLE_DEFAULT:
+    case DIA_LINE_STYLE_SOLID:
       renderer->fnPenStyle |= PS_SOLID;
       break;
-    case LINESTYLE_DASHED:
+    case DIA_LINE_STYLE_DASHED:
       renderer->fnPenStyle |= PS_DASH;
       break;
-    case LINESTYLE_DASH_DOT:
+    case DIA_LINE_STYLE_DASH_DOT:
       renderer->fnPenStyle |= PS_DASHDOT;
       break;
-    case LINESTYLE_DASH_DOT_DOT:
+    case DIA_LINE_STYLE_DASH_DOT_DOT:
       renderer->fnPenStyle |= PS_DASHDOTDOT;
       break;
-    case LINESTYLE_DOTTED:
+    case DIA_LINE_STYLE_DOTTED:
       renderer->fnPenStyle |= PS_DOT;
       break;
     default:
-	g_warning("WmfRenderer : Unsupported fill mode specified!\n");
-    }
+      g_warning ("WmfRenderer : Unsupported fill mode specified!\n");
+  }
 
-    if (renderer->platform_is_nt)
-      return;
+  if (renderer->platform_is_nt) {
+    return;
+  }
 
-    /* Non-solid linestyles are only displayed if width <= 1.
-     * Better implementation will require custom linestyles
-     * not available on win9x ...
-     */
-    switch (mode) {
-    case LINESTYLE_DASHED:
-    case LINESTYLE_DASH_DOT:
-    case LINESTYLE_DASH_DOT_DOT:
-    case LINESTYLE_DOTTED:
-      renderer->nLineWidth = MIN(renderer->nLineWidth, 1);
-    case LINESTYLE_SOLID:
-    case LINESTYLE_DEFAULT:
+  /* Non-solid linestyles are only displayed if width <= 1.
+    * Better implementation will require custom linestyles
+    * not available on win9x ...
+    */
+  switch (mode) {
+    case DIA_LINE_STYLE_DASHED:
+    case DIA_LINE_STYLE_DASH_DOT:
+    case DIA_LINE_STYLE_DASH_DOT_DOT:
+    case DIA_LINE_STYLE_DOTTED:
+      renderer->nLineWidth = MIN (renderer->nLineWidth, 1);
+    case DIA_LINE_STYLE_SOLID:
+    case DIA_LINE_STYLE_DEFAULT:
       break;
-    }
+  }
 }
 
+
 static void
-set_fillstyle(DiaRenderer *self, FillStyle mode)
+set_fillstyle (DiaRenderer *self, DiaFillStyle mode)
 {
-    WmfRenderer *renderer = WMF_RENDERER (self);
+  WmfRenderer *renderer = WMF_RENDERER (self);
 
-    DIAG_NOTE(renderer, "set_fillstyle %d\n", mode);
+  DIAG_NOTE (renderer, "set_fillstyle %d\n", mode);
 
-    switch(mode) {
-    case FILLSTYLE_SOLID:
-	break;
+  switch (mode) {
+    case DIA_FILL_STYLE_SOLID:
+      break;
     default:
-	g_warning("WmfRenderer : Unsupported fill mode specified!\n");
-    }
+      g_warning ("WmfRenderer : Unsupported fill mode specified!\n");
+  }
 }
 
+
 static void
-set_font(DiaRenderer *self, DiaFont *font, real height)
+set_font (DiaRenderer *self, DiaFont *font, real height)
 {
-    WmfRenderer *renderer = WMF_RENDERER (self);
+  WmfRenderer *renderer = WMF_RENDERER (self);
 
-    W32::LPCTSTR sFace;
-    W32::DWORD dwItalic = 0;
-    W32::DWORD dwWeight = FW_DONTCARE;
-    DiaFontStyle style = dia_font_get_style(font);
-    real font_size = dia_font_get_size (font) * (height / dia_font_get_height (font));
+  W32::LPCTSTR sFace;
+  W32::DWORD dwItalic = 0;
+  W32::DWORD dwWeight = FW_DONTCARE;
+  DiaFontStyle style = dia_font_get_style (font);
+  real font_size = dia_font_get_size (font) * (height / dia_font_get_height (font));
 
+  g_clear_object (&renderer->font);
+  renderer->font = DIA_FONT (g_object_ref (font));
+  renderer->font_height = height;
 
-    DIAG_NOTE(renderer, "set_font %s %f\n",
-              dia_font_get_family (font), height);
-    if (renderer->hFont) {
-	W32::DeleteObject(renderer->hFont);
-	renderer->hFont = NULL;
-    }
-    if (renderer->pango_context) {
-        g_object_unref (renderer->pango_context);
-	renderer->pango_context = NULL;
-    }
+  DIAG_NOTE (renderer, "set_font %s %f\n",
+             dia_font_get_family (font), height);
+  if (renderer->hFont) {
+    W32::DeleteObject (renderer->hFont);
+    renderer->hFont = NULL;
+  }
+  if (renderer->pango_context) {
+    g_object_unref (renderer->pango_context);
+    renderer->pango_context = NULL;
+  }
 
-    if (renderer->use_pango) {
+  if (renderer->use_pango) {
 #ifdef __PANGOWIN32_H__ /* with the pangowin32 backend there is a better way */
 	if (!renderer->pango_context)
 	    renderer->pango_context = pango_win32_get_context ();
@@ -562,44 +587,44 @@ set_font(DiaRenderer *self, DiaFont *font, real height)
 	    g_free (desc);
 	}
 #else
-	g_assert_not_reached();
+    g_assert_not_reached();
 #endif
-    } else {
-	sFace = dia_font_get_family (font);
-	dwItalic = DIA_FONT_STYLE_GET_SLANT(style) != DIA_FONT_NORMAL;
+  } else {
+    sFace = dia_font_get_family (font);
+    dwItalic = DIA_FONT_STYLE_GET_SLANT (style) != DIA_FONT_NORMAL;
 
-	/* although there is a known algorithm avoid it for cleanness */
-	switch (DIA_FONT_STYLE_GET_WEIGHT(style)) {
-	case DIA_FONT_ULTRALIGHT    : dwWeight = FW_ULTRALIGHT; break;
-	case DIA_FONT_LIGHT         : dwWeight = FW_LIGHT; break;
-	case DIA_FONT_MEDIUM        : dwWeight = FW_MEDIUM; break;
-	case DIA_FONT_DEMIBOLD      : dwWeight = FW_DEMIBOLD; break;
-	case DIA_FONT_BOLD          : dwWeight = FW_BOLD; break;
-	case DIA_FONT_ULTRABOLD     : dwWeight = FW_ULTRABOLD; break;
-	case DIA_FONT_HEAVY         : dwWeight = FW_HEAVY; break;
-	default : dwWeight = FW_NORMAL; break;
-	}
-	//Hack to get BYTE out of namespace W32
+    /* although there is a known algorithm avoid it for cleanness */
+    switch (DIA_FONT_STYLE_GET_WEIGHT (style)) {
+      case DIA_FONT_ULTRALIGHT    : dwWeight = FW_ULTRALIGHT; break;
+      case DIA_FONT_LIGHT         : dwWeight = FW_LIGHT; break;
+      case DIA_FONT_MEDIUM        : dwWeight = FW_MEDIUM; break;
+      case DIA_FONT_DEMIBOLD      : dwWeight = FW_DEMIBOLD; break;
+      case DIA_FONT_BOLD          : dwWeight = FW_BOLD; break;
+      case DIA_FONT_ULTRABOLD     : dwWeight = FW_ULTRABOLD; break;
+      case DIA_FONT_HEAVY         : dwWeight = FW_HEAVY; break;
+      default : dwWeight = FW_NORMAL; break;
+    }
+    //Hack to get BYTE out of namespace W32
 #       ifndef BYTE
 #       define BYTE unsigned char
 #       endif
 
-	renderer->hFont = (W32::HFONT)W32::CreateFont(
-		- SC (font_size),  // logical height of font
-		0,		// logical average character width
-		0,		// angle of escapement
-		0,		// base-line orientation angle
-		dwWeight,	// font weight
-		dwItalic,	// italic attribute flag
-		0,		// underline attribute flag
-		0,		// strikeout attribute flag
-		DEFAULT_CHARSET,	// character set identifier
-		OUT_TT_PRECIS, 	// output precision
-		CLIP_DEFAULT_PRECIS,	// clipping precision
-		PROOF_QUALITY,		// output quality
-		DEFAULT_PITCH,		// pitch and family
-		sFace);		// pointer to typeface name string
-    }
+  renderer->hFont = (W32::HFONT) W32::CreateFont (
+        - SC (font_size),     // logical height of font
+        0,                    // logical average character width
+        0,                    // angle of escapement
+        0,                    // base-line orientation angle
+        dwWeight,             // font weight
+        dwItalic,             // italic attribute flag
+        0,                    // underline attribute flag
+        0,                    // strikeout attribute flag
+        DEFAULT_CHARSET,      // character set identifier
+        OUT_TT_PRECIS,        // output precision
+        CLIP_DEFAULT_PRECIS,  // clipping precision
+        PROOF_QUALITY,        // output quality
+        DEFAULT_PITCH,        // pitch and family
+        sFace);               // pointer to typeface name string
+  }
 }
 
 static void
@@ -662,7 +687,7 @@ draw_polygon(DiaRenderer *self,
     W32::HPEN    hPen;
     W32::POINT*  pts;
     int          i;
-    W32::HBRUSH  hBrush;
+    W32::HBRUSH  hBrush = 0;
     W32::COLORREF rgb = fill ? W32COLOR(fill) : 0;
 
     DIAG_NOTE(renderer, "draw_polygon n:%d %f,%f ...\n",
@@ -770,6 +795,7 @@ draw_arc(DiaRenderer *self,
     DonePen(renderer, hPen);
 }
 
+#ifndef HAVE_LIBEMF
 static void
 fill_arc(DiaRenderer *self,
 	 Point *center,
@@ -815,6 +841,7 @@ fill_arc(DiaRenderer *self,
     W32::DeleteObject(hBrush);
     DonePen(renderer, hPen);
 }
+#endif
 
 static void
 draw_ellipse(DiaRenderer *self,
@@ -862,7 +889,7 @@ _bezier (DiaRenderer *self,
 	 gboolean  closed)
 {
     WmfRenderer *renderer = WMF_RENDERER (self);
-    W32::HGDIOBJ hBrush, hBrOld;
+    W32::HGDIOBJ hBrush /*, hBrOld */;
     W32::HPEN hPen;
     W32::COLORREF rgb = W32COLOR(colour);
 
@@ -871,7 +898,7 @@ _bezier (DiaRenderer *self,
 
     if (fill) {
       hBrush = W32::CreateSolidBrush(rgb);
-      hBrOld = W32::SelectObject(renderer->hFileDC, hBrush);
+      /*hBrOld =*/ W32::SelectObject(renderer->hFileDC, hBrush);
     } else {
       hPen = UsePen(renderer, colour);
     }
@@ -991,39 +1018,42 @@ draw_beziergon (DiaRenderer *self,
 }
 #endif
 
+
 static void
-draw_string(DiaRenderer *self,
-	    const char *text,
-	    Point *pos, Alignment alignment,
-	    Color *colour)
+draw_string (DiaRenderer  *self,
+             const char   *text,
+             Point        *pos,
+             DiaAlignment  alignment,
+             Color        *colour)
 {
-    WmfRenderer *renderer = WMF_RENDERER (self);
-    int len;
-    W32::HGDIOBJ hOld;
-    W32::COLORREF rgb = W32COLOR(colour);
+  WmfRenderer *renderer = WMF_RENDERER (self);
+  int len;
+  W32::HGDIOBJ hOld;
+  W32::COLORREF rgb = W32COLOR (colour);
 
-    DIAG_NOTE(renderer, "draw_string %f,%f %s\n",
-              pos->x, pos->y, text);
+  DIAG_NOTE (renderer, "draw_string %f,%f %s\n", pos->x, pos->y, text);
 
-    W32::SetTextColor(renderer->hFileDC, rgb);
+  W32::SetTextColor (renderer->hFileDC, rgb);
 
-    switch (alignment) {
-    case ALIGN_LEFT:
-        W32::SetTextAlign(renderer->hFileDC, TA_LEFT+TA_BASELINE);
-    break;
-    case ALIGN_CENTER:
-        W32::SetTextAlign(renderer->hFileDC, TA_CENTER+TA_BASELINE);
-    break;
-    case ALIGN_RIGHT:
-        W32::SetTextAlign(renderer->hFileDC, TA_RIGHT+TA_BASELINE);
-    break;
+  switch (alignment) {
+    case DIA_ALIGN_LEFT:
+      W32::SetTextAlign (renderer->hFileDC, TA_LEFT+TA_BASELINE);
+      break;
+    case DIA_ALIGN_CENTRE:
+      W32::SetTextAlign (renderer->hFileDC, TA_CENTER+TA_BASELINE);
+      break;
+    case DIA_ALIGN_RIGHT:
+      W32::SetTextAlign (renderer->hFileDC, TA_RIGHT+TA_BASELINE);
+      break;
     }
-    /* work out size of first chunk of text */
-    len = strlen(text);
-    if (!len)
-	return; /* nothing to do */
 
-    hOld = W32::SelectObject(renderer->hFileDC, renderer->hFont);
+    /* work out size of first chunk of text */
+    len = strlen (text);
+    if (!len) {
+      return; /* nothing to do */
+    }
+
+    hOld = W32::SelectObject (renderer->hFileDC, renderer->hFont);
     {
         // one way to go, but see below ...
         char* scp = NULL;
@@ -1060,6 +1090,7 @@ draw_string(DiaRenderer *self,
     W32::SelectObject(renderer->hFileDC, hOld);
 }
 
+#ifndef HAVE_LIBEMF
 static void
 draw_image(DiaRenderer *self,
 	   Point *point,
@@ -1200,6 +1231,7 @@ draw_rounded_rect (DiaRenderer *self,
 	DonePen(renderer, hPen);
     }
 }
+#endif
 
 /* GObject boiler plate */
 static void wmf_renderer_class_init (WmfRendererClass *klass);
@@ -1233,9 +1265,57 @@ wmf_renderer_get_type (void)
 }
 
 static void
+wmf_renderer_set_property (GObject      *object,
+                           guint         property_id,
+                           const GValue *value,
+                           GParamSpec   *pspec)
+{
+  WmfRenderer *self = WMF_RENDERER (object);
+
+  switch (property_id) {
+    case PROP_FONT:
+      set_font (DIA_RENDERER (self),
+                DIA_FONT (g_value_get_object (value)),
+                self->font_height);
+      break;
+    case PROP_FONT_HEIGHT:
+      set_font (DIA_RENDERER (self),
+                self->font,
+                g_value_get_double (value));
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
+      break;
+  }
+}
+
+static void
+wmf_renderer_get_property (GObject    *object,
+                           guint       property_id,
+                           GValue     *value,
+                           GParamSpec *pspec)
+{
+  WmfRenderer *self = WMF_RENDERER (object);
+
+  switch (property_id) {
+    case PROP_FONT:
+      g_value_set_object (value, self->font);
+      break;
+    case PROP_FONT_HEIGHT:
+      g_value_set_double (value, self->font_height);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
+      break;
+  }
+}
+
+static void
 wmf_renderer_finalize (GObject *object)
 {
   WmfRenderer *renderer = WMF_RENDERER (object);
+
+  g_clear_object (&renderer->font);
 
   if (renderer->hFont)
     W32::DeleteObject(renderer->hFont);
@@ -1253,6 +1333,8 @@ wmf_renderer_class_init (WmfRendererClass *klass)
 
   parent_class = g_type_class_peek_parent (klass);
 
+  object_class->set_property = wmf_renderer_set_property;
+  object_class->get_property = wmf_renderer_get_property;
   object_class->finalize = wmf_renderer_finalize;
 
   /* renderer members */
@@ -1267,8 +1349,6 @@ wmf_renderer_class_init (WmfRendererClass *klass)
   renderer_class->set_linejoin   = set_linejoin;
   renderer_class->set_linestyle  = set_linestyle;
   renderer_class->set_fillstyle  = set_fillstyle;
-
-  renderer_class->set_font  = set_font;
 
   renderer_class->draw_line    = draw_line;
   renderer_class->draw_polygon = draw_polygon;
@@ -1295,9 +1375,11 @@ wmf_renderer_class_init (WmfRendererClass *klass)
 #endif
   /* other */
   renderer_class->is_capable_to = is_capable_to;
+
+  g_object_class_override_property (object_class, PROP_FONT, "font");
+  g_object_class_override_property (object_class, PROP_FONT_HEIGHT, "font-height");
 }
 
-#ifdef G_OS_WIN32
 /* plug-in export api */
 static gboolean
 export_data(DiagramData *data, DiaContext *ctx,
@@ -1307,7 +1389,7 @@ export_data(DiagramData *data, DiaContext *ctx,
     WmfRenderer *renderer;
     W32::HDC  file = NULL;
     W32::HDC refDC;
-    Rectangle *extent;
+    DiaRectangle *extent;
     // gint len;
     double scale;
 
@@ -1332,7 +1414,7 @@ export_data(DiagramData *data, DiaContext *ctx,
     bbox.bottom = (int)((data->extents.bottom - data->extents.top) * scale *
         100 * W32::GetDeviceCaps(refDC, VERTSIZE) / W32::GetDeviceCaps(refDC, VERTRES));
 
-#if HAVE_LIBEMF
+#if defined(HAVE_LIBEMF)
     FILE* ofile = g_fopen (filename, "w");
     if (ofile)
       file = CreateEnhMetaFileWithFILEA (refDC, ofile, &bbox, "Created with Dia/libEMF\0");
@@ -1449,6 +1531,7 @@ export_data(DiagramData *data, DiaContext *ctx,
     return TRUE;
 }
 
+#ifdef G_OS_WIN32
 static const gchar *wmf_extensions[] = { "wmf", NULL };
 static DiaExportFilter wmf_export_filter = {
     N_("Windows Metafile"),
@@ -1457,6 +1540,7 @@ static DiaExportFilter wmf_export_filter = {
     NULL, /* user data */
     "wmf"
 };
+#endif
 
 static const gchar *emf_extensions[] = { "emf", NULL };
 static DiaExportFilter emf_export_filter = {
@@ -1467,11 +1551,13 @@ static DiaExportFilter emf_export_filter = {
     "emf"
 };
 
-static ObjectChange *
+
+#ifdef G_OS_WIN32
+static DiaObjectChange *
 print_callback (DiagramData *data,
-                const gchar *filename,
-		guint        flags,
-		void        *user_data)
+                const char  *filename,
+                guint        flags,
+                void        *user_data)
 {
   /* Todo: get the context from caller */
   DiaContext *ctx = dia_context_new ("PrintGDI");
@@ -1510,7 +1596,7 @@ dia_plugin_init(PluginInfo *info)
 
 #ifdef G_OS_WIN32
     /*
-     * On non windoze platforms this plug-in currently is only
+     * On non Windows platforms this plug-in currently is only
      * useful at compile/develoment time. The output is broken
      * when processed by wmf_gdi.cpp ...
      */
@@ -1518,7 +1604,7 @@ dia_plugin_init(PluginInfo *info)
     filter_register_export(&emf_export_filter);
 
     filter_register_callback (&cb_gdi_print);
-#elif HAVE_LIBEMF
+#elif defined(HAVE_LIBEMF)
     /* not sure if libEMF really saves EMF ;) */
     filter_register_export(&emf_export_filter);
 #endif

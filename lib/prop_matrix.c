@@ -22,12 +22,14 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <config.h>
+
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <math.h>
 #include <gtk/gtk.h>
 #define WIDGET GtkWidget
-#include "widgets.h"
 #include "properties.h"
 #include "propinternals.h"
 #include "message.h"
@@ -45,21 +47,21 @@ matrixprop_new(const PropDescription *pdesc, PropDescToPropPredicate reason)
 }
 
 static void
-matrixprop_free(MatrixProperty *prop) 
+matrixprop_free(MatrixProperty *prop)
 {
-  g_free (prop->matrix);
-  g_free(prop);
-} 
+  g_clear_pointer (&prop->matrix, g_free);
+  g_clear_pointer (&prop, g_free);
+}
 
 static MatrixProperty *
-matrixprop_copy(MatrixProperty *src) 
+matrixprop_copy(MatrixProperty *src)
 {
-  MatrixProperty *prop = 
+  MatrixProperty *prop =
     (MatrixProperty *)src->common.ops->new_prop(src->common.descr,
                                               src->common.reason);
 
-  prop->matrix = g_memdup (src->matrix, sizeof(DiaMatrix));
-					      
+  prop->matrix = g_memdup2 (src->matrix, sizeof(DiaMatrix));
+
   return prop;
 }
 
@@ -81,7 +83,7 @@ data_matrix (DataNode data)
 {
   DiaMatrix *matrix;
 
-  matrix = g_new (DiaMatrix, 1);
+  matrix = g_new0 (DiaMatrix, 1);
   matrix->xx = _matrix_xml_get_value (data, "xx", 1.0);
   matrix->xy = _matrix_xml_get_value (data, "xy", 0.0);
   matrix->yx = _matrix_xml_get_value (data, "yx", 0.0);
@@ -93,7 +95,7 @@ data_matrix (DataNode data)
   if (matrix->xx == 1.0 && matrix->yx == 0.0 &&
       matrix->xy == 0.0 && matrix->yy == 1.0 &&
       matrix->x0 == 0.0 && matrix->y0 == 0.0) {
-    g_free (matrix);
+    g_clear_pointer (&matrix, g_free);
     return NULL;
   }
   /* TODO: check it's invertible? */
@@ -101,7 +103,7 @@ data_matrix (DataNode data)
   return matrix;
 }
 
-static void 
+static void
 matrixprop_load(MatrixProperty *prop, AttributeNode attr, DataNode data, DiaContext *ctx)
 {
   prop->matrix = data_matrix (data);
@@ -119,7 +121,7 @@ void
 data_add_matrix (AttributeNode attr, DiaMatrix *matrix, DiaContext *ctx)
 {
   DataNode data_node;
-  
+
   data_node = xmlNewChild(attr, NULL, (const xmlChar *)"matrix", NULL);
 
   if (matrix) {
@@ -132,44 +134,44 @@ data_add_matrix (AttributeNode attr, DiaMatrix *matrix, DiaContext *ctx)
   }
 }
 
-static void 
-matrixprop_save(MatrixProperty *prop, AttributeNode attr, DiaContext *ctx) 
+static void
+matrixprop_save(MatrixProperty *prop, AttributeNode attr, DiaContext *ctx)
 {
   if (prop->matrix) {
     data_add_matrix (attr, prop->matrix, ctx);
   }
 }
 
-static void 
+static void
 matrixprop_get_from_offset(MatrixProperty *prop,
-                         void *base, guint offset, guint offset2) 
+                         void *base, guint offset, guint offset2)
 {
   DiaMatrix *matrix = struct_member(base,offset,DiaMatrix *);
 
-  prop->matrix = g_memdup (matrix, sizeof (DiaMatrix));
+  prop->matrix = g_memdup2 (matrix, sizeof (DiaMatrix));
 }
 
-static void 
+static void
 matrixprop_set_from_offset(MatrixProperty *prop,
                            void *base, guint offset, guint offset2)
 {
   DiaMatrix *dest = struct_member(base,offset,DiaMatrix *);
-  if (dest)
-    g_free (dest);
 
-  struct_member(base,offset, DiaMatrix *) = g_memdup (prop->matrix, sizeof (DiaMatrix));
+  g_clear_pointer (&dest, g_free);
+
+  struct_member (base, offset, DiaMatrix *) = g_memdup2 (prop->matrix, sizeof (DiaMatrix));
 }
 
 /* GUI stuff - just the angle for now
  */
 static GtkWidget *
-matrixprop_get_widget (MatrixProperty *prop, PropDialog *dialog) 
-{ 
+matrixprop_get_widget (MatrixProperty *prop, PropDialog *dialog)
+{
   GtkAdjustment *adj;
   GtkWidget *ret, *sb;
   int i;
 
-  ret = gtk_hbox_new (FALSE,0);
+  ret = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
   /* angle */
   adj = GTK_ADJUSTMENT (gtk_adjustment_new(0.0, -180.0, 180.0, 1.0, 15.0, 0));
   sb = gtk_spin_button_new(adj, 1.0, 2);
@@ -186,11 +188,11 @@ matrixprop_get_widget (MatrixProperty *prop, PropDialog *dialog)
     gtk_widget_show(sb);
     gtk_box_pack_start(GTK_BOX(ret), sb, TRUE, TRUE, 0);
   }
-  
+
   return ret;
 }
 
-static void 
+static void
 matrixprop_reset_widget(MatrixProperty *prop, GtkWidget *widget)
 {
   GList *children, *child;
@@ -226,8 +228,8 @@ matrixprop_reset_widget(MatrixProperty *prop, GtkWidget *widget)
   }
 }
 
-static void 
-matrixprop_set_from_widget(MatrixProperty *prop, GtkWidget *widget) 
+static void
+matrixprop_set_from_widget(MatrixProperty *prop, GtkWidget *widget)
 {
   GList *children, *child;
   GtkWidget *sb;
@@ -254,8 +256,7 @@ matrixprop_set_from_widget(MatrixProperty *prop, GtkWidget *widget)
     }
     dia_matrix_set_angle_and_scales (prop->matrix, -angle/180.0*G_PI, sx, sy);
   } else {
-    g_free (prop->matrix);
-    prop->matrix = NULL;
+    g_clear_pointer (&prop->matrix, g_free);
   }
 }
 
@@ -274,7 +275,7 @@ static const PropertyOps matrixprop_ops = {
   (PropertyType_SetFromOffset) matrixprop_set_from_offset
 };
 
-void 
+void
 prop_matrix_register(void)
 {
   prop_type_register(PROP_TYPE_MATRIX, &matrixprop_ops);

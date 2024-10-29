@@ -18,15 +18,15 @@
 
 /* DO NOT USE THIS OBJECT AS A BASIS FOR A NEW OBJECT. */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "diarenderer.h"
@@ -59,13 +59,25 @@ enum FuncChangeType {
   ALL
 };
 
-struct _FunctionChange {
-  ObjectChange		obj_change ;
-  enum FuncChangeType	change_type ;
-  int			is_wish ;
-  int			is_user ;
-  char*			text ;
+
+#define DIA_FS_TYPE_FUNCTION_OBJECT_CHANGE dia_fs_function_object_change_get_type ()
+G_DECLARE_FINAL_TYPE (DiaFSFunctionObjectChange,
+                      dia_fs_function_object_change,
+                      DIA_FS, FUNCTION_OBJECT_CHANGE,
+                      DiaObjectChange)
+
+
+struct _DiaFSFunctionObjectChange {
+  DiaObjectChange      obj_change;
+  enum FuncChangeType  change_type;
+  int                  is_wish;
+  int                  is_user;
+  char                *text;
 };
+
+
+DIA_DEFINE_OBJECT_CHANGE (DiaFSFunctionObjectChange, dia_fs_function_object_change)
+
 
 #define FUNCTION_FONTHEIGHT 0.8
 #define FUNCTION_BORDERWIDTH_SCALE 6.0
@@ -74,14 +86,19 @@ struct _FunctionChange {
 #define FUNCTION_MARGIN_Y 2.4
 #define FUNCTION_DASHLENGTH_SCALE 2.0
 
-static real function_distance_from(Function *pkg, Point *point);
-static void function_select(Function *pkg, Point *clicked_point,
-			    DiaRenderer *interactive_renderer);
-static ObjectChange* function_move_handle(Function *pkg, Handle *handle,
-					  Point *to, ConnectionPoint *cp,
-					  HandleMoveReason reason,
-					  ModifierKeys modifiers);
-static ObjectChange* function_move(Function *pkg, Point *to);
+static double           function_distance_from   (Function         *pkg,
+                                                  Point            *point);
+static void             function_select          (Function         *pkg,
+                                                  Point            *clicked_point,
+                                                  DiaRenderer      *interactive_renderer);
+static DiaObjectChange* function_move_handle     (Function         *pkg,
+                                                  Handle           *handle,
+                                                  Point            *to,
+                                                  ConnectionPoint  *cp,
+                                                  HandleMoveReason  reason,
+                                                  ModifierKeys      modifiers);
+static DiaObjectChange* function_move            (Function         *pkg,
+                                                  Point            *to);
 static void function_draw(Function *pkg, DiaRenderer *renderer);
 static DiaObject *function_create(Point *startpoint,
 			       void *user_data,
@@ -181,13 +198,13 @@ function_set_props(Function *function, GPtrArray *props)
   function_update_data(function);
 }
 
+
 static void
-function_change_apply_revert( ObjectChange* objchg, DiaObject* obj)
+function_change_apply_revert (DiaFSFunctionObjectChange *change, DiaObject* obj)
 {
-  int tmp ;
-  char* ttxt ;
-  FunctionChange* change = (FunctionChange*) objchg ;
-  Function* fcn = (Function*) obj ;
+  int tmp;
+  char *ttxt;
+  Function *fcn = (Function *) obj;
 
   if ( change->change_type == WISH_FUNC || change->change_type == ALL ) {
      tmp = fcn->is_wish ;
@@ -202,47 +219,70 @@ function_change_apply_revert( ObjectChange* objchg, DiaObject* obj)
   if ( change->change_type == TEXT_EDIT || change->change_type == ALL ) {
      ttxt = text_get_string_copy( fcn->text ) ;
      text_set_string( fcn->text, change->text ) ;
-     g_free( change->text ) ;
-     change->text = ttxt ;
+    g_clear_pointer (&change->text, g_free);
+    change->text = ttxt;
   }
 }
+
 
 static void
-function_change_free( ObjectChange* objchg )
+dia_fs_function_object_change_apply (DiaObjectChange *self, DiaObject *obj)
 {
-  FunctionChange* change = (FunctionChange*) objchg ;
+  function_change_apply_revert (DIA_FS_FUNCTION_OBJECT_CHANGE (self), obj);
+}
 
-  if ( change->change_type == TEXT_EDIT ) {
-     g_free( change->text ) ;
+
+static void
+dia_fs_function_object_change_revert (DiaObjectChange *self, DiaObject *obj)
+{
+  function_change_apply_revert (DIA_FS_FUNCTION_OBJECT_CHANGE (self), obj);
+}
+
+
+static void
+dia_fs_function_object_change_free (DiaObjectChange *self)
+{
+  DiaFSFunctionObjectChange *change = DIA_FS_FUNCTION_OBJECT_CHANGE (self);
+
+  if (change->change_type == TEXT_EDIT) {
+    g_clear_pointer (&change->text, g_free);
   }
 }
 
-static ObjectChange*
-function_create_change( Function* fcn, enum FuncChangeType change_type )
+
+static DiaObjectChange *
+function_create_change (Function *fcn, enum FuncChangeType change_type)
 {
-  FunctionChange* change = g_new0(FunctionChange,1) ;
-  change->obj_change.apply = (ObjectChangeApplyFunc) function_change_apply_revert ;
-  change->obj_change.revert = (ObjectChangeRevertFunc) function_change_apply_revert ;
-  change->obj_change.free = (ObjectChangeFreeFunc) function_change_free ;
+  DiaFSFunctionObjectChange *change;
+
+  change = dia_object_change_new (DIA_FS_TYPE_FUNCTION_OBJECT_CHANGE);
+
   change->change_type = change_type ;
 
-  if ( change_type == WISH_FUNC || change_type == ALL )
-     change->is_wish = fcn->is_wish ;
+  if (change_type == WISH_FUNC || change_type == ALL) {
+    change->is_wish = fcn->is_wish;
+  }
 
-  if ( change_type == USER_FUNC || change_type == ALL )
-     change->is_user = fcn->is_user ;
+  if (change_type == USER_FUNC || change_type == ALL) {
+    change->is_user = fcn->is_user;
+  }
 
-  if ( change_type == TEXT_EDIT || change_type == ALL )
-     change->text = text_get_string_copy( fcn->text ) ;
-  return (ObjectChange*) change ;
+  if (change_type == TEXT_EDIT || change_type == ALL) {
+    change->text = text_get_string_copy (fcn->text);
+  }
+
+  return DIA_OBJECT_CHANGE (change);
 }
 
-static real
+
+static double
 function_distance_from(Function *pkg, Point *point)
 {
   DiaObject *obj = &pkg->element.object;
-  return distance_rectangle_point(&obj->bounding_box, point);
+
+  return distance_rectangle_point (&obj->bounding_box, point);
 }
+
 
 static void
 function_select(Function *pkg, Point *clicked_point,
@@ -253,41 +293,46 @@ function_select(Function *pkg, Point *clicked_point,
   element_update_handles(&pkg->element);
 }
 
-static ObjectChange*
-function_move_handle(Function *pkg, Handle *handle,
-		     Point *to, ConnectionPoint *cp,
-		     HandleMoveReason reason, ModifierKeys modifiers)
-{
-  assert(pkg!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
 
-  assert(handle->id < 8);
+static DiaObjectChange *
+function_move_handle (Function         *pkg,
+                      Handle           *handle,
+                      Point            *to,
+                      ConnectionPoint  *cp,
+                      HandleMoveReason  reason,
+                      ModifierKeys      modifiers)
+{
+  g_return_val_if_fail (pkg != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
+
+  g_return_val_if_fail (handle->id < 8, NULL);
 
   return NULL;
 }
 
-static ObjectChange*
-function_move(Function *pkg, Point *to)
+
+static DiaObjectChange*
+function_move (Function *pkg, Point *to)
 {
   pkg->element.corner = *to;
-  function_update_data(pkg);
+  function_update_data (pkg);
 
   return NULL;
 }
 
+
 static void
-function_draw(Function *pkg, DiaRenderer *renderer)
+function_draw (Function *pkg, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Element *elem;
   real x, y, w, h;
   Point p1, p2;
   real font_height ;
 
-  assert(pkg != NULL);
-  assert(pkg->text != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (pkg != NULL);
+  g_return_if_fail (pkg->text != NULL);
+  g_return_if_fail (renderer != NULL);
 
   elem = &pkg->element;
 
@@ -298,35 +343,39 @@ function_draw(Function *pkg, DiaRenderer *renderer)
 
   font_height = pkg->text->height ;
 
-  renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
-  renderer_ops->set_linewidth(renderer, font_height / FUNCTION_BORDERWIDTH_SCALE );
-  if (pkg->is_wish)
-    renderer_ops->set_linestyle( renderer, LINESTYLE_DASHED, font_height / FUNCTION_DASHLENGTH_SCALE ) ;
-  else
-    renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
+  dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+  dia_renderer_set_linewidth (renderer,
+                              font_height / FUNCTION_BORDERWIDTH_SCALE);
+  if (pkg->is_wish) {
+    dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_DASHED,
+                                font_height / FUNCTION_DASHLENGTH_SCALE);
+  } else {
+    dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
+  }
 
   p1.x = x; p1.y = y;
   p2.x = x+w; p2.y = y+h;
 
   if (pkg->is_user) {
-    renderer_ops->draw_rect(renderer,
-			     &p1, &p2,
-			     &color_white,
-			     &color_black);
+    dia_renderer_draw_rect (renderer,
+                            &p1,
+                            &p2,
+                            &color_white,
+                            &color_black);
     p1.x += font_height / FUNCTION_MARGIN_SCALE;
     p1.y += font_height / FUNCTION_MARGIN_SCALE;
     p2.y -= font_height / FUNCTION_MARGIN_SCALE;
     p2.x -= font_height / FUNCTION_MARGIN_SCALE;
     /* y += FUNCTION_MARGIN_M; */
   }
-  renderer_ops->draw_rect(renderer,
-			   &p1, &p2,
-			   &color_white,
-			   &color_black);
+  dia_renderer_draw_rect (renderer,
+                          &p1,
+                          &p2,
+                          &color_white,
+                          &color_black);
 
 
-  text_draw(pkg->text, renderer);
-
+  text_draw (pkg->text, renderer);
 }
 
 static void
@@ -423,7 +472,7 @@ function_create(Point *startpoint,
   DiaFont *font;
   int i;
 
-  pkg = g_malloc0(sizeof(Function));
+  pkg = g_new0 (Function, 1);
   elem = &pkg->element;
   obj = &elem->object;
 
@@ -433,7 +482,7 @@ function_create(Point *startpoint,
 
   elem->corner = *startpoint;
 
-  font = dia_font_new_from_style (DIA_FONT_SANS,FUNCTION_FONTHEIGHT);
+  font = dia_font_new_from_style (DIA_FONT_SANS, FUNCTION_FONTHEIGHT);
 
   pkg->is_wish = FALSE;
   pkg->is_user = FALSE;
@@ -441,13 +490,17 @@ function_create(Point *startpoint,
   /* The text position is recalculated later */
   p.x = 0.0;
   p.y = 0.0;
-  pkg->text = new_text("", font, FUNCTION_FONTHEIGHT, &p, &color_black,
-                       ALIGN_CENTER);
-  dia_font_unref(font);
+  pkg->text = new_text ("",
+                        font,
+                        FUNCTION_FONTHEIGHT,
+                        &p,
+                        &color_black,
+                        DIA_ALIGN_CENTRE);
+  g_clear_object (&font);
 
-  element_init(elem, 8, NUM_CONNECTIONS);
+  element_init (elem, 8, NUM_CONNECTIONS);
 
-  for (i=0;i<NUM_CONNECTIONS;i++) {
+  for (i = 0; i < NUM_CONNECTIONS; i++) {
     obj->connections[i] = &pkg->connections[i];
     pkg->connections[i].object = obj;
     pkg->connections[i].connected = NULL;
@@ -485,7 +538,7 @@ function_copy(Function *pkg)
 
   elem = &pkg->element;
 
-  newpkg = g_malloc0(sizeof(Function));
+  newpkg = g_new0 (Function, 1);
   newelem = &newpkg->element;
   newobj = &newelem->object;
 
@@ -535,7 +588,7 @@ function_load(ObjectNode obj_node, int version, DiaContext *ctx)
   DiaObject *obj;
   int i;
 
-  pkg = g_malloc0(sizeof(Function));
+  pkg = g_new0 (Function, 1);
   elem = &pkg->element;
   obj = &elem->object;
 
@@ -549,9 +602,15 @@ function_load(ObjectNode obj_node, int version, DiaContext *ctx)
   if (attr != NULL)
     pkg->text = data_text(attribute_first_data(attr), ctx);
   else { /* paranoid */
-    DiaFont *font = dia_font_new_from_style (DIA_FONT_SANS,FUNCTION_FONTHEIGHT);
-    pkg->text = new_text("", font, FUNCTION_FONTHEIGHT, &obj->position, &color_black, ALIGN_CENTER);
-    dia_font_unref(font);
+    DiaFont *font = dia_font_new_from_style (DIA_FONT_SANS,
+                                             FUNCTION_FONTHEIGHT);
+    pkg->text = new_text ("",
+                          font,
+                          FUNCTION_FONTHEIGHT,
+                          &obj->position,
+                          &color_black,
+                          DIA_ALIGN_CENTRE);
+    g_clear_object (&font);
   }
 
   attr = object_find_attribute(obj_node, "is_wish");
@@ -584,56 +643,62 @@ function_load(ObjectNode obj_node, int version, DiaContext *ctx)
   return &pkg->element.object;
 }
 
-static ObjectChange *
-function_insert_word( Function* func, const char* word, gboolean newline )
+
+static DiaObjectChange *
+function_insert_word (Function *func, const char *word, gboolean newline)
 {
-  ObjectChange* change = function_create_change( func, TEXT_EDIT ) ;
-  char* old_chars = text_get_string_copy( func->text ) ;
-  char* new_chars = g_malloc( strlen( old_chars) + strlen( word )
-		  	+ ( newline ? 2 : 1) ) ;
-  sprintf( new_chars, newline ? "%s\n%s" : "%s%s", old_chars, word ) ;
-  text_set_string( func->text, new_chars ) ;
-  g_free( new_chars ) ;
-  g_free( old_chars ) ;
-  function_update_data( func ) ;
-  text_set_cursor_at_end( func->text ) ;
+  DiaObjectChange* change = function_create_change (func, TEXT_EDIT);
+  char *old_chars = text_get_string_copy (func->text);
+  char *new_chars = g_new0 (char,
+                            strlen (old_chars) + strlen (word) + (newline ? 2 : 1));
+  sprintf (new_chars, newline ? "%s\n%s" : "%s%s", old_chars, word);
+  text_set_string (func->text, new_chars);
+  g_clear_pointer (&new_chars, g_free);
+  g_clear_pointer (&old_chars, g_free);
+  function_update_data (func);
+  text_set_cursor_at_end (func->text);
 
   return change;
 }
 
-static ObjectChange *
-function_insert_verb( DiaObject* obj, Point* clicked, gpointer data)
+
+static DiaObjectChange *
+function_insert_verb (DiaObject *obj, Point *clicked, gpointer data)
 {
-  return function_insert_word( (Function*)obj, (const char*) data, FALSE ) ;
+  return function_insert_word ((Function*) obj, (const char*) data, FALSE);
 }
 
-static ObjectChange *
-function_insert_noun( DiaObject* obj, Point* clicked, gpointer data)
+
+static DiaObjectChange *
+function_insert_noun (DiaObject *obj, Point *clicked, gpointer data)
 {
-  return function_insert_word( (Function*)obj, (const char*) data, TRUE ) ;
+  return function_insert_word ((Function*)obj, (const char*) data, TRUE);
 }
 
-static ObjectChange *
-function_toggle_user_function( DiaObject* obj, Point* clicked, gpointer data)
+
+static DiaObjectChange *
+function_toggle_user_function (DiaObject *obj, Point *clicked, gpointer data)
 {
-  Function* func = (Function*)obj ;
-  ObjectChange* change = function_create_change( func, USER_FUNC ) ;
-  func->is_user = !func->is_user ;
-  function_update_data( func ) ;
+  Function *func = (Function *) obj;
+  DiaObjectChange *change = function_create_change (func, USER_FUNC);
+  func->is_user = !func->is_user;
+  function_update_data (func);
 
   return change;
 }
 
-static ObjectChange *
-function_toggle_wish_function( DiaObject* obj, Point* clicked, gpointer data)
+
+static DiaObjectChange *
+function_toggle_wish_function (DiaObject *obj, Point *clicked, gpointer data)
 {
-  Function* func = (Function*)obj ;
-  ObjectChange* change = function_create_change( func, WISH_FUNC ) ;
-  func->is_wish = !func->is_wish ;
-  function_update_data( func ) ;
+  Function* func = (Function*) obj;
+  DiaObjectChange* change = function_create_change (func, WISH_FUNC);
+  func->is_wish = !func->is_wish;
+  function_update_data (func);
 
   return change;
 }
+
 
 struct _IndentedMenus {
   char*			name ;
@@ -1188,46 +1253,47 @@ function_count_submenu_items( struct _IndentedMenus* itemPtr )
   return cnt ;
 }
 
-static DiaMenu*
-function_get_object_menu( Function* func, Point* clickedpoint )
-{
-  if ( ! function_menu ) {
-  int i ;
-    int curDepth = 0 ;
-    DiaMenu* curMenu[ FS_SUBMENU_MAXINDENT ] ;
-    int curitem[ FS_SUBMENU_MAXINDENT ] ;
 
-    curitem[0] = 0 ;
-    curMenu[0] = g_malloc( sizeof( DiaMenu ) ) ;
-    curMenu[0]->title = "Function" ;
-    curMenu[0]->num_items = function_count_submenu_items( &(fmenu[0]) ) ;
-    curMenu[0]->items = g_malloc( curMenu[0]->num_items * sizeof(DiaMenuItem) );
-    curMenu[0]->app_data = NULL ;
-    for (i = 0 ; fmenu[i].depth >= 0; i++) {
-      if ( fmenu[i].depth > curDepth ) {
-	curDepth++ ;
-	curMenu[curDepth] = g_malloc( sizeof( DiaMenu ) ) ;
-	curMenu[curDepth]->title = NULL ;
-	curMenu[curDepth]->app_data = NULL ;
-	curMenu[curDepth]->num_items = function_count_submenu_items(&fmenu[i]);
-	curMenu[curDepth]->items = g_malloc( curMenu[curDepth]->num_items *
-				  sizeof(DiaMenuItem) ) ;
-	/* Point this menu's parent to this new structure */
-	curMenu[curDepth-1]->items[curitem[curDepth-1]-1].callback = NULL ;
-	curMenu[curDepth-1]->items[curitem[curDepth-1]-1].callback_data =
-		curMenu[curDepth] ;
-	curitem[ curDepth ] = 0 ;
-      } else if ( fmenu[i].depth < curDepth ) {
-	curDepth=fmenu[i].depth ;
+static DiaMenu *
+function_get_object_menu (Function *func, Point *clickedpoint)
+{
+  if (!function_menu) {
+    int curDepth = 0;
+    DiaMenu *curMenu[FS_SUBMENU_MAXINDENT];
+    int curitem[FS_SUBMENU_MAXINDENT];
+
+    curitem[0] = 0;
+    curMenu[0] = g_new0 (DiaMenu, 1);
+    curMenu[0]->title = "Function";
+    curMenu[0]->num_items = function_count_submenu_items (&(fmenu[0]));
+    curMenu[0]->items = g_new0 (DiaMenuItem, curMenu[0]->num_items);
+    curMenu[0]->app_data = NULL;
+
+    for (int i = 0; fmenu[i].depth >= 0; i++) {
+      if (fmenu[i].depth > curDepth) {
+        curDepth++;
+        curMenu[curDepth] = g_new0 (DiaMenu, 1);
+        curMenu[curDepth]->title = NULL;
+        curMenu[curDepth]->app_data = NULL;
+        curMenu[curDepth]->num_items = function_count_submenu_items (&fmenu[i]);
+        curMenu[curDepth]->items = g_new0 (DiaMenuItem, curMenu[curDepth]->num_items);
+        /* Point this menu's parent to this new structure */
+        curMenu[curDepth-1]->items[curitem[curDepth-1]-1].callback = NULL ;
+        curMenu[curDepth-1]->items[curitem[curDepth-1]-1].callback_data =
+          curMenu[curDepth];
+        curitem[curDepth] = 0 ;
+      } else if (fmenu[i].depth < curDepth) {
+        curDepth = fmenu[i].depth;
+      }
+
+      curMenu[curDepth]->items[curitem[curDepth]].text = fmenu[i].name;
+      curMenu[curDepth]->items[curitem[curDepth]].callback = fmenu[i].func;
+      curMenu[curDepth]->items[curitem[curDepth]].callback_data = fmenu[i].name;
+      curMenu[curDepth]->items[curitem[curDepth]].active = 1;
+      curitem[curDepth]++;
     }
 
-      curMenu[curDepth]->items[curitem[curDepth]].text = fmenu[i].name ;
-      curMenu[curDepth]->items[curitem[curDepth]].callback = fmenu[i].func ;
-      curMenu[curDepth]->items[curitem[curDepth]].callback_data = fmenu[i].name;
-      curMenu[curDepth]->items[curitem[curDepth]].active = 1 ;
-      curitem[curDepth]++ ;
+    function_menu = curMenu[0];
   }
-    function_menu = curMenu[0] ;
-  }
-  return function_menu ;
+  return function_menu;
 }

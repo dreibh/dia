@@ -16,12 +16,12 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 
-#include "intl.h"
 #include "object.h"
 #include "orth_conn.h"
 #include "connectionpoint.h"
@@ -44,20 +44,24 @@ typedef struct _Zigzagline {
   OrthConn orth;
 
   Color line_color;
-  LineStyle line_style;
-  LineJoin line_join;
-  LineCaps line_caps;
-  real dashlength;
-  real line_width;
-  real corner_radius;
+  DiaLineStyle line_style;
+  DiaLineJoin line_join;
+  DiaLineCaps line_caps;
+  double dashlength;
+  double line_width;
+  double corner_radius;
   Arrow start_arrow, end_arrow;
 } Zigzagline;
 
 
-static ObjectChange* zigzagline_move_handle(Zigzagline *zigzagline, Handle *handle,
-					    Point *to, ConnectionPoint *cp,
-					    HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* zigzagline_move(Zigzagline *zigzagline, Point *to);
+static DiaObjectChange *zigzagline_move_handle   (Zigzagline       *zigzagline,
+                                                  Handle           *handle,
+                                                  Point            *to,
+                                                  ConnectionPoint  *cp,
+                                                  HandleMoveReason  reason,
+                                                  ModifierKeys      modifiers);
+static DiaObjectChange *zigzagline_move          (Zigzagline       *zigzagline,
+                                                  Point            *to);
 static void zigzagline_select(Zigzagline *zigzagline, Point *clicked_point,
 			      DiaRenderer *interactive_renderer);
 static void zigzagline_draw(Zigzagline *zigzagline, DiaRenderer *renderer);
@@ -173,38 +177,47 @@ zigzagline_select(Zigzagline *zigzagline, Point *clicked_point,
   orthconn_update_data(&zigzagline->orth);
 }
 
-static ObjectChange*
-zigzagline_move_handle(Zigzagline *zigzagline, Handle *handle,
-		       Point *to, ConnectionPoint *cp,
-		       HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+zigzagline_move_handle (Zigzagline       *zigzagline,
+                        Handle           *handle,
+                        Point            *to,
+                        ConnectionPoint  *cp,
+                        HandleMoveReason  reason,
+                        ModifierKeys      modifiers)
 {
-  ObjectChange *change;
-  assert(zigzagline!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+  DiaObjectChange *change;
 
-  change = orthconn_move_handle((OrthConn*)zigzagline, handle, to, cp,
-				reason, modifiers);
+  g_return_val_if_fail (zigzagline != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
-  zigzagline_update_data(zigzagline);
+  change = orthconn_move_handle ((OrthConn*) zigzagline,
+                                 handle,
+                                 to,
+                                 cp,
+                                 reason,
+                                 modifiers);
+
+  zigzagline_update_data (zigzagline);
 
   return change;
 }
 
 
-static ObjectChange*
-zigzagline_move(Zigzagline *zigzagline, Point *to)
+static DiaObjectChange *
+zigzagline_move (Zigzagline *zigzagline, Point *to)
 {
-  orthconn_move(&zigzagline->orth, to);
-  zigzagline_update_data(zigzagline);
+  orthconn_move (&zigzagline->orth, to);
+  zigzagline_update_data (zigzagline);
 
   return NULL;
 }
 
+
 static void
-zigzagline_draw(Zigzagline *zigzagline, DiaRenderer *renderer)
+zigzagline_draw (Zigzagline *zigzagline, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   OrthConn *orth = &zigzagline->orth;
   Point *points;
   int n;
@@ -212,19 +225,19 @@ zigzagline_draw(Zigzagline *zigzagline, DiaRenderer *renderer)
   points = &orth->points[0];
   n = orth->numpoints;
 
-  renderer_ops->set_linewidth(renderer, zigzagline->line_width);
-  renderer_ops->set_linestyle(renderer, zigzagline->line_style, zigzagline->dashlength);
-  renderer_ops->set_linejoin(renderer, zigzagline->line_join);
-  renderer_ops->set_linecaps(renderer, zigzagline->line_caps);
+  dia_renderer_set_linewidth (renderer, zigzagline->line_width);
+  dia_renderer_set_linestyle (renderer, zigzagline->line_style, zigzagline->dashlength);
+  dia_renderer_set_linejoin (renderer, zigzagline->line_join);
+  dia_renderer_set_linecaps (renderer, zigzagline->line_caps);
 
-  renderer_ops->draw_rounded_polyline_with_arrows(renderer,
-						  points, n,
-						  zigzagline->line_width,
-						  &zigzagline->line_color,
-						  &zigzagline->start_arrow,
-						  &zigzagline->end_arrow,
-						  zigzagline->corner_radius);
-
+  dia_renderer_draw_rounded_polyline_with_arrows (renderer,
+                                                  points,
+                                                  n,
+                                                  zigzagline->line_width,
+                                                  &zigzagline->line_color,
+                                                  &zigzagline->start_arrow,
+                                                  &zigzagline->end_arrow,
+                                                  zigzagline->corner_radius);
 }
 
 static DiaObject *
@@ -239,7 +252,7 @@ zigzagline_create(Point *startpoint,
   Point dummy = {0, 0};
 
   /*zigzagline_init_defaults();*/
-  zigzagline = g_malloc0(sizeof(Zigzagline));
+  zigzagline = g_new0 (Zigzagline, 1);
   orth = &zigzagline->orth;
   obj = &orth->object;
 
@@ -258,10 +271,10 @@ zigzagline_create(Point *startpoint,
 
   zigzagline->line_width =  attributes_get_default_linewidth();
   zigzagline->line_color = attributes_get_foreground();
-  attributes_get_default_line_style(&zigzagline->line_style,
-				    &zigzagline->dashlength);
-  zigzagline->line_join = LINEJOIN_MITER;
-  zigzagline->line_caps = LINECAPS_BUTT;
+  attributes_get_default_line_style (&zigzagline->line_style,
+                                     &zigzagline->dashlength);
+  zigzagline->line_join = DIA_LINE_JOIN_MITER;
+  zigzagline->line_caps = DIA_LINE_CAPS_BUTT;
   zigzagline->start_arrow = attributes_get_default_start_arrow();
   zigzagline->end_arrow = attributes_get_default_end_arrow();
   zigzagline->corner_radius = 0.0;
@@ -288,7 +301,7 @@ zigzagline_copy(Zigzagline *zigzagline)
 
   orth = &zigzagline->orth;
 
-  newzigzagline = g_malloc0(sizeof(Zigzagline));
+  newzigzagline = g_new0 (Zigzagline, 1);
   neworth = &newzigzagline->orth;
 
   orthconn_copy(orth, neworth);
@@ -326,7 +339,7 @@ zigzagline_update_data(Zigzagline *zigzagline)
   orthconn_update_boundingbox(orth);
 
   if (zigzagline->start_arrow.type != ARROW_NONE) {
-    Rectangle bbox;
+    DiaRectangle bbox;
     Point move_arrow, move_line;
     Point to = orth->points[0];
     Point from = orth->points[1];
@@ -340,7 +353,7 @@ zigzagline_update_data(Zigzagline *zigzagline)
     rectangle_union (&obj->bounding_box, &bbox);
   }
   if (zigzagline->end_arrow.type != ARROW_NONE) {
-    Rectangle bbox;
+    DiaRectangle bbox;
     Point move_arrow, move_line;
     int n = orth->numpoints;
     Point to = orth->points[n-1];
@@ -356,23 +369,30 @@ zigzagline_update_data(Zigzagline *zigzagline)
   }
 }
 
-static ObjectChange *
-zigzagline_add_segment_callback(DiaObject *obj, Point *clicked, gpointer data)
+
+static DiaObjectChange *
+zigzagline_add_segment_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
-  ObjectChange *change;
-  change = orthconn_add_segment((OrthConn *)obj, clicked);
-  zigzagline_update_data((Zigzagline *)obj);
+  DiaObjectChange *change;
+
+  change = orthconn_add_segment ((OrthConn *) obj, clicked);
+  zigzagline_update_data ((Zigzagline *) obj);
+
   return change;
 }
 
-static ObjectChange *
-zigzagline_delete_segment_callback(DiaObject *obj, Point *clicked, gpointer data)
+
+static DiaObjectChange *
+zigzagline_delete_segment_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
-  ObjectChange *change;
-  change = orthconn_delete_segment((OrthConn *)obj, clicked);
-  zigzagline_update_data((Zigzagline *)obj);
+  DiaObjectChange *change;
+
+  change = orthconn_delete_segment ((OrthConn *) obj, clicked);
+  zigzagline_update_data ((Zigzagline *) obj);
+
   return change;
 }
+
 
 /*!
  * \brief Upgrade the _Zigzagline to a _Bezierline
@@ -388,7 +408,7 @@ zigzagline_delete_segment_callback(DiaObject *obj, Point *clicked, gpointer data
  *
  * \memberof _Zigzagline
  */
-static ObjectChange *
+static DiaObjectChange *
 _convert_to_bezierline_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
   Zigzagline *zigzagline = (Zigzagline *)obj;
@@ -435,7 +455,7 @@ _convert_to_bezierline_callback (DiaObject *obj, Point *clicked, gpointer data)
     }
   }
   bezier = create_standard_bezierline(num_points, bp, &zigzagline->end_arrow, &zigzagline->start_arrow);
-  g_free(bp);
+  g_clear_pointer (&bp, g_free);
 
   return object_substitute (obj, bezier);
 }
@@ -484,28 +504,41 @@ zigzagline_save(Zigzagline *zigzagline, ObjectNode obj_node,
     data_add_real(new_attribute(obj_node, PROP_STDNAME_LINE_WIDTH),
 		  zigzagline->line_width, ctx);
 
-  if (zigzagline->line_style != LINESTYLE_SOLID)
+  if (zigzagline->line_style != DIA_LINE_STYLE_SOLID)
     data_add_enum(new_attribute(obj_node, "line_style"),
 		  zigzagline->line_style, ctx);
 
-  if (zigzagline->line_join != LINEJOIN_MITER)
-    data_add_enum(new_attribute(obj_node, "line_join"),
-                  zigzagline->line_join, ctx);
-  if (zigzagline->line_caps != LINECAPS_BUTT)
-    data_add_enum(new_attribute(obj_node, "line_caps"),
-                  zigzagline->line_caps, ctx);
+  if (zigzagline->line_join != DIA_LINE_JOIN_MITER) {
+    data_add_enum (new_attribute (obj_node, "line_join"),
+                   zigzagline->line_join,
+                   ctx);
+  }
+
+  if (zigzagline->line_caps != DIA_LINE_CAPS_BUTT) {
+    data_add_enum (new_attribute (obj_node, "line_caps"),
+                   zigzagline->line_caps,
+                   ctx);
+  }
 
   if (zigzagline->start_arrow.type != ARROW_NONE) {
-    save_arrow(obj_node, &zigzagline->start_arrow, "start_arrow",
-	     "start_arrow_length", "start_arrow_width", ctx);
+    dia_arrow_save (&zigzagline->start_arrow,
+                    obj_node,
+                    "start_arrow",
+                    "start_arrow_length",
+                    "start_arrow_width",
+                    ctx);
   }
 
   if (zigzagline->end_arrow.type != ARROW_NONE) {
-    save_arrow(obj_node, &zigzagline->end_arrow, "end_arrow",
-	     "end_arrow_length", "end_arrow_width", ctx);
+    dia_arrow_save (&zigzagline->end_arrow,
+                    obj_node,
+                    "end_arrow",
+                    "end_arrow_length",
+                    "end_arrow_width",
+                    ctx);
   }
 
-  if (zigzagline->line_style != LINESTYLE_SOLID &&
+  if (zigzagline->line_style != DIA_LINE_STYLE_SOLID &&
       zigzagline->dashlength != DEFAULT_LINESTYLE_DASHLEN)
     data_add_real(new_attribute(obj_node, "dashlength"),
                   zigzagline->dashlength, ctx);
@@ -523,7 +556,7 @@ zigzagline_load(ObjectNode obj_node, int version, DiaContext *ctx)
   DiaObject *obj;
   AttributeNode attr;
 
-  zigzagline = g_malloc0(sizeof(Zigzagline));
+  zigzagline = g_new0 (Zigzagline, 1);
 
   orth = &zigzagline->orth;
   obj = &orth->object;
@@ -543,26 +576,36 @@ zigzagline_load(ObjectNode obj_node, int version, DiaContext *ctx)
   if (attr != NULL)
     zigzagline->line_width = data_real(attribute_first_data(attr), ctx);
 
-  zigzagline->line_style = LINESTYLE_SOLID;
+  zigzagline->line_style = DIA_LINE_STYLE_SOLID;
   attr = object_find_attribute(obj_node, "line_style");
   if (attr != NULL)
     zigzagline->line_style = data_enum(attribute_first_data(attr), ctx);
 
-  zigzagline->line_join = LINEJOIN_MITER;
-  attr = object_find_attribute(obj_node, "line_join");
-  if (attr != NULL)
-    zigzagline->line_join = data_enum(attribute_first_data(attr), ctx);
+  zigzagline->line_join = DIA_LINE_JOIN_MITER;
+  attr = object_find_attribute (obj_node, "line_join");
+  if (attr != NULL) {
+    zigzagline->line_join = data_enum (attribute_first_data (attr), ctx);
+  }
 
-  zigzagline->line_caps = LINECAPS_BUTT;
-  attr = object_find_attribute(obj_node, "line_caps");
-  if (attr != NULL)
-    zigzagline->line_caps = data_enum(attribute_first_data(attr), ctx);
+  zigzagline->line_caps = DIA_LINE_CAPS_BUTT;
+  attr = object_find_attribute (obj_node, "line_caps");
+  if (attr != NULL) {
+    zigzagline->line_caps = data_enum (attribute_first_data (attr), ctx);
+  }
 
-  load_arrow(obj_node, &zigzagline->start_arrow, "start_arrow",
-	     "start_arrow_length", "start_arrow_width", ctx);
+  dia_arrow_load (&zigzagline->start_arrow,
+                  obj_node,
+                  "start_arrow",
+                  "start_arrow_length",
+                  "start_arrow_width",
+                  ctx);
 
-  load_arrow(obj_node, &zigzagline->end_arrow, "end_arrow",
-	     "end_arrow_length", "end_arrow_width", ctx);
+  dia_arrow_load (&zigzagline->end_arrow,
+                  obj_node,
+                  "end_arrow",
+                  "end_arrow_length",
+                  "end_arrow_width",
+                  ctx);
 
   zigzagline->dashlength = DEFAULT_LINESTYLE_DASHLEN;
   attr = object_find_attribute(obj_node, "dashlength");

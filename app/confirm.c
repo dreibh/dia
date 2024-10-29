@@ -20,13 +20,25 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include "confirm.h"
-#include "intl.h"
 
-static gint
-confirm_respond (GtkWidget *widget, gint response_id, gpointer data)
+
+/**
+ * ConfirmationKind:
+ * @CONFIRM_PAGES: Confirm number of pages
+ * @CONFIRM_MEMORY: Confirm memory usage
+ * @CONFIRM_PRINT: This is for printing
+ *
+ * Since: dawn-of-time
+ */
+
+
+static int
+confirm_respond (GtkWidget *widget, int response_id, gpointer data)
 {
   /* just close it in any case */
   gtk_widget_hide (widget);
@@ -42,7 +54,7 @@ confirm_export_size (Diagram *dia, GtkWindow *parent, guint flags)
   GtkWidget *dialog;
   int pages = 0;
   gint64 bytes = 0;
-  gchar *size, *msg;
+  char *size, *msg;
   gboolean ret;
 
   pages = ceil((dia->data->extents.right - dia->data->extents.left) / dia->data->paper.width)
@@ -72,8 +84,8 @@ confirm_export_size (Diagram *dia, GtkWindow *parent, guint flags)
 		"You are about to export a diagram with %d pages.", pages), pages);
   else
     msg = g_strdup_printf (g_dngettext (GETTEXT_PACKAGE,
-		"You are about to export a diagram which may require %s of memory.(%d page).",
-		"You are about to export a diagram which may require %s of memory.(%d pages).", pages),
+		"You are about to export a diagram which may require %s of memory (%d page).",
+		"You are about to export a diagram which may require %s of memory (%d pages).", pages),
 		size, pages);
   dialog = gtk_message_dialog_new (parent, /* diagrams display 'shell' */
 				   GTK_DIALOG_MODAL|GTK_DIALOG_DESTROY_WITH_PARENT,
@@ -86,10 +98,12 @@ confirm_export_size (Diagram *dia, GtkWindow *parent, guint flags)
 					      "Alternatively use 'Best Fit' "
 					      "to move objects/handles into the intended bounds."));
   gtk_window_set_title (GTK_WINDOW (dialog), _("Confirm Diagram Size"));
-  g_free (size);
+  g_clear_pointer (&size, g_free);
 
-  g_signal_connect(G_OBJECT (dialog), "response",
-		   G_CALLBACK(confirm_respond), NULL);
+  g_signal_connect (G_OBJECT (dialog),
+                    "response",
+                    G_CALLBACK (confirm_respond),
+                    NULL);
 
   ret = (GTK_RESPONSE_OK == gtk_dialog_run (GTK_DIALOG (dialog)));
   gtk_widget_destroy(dialog);

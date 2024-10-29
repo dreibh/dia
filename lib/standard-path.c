@@ -31,7 +31,10 @@
  * based object, which can render holes, even if the _DiaRenderer can not. It is
  * using a newer file format representation through BezPointarrayProperty.
  */
-#include <config.h>
+
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include "object.h"
 #include "diarenderer.h"
@@ -43,6 +46,8 @@
 #include "create.h"
 #include "bezier-common.h"
 #include "pattern.h"
+#include "dia-object-change-list.h"
+
 
 #define NUM_HANDLES 8
 
@@ -76,11 +81,11 @@ struct _StdPath {
   int stroke_or_fill;
 
   Color line_color;
-  real line_width;
-  LineStyle line_style;
-  real dashlength;
-  LineJoin line_join;
-  LineCaps line_caps;
+  double line_width;
+  DiaLineStyle line_style;
+  double dashlength;
+  DiaLineJoin line_join;
+  DiaLineCaps line_caps;
   Color fill_color;
 
   /*! mirroring (stdpath->stroke_or_fill & PDO_FILL) */
@@ -167,12 +172,16 @@ DiaObjectType stdpath_type =
   stdpath_offsets
 };
 
+
 /* Class definition */
-static ObjectChange* stdpath_move_handle (StdPath *stdpath,
-                                          Handle *handle,
-					  Point *to, ConnectionPoint *cp,
-					  HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* stdpath_move (StdPath *stdpath, Point *to);
+static DiaObjectChange *stdpath_move_handle (StdPath          *stdpath,
+                                             Handle           *handle,
+                                             Point            *to,
+                                             ConnectionPoint  *cp,
+                                             HandleMoveReason  reason,
+                                             ModifierKeys      modifiers);
+static DiaObjectChange *stdpath_move        (StdPath          *stdpath,
+                                             Point            *to);
 static void stdpath_select(StdPath *stdpath, Point *clicked_point,
 			   DiaRenderer *interactive_renderer);
 static void stdpath_draw(StdPath *stdpath, DiaRenderer *renderer);
@@ -285,11 +294,12 @@ stdpath_create (Point *startpoint,
       g_warning ("'Standard - Path' needs at least two points");
       /* this is a stress test - object might not be setup completely */
       object_destroy (obj);
-      g_free (stdpath);
+      g_clear_pointer (&stdpath, g_free);
       return NULL;
     }
     stdpath->num_points = bcd->num_points;
-    stdpath->points = g_memdup(bcd->points, bcd->num_points * sizeof(BezPoint));
+    stdpath->points = g_memdup2 (bcd->points,
+                                 bcd->num_points * sizeof(BezPoint));
   }
 
   stdpath->stroke_or_fill = PDO_STROKE; /* default: stroke only */
@@ -322,7 +332,7 @@ stdpath_update_handles(StdPath *stdpath)
 {
   DiaObject *obj = &stdpath->object;
   PolyBBExtras extra = { 0, };
-  Rectangle rect, *bb;
+  DiaRectangle rect, *bb;
 
   g_return_if_fail (obj->handles != NULL);
 
@@ -362,7 +372,7 @@ static void
 stdpath_update_data (StdPath *stdpath)
 {
   DiaObject *obj = &stdpath->object;
-  Rectangle *bb = &obj->bounding_box;
+  DiaRectangle *bb = &obj->bounding_box;
   PolyBBExtras extra = { 0 };
   real lw = stdpath->stroke_or_fill & PDO_STROKE ? stdpath->line_width : 0.0;
 
@@ -388,51 +398,69 @@ stdpath_update_data (StdPath *stdpath)
  * \memberof _StdPath
  */
 static void
-stdpath_draw(StdPath *stdpath, DiaRenderer *renderer)
+stdpath_draw (StdPath *stdpath, DiaRenderer *renderer)
 {
-  DIA_RENDERER_GET_CLASS (renderer)->set_linewidth (renderer, stdpath->line_width);
-  DIA_RENDERER_GET_CLASS (renderer)->set_linestyle (renderer, stdpath->line_style, stdpath->dashlength);
-  DIA_RENDERER_GET_CLASS (renderer)->set_linejoin(renderer, stdpath->line_join);
-  DIA_RENDERER_GET_CLASS (renderer)->set_linecaps(renderer, stdpath->line_caps);
+  dia_renderer_set_linewidth (renderer, stdpath->line_width);
+  dia_renderer_set_linestyle (renderer, stdpath->line_style, stdpath->dashlength);
+  dia_renderer_set_linejoin (renderer, stdpath->line_join);
+  dia_renderer_set_linecaps (renderer, stdpath->line_caps);
 
-  if (DIA_RENDERER_GET_CLASS (renderer)->is_capable_to(renderer, RENDER_HOLES)) {
+  if (dia_renderer_is_capable_of (renderer, RENDER_HOLES)) {
     if (stdpath->stroke_or_fill & PDO_FILL) {
       Color fill = stdpath->fill_color;
       if (stdpath->pattern) {
-	dia_pattern_get_fallback_color (stdpath->pattern, &fill);
-	if (DIA_RENDERER_GET_CLASS (renderer)->is_capable_to(renderer, RENDER_PATTERN))
-	  DIA_RENDERER_GET_CLASS (renderer)->set_pattern (renderer, stdpath->pattern);
+        dia_pattern_get_fallback_color (stdpath->pattern, &fill);
+        if (dia_renderer_is_capable_of (renderer, RENDER_PATTERN)) {
+          dia_renderer_set_pattern (renderer, stdpath->pattern);
+        }
       }
-      if (stdpath->stroke_or_fill & PDO_STROKE) /* also stroke -> combine */
-        DIA_RENDERER_GET_CLASS (renderer)->draw_beziergon(renderer, stdpath->points, stdpath->num_points,
-							  &fill, &stdpath->line_color);
-      else
-        DIA_RENDERER_GET_CLASS (renderer)->draw_beziergon(renderer, stdpath->points, stdpath->num_points,
-							  &fill, NULL);
-      if (DIA_RENDERER_GET_CLASS (renderer)->is_capable_to(renderer, RENDER_PATTERN))
-	DIA_RENDERER_GET_CLASS (renderer)->set_pattern (renderer, NULL);
+      if (stdpath->stroke_or_fill & PDO_STROKE) { /* also stroke -> combine */
+        dia_renderer_draw_beziergon (renderer,
+                                     stdpath->points,
+                                     stdpath->num_points,
+                                     &fill,
+                                     &stdpath->line_color);
+      } else {
+        dia_renderer_draw_beziergon (renderer,
+                                     stdpath->points,
+                                     stdpath->num_points,
+                                     &fill,
+                                     NULL);
+      }
+      if (dia_renderer_is_capable_of (renderer, RENDER_PATTERN)) {
+        dia_renderer_set_pattern (renderer, NULL);
+      }
     }
-    if (stdpath->stroke_or_fill == PDO_STROKE) /* stroke only */
-      DIA_RENDERER_GET_CLASS (renderer)->draw_bezier(renderer, stdpath->points, stdpath->num_points,
-						     &stdpath->line_color);
+    if (stdpath->stroke_or_fill == PDO_STROKE) { /* stroke only */
+      dia_renderer_draw_bezier (renderer,
+                                stdpath->points,
+                                stdpath->num_points,
+                                &stdpath->line_color);
+    }
   } else {
     /* step-wise approach */
     /* if it wouldn't RENDER_HOLES it presumably also wouldn't RENDER_PATTERN ... */
     if (stdpath->stroke_or_fill & PDO_FILL) {
       Color fill = stdpath->fill_color;
-      if (stdpath->pattern)
-	dia_pattern_get_fallback_color (stdpath->pattern, &fill);
-      bezier_render_fill (renderer, stdpath->points, stdpath->num_points, &fill);
+      if (stdpath->pattern) {
+        dia_pattern_get_fallback_color (stdpath->pattern, &fill);
+      }
+      dia_renderer_bezier_fill (renderer, stdpath->points, stdpath->num_points, &fill);
     }
-    if (stdpath->stroke_or_fill & PDO_STROKE)
-      bezier_render_stroke (renderer, stdpath->points, stdpath->num_points, &stdpath->line_color);
+
+    if (stdpath->stroke_or_fill & PDO_STROKE) {
+      dia_renderer_bezier_stroke (renderer, stdpath->points, stdpath->num_points, &stdpath->line_color);
+    }
   }
-  if (stdpath->show_control_lines)
+
+  if (stdpath->show_control_lines) {
     bezier_draw_control_lines (stdpath->num_points, stdpath->points, renderer);
+  }
 }
 
-static ObjectChange *_path_object_invert_change_create (DiaObject *obj);
-static ObjectChange *_path_object_transform_change_create (DiaObject *obj, DiaMatrix *mat);
+static DiaObjectChange *_path_object_invert_change_create    (DiaObject *obj);
+static DiaObjectChange *_path_object_transform_change_create (DiaObject *obj,
+                                                              DiaMatrix *mat);
 
 /*!
  * \brief Change the direction of the path
@@ -460,28 +488,52 @@ _stdpath_invert (StdPath *stdpath)
   memcpy (stdpath->points, inverted, sizeof(BezPoint)*n);
   stdpath_update_handles (stdpath);
 }
-static ObjectChange *
+
+
+static DiaObjectChange *
 _invert_path_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
-  StdPath *stdpath = (StdPath *)obj;
+  StdPath *stdpath = (StdPath *) obj;
   _stdpath_invert (stdpath);
   return _path_object_invert_change_create (obj);
 }
-/* a very simple undo function, complete reversible function */
+
+
+struct _DiaPathObjectChange {
+  DiaObjectChange parent;
+};
+
+
+DIA_DEFINE_OBJECT_CHANGE (DiaPathObjectChange, dia_path_object_change)
+
+
 static void
-_apply_invert (ObjectChange *change, DiaObject *obj)
+dia_path_object_change_free (DiaObjectChange *self)
 {
-  _stdpath_invert ((StdPath *)obj);
+
 }
-static ObjectChange *
+
+
+static void
+dia_path_object_change_apply (DiaObjectChange *self, DiaObject *obj)
+{
+  _stdpath_invert ((StdPath *) obj);
+}
+
+
+static void
+dia_path_object_change_revert (DiaObjectChange *self, DiaObject *obj)
+{
+  _stdpath_invert ((StdPath *) obj);
+}
+
+
+static DiaObjectChange *
 _path_object_invert_change_create (DiaObject *obj)
 {
-  ObjectChange *change = g_new(ObjectChange, 1);
-  change->apply = _apply_invert;
-  change->revert = _apply_invert;
-  change->free = NULL;
-  return change;
+  return dia_object_change_new (DIA_TYPE_PATH_OBJECT_CHANGE);
 }
+
 
 static void
 _path_transform (StdPath *sp, const DiaMatrix *m)
@@ -496,41 +548,60 @@ _path_transform (StdPath *sp, const DiaMatrix *m)
   stdpath_update_data (sp);
 }
 
-typedef struct _PathTransformChange {
-  ObjectChange change;
-  DiaMatrix    matrix;
-} PathTransformChange;
+
+struct _DiaPathTransformObjectChange {
+  DiaObjectChange change;
+  DiaMatrix       matrix;
+};
+
+
+DIA_DEFINE_OBJECT_CHANGE (DiaPathTransformObjectChange,
+                          dia_path_transform_object_change)
+
 
 static void
-_ptc_apply (ObjectChange *change, DiaObject *obj)
+dia_path_transform_object_change_free (DiaObjectChange *self)
 {
-  PathTransformChange *ptc = (PathTransformChange *)change;
-  StdPath *sp = (StdPath *)obj;
+
+}
+
+
+static void
+dia_path_transform_object_change_apply (DiaObjectChange *self, DiaObject *obj)
+{
+  DiaPathTransformObjectChange *ptc = DIA_PATH_TRANSFORM_OBJECT_CHANGE (self);
+  StdPath *sp = (StdPath *) obj;
 
   _path_transform (sp, &ptc->matrix);
 }
+
+
 static void
-_ptc_revert (ObjectChange *change, DiaObject *obj)
+dia_path_transform_object_change_revert (DiaObjectChange *self, DiaObject *obj)
 {
-  StdPath *sp = (StdPath *)obj;
-  PathTransformChange *ptc = (PathTransformChange *)change;
+  StdPath *sp = (StdPath *) obj;
+  DiaPathTransformObjectChange *ptc = DIA_PATH_TRANSFORM_OBJECT_CHANGE (self);
   DiaMatrix mi = ptc->matrix;
 
-  if (cairo_matrix_invert ((cairo_matrix_t *)&mi) != CAIRO_STATUS_SUCCESS)
+  if (cairo_matrix_invert ((cairo_matrix_t *) &mi) != CAIRO_STATUS_SUCCESS) {
     g_warning ("_ptc_revert matrix invert");
+  }
   _path_transform (sp, &mi);
 }
-static ObjectChange *
+
+
+static DiaObjectChange *
 _path_object_transform_change_create (DiaObject *obj, DiaMatrix *matrix)
 {
-  PathTransformChange *ptc = g_new(PathTransformChange, 1);
+  DiaPathTransformObjectChange *ptc;
 
-  ptc->change.apply = _ptc_apply;
-  ptc->change.revert = _ptc_revert;
-  ptc->change.free = NULL;
+  ptc = dia_object_change_new (DIA_TYPE_PATH_TRANSFORM_OBJECT_CHANGE);
+
   ptc->matrix = *matrix;
-  return &ptc->change;
+
+  return DIA_OBJECT_CHANGE (ptc);
 }
+
 
 /*!
  * \brief Flip the path over the vertical or horizontal axis
@@ -542,7 +613,7 @@ _path_object_transform_change_create (DiaObject *obj, DiaMatrix *matrix)
  *
  * \relates _StdPath
  */
-static ObjectChange *
+static DiaObjectChange *
 _path_flip_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
   gboolean horz = data == NULL;
@@ -574,7 +645,7 @@ _path_flip_callback (DiaObject *obj, Point *clicked, gpointer data)
  *
  * \relates _StdPath
  */
-static ObjectChange *
+static DiaObjectChange *
 _path_rotate_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
   StdPath *sp = (StdPath *)obj;
@@ -636,7 +707,7 @@ _path_closest_corner_handle (StdPath *sp, const Point *pt)
  *
  * \relates _StdPath
  */
-static ObjectChange *
+static DiaObjectChange *
 _path_shear_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
   StdPath *sp = (StdPath *)obj;
@@ -680,33 +751,37 @@ _path_shear_callback (DiaObject *obj, Point *clicked, gpointer data)
  *
  * \relates _StdPath
  */
-static ObjectChange *
+static DiaObjectChange *
 _convert_to_beziers_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
   StdPath *stdpath = (StdPath *)obj;
   BezPoint *bezier = stdpath->points;
   GList *list = NULL;
   int i, n = 0;
-  ObjectChange *change;
+  DiaObjectChange *change;
 
   for (i = 1; i < stdpath->num_points; ++i) {
-    if (bezier[i].type == BEZ_MOVE_TO || i+1 == stdpath->num_points) {
+    if (bezier[i].type == BEZ_MOVE_TO || i + 1 == stdpath->num_points) {
       DiaObject *rep;
       int num = bezier[i].type == BEZ_MOVE_TO ? i - n : i - n + 1;
-      if (stdpath->stroke_or_fill & PDO_FILL)
-	rep = create_standard_beziergon (num, &bezier[n]);
-      else
-	rep = create_standard_bezierline (num, &bezier[n], NULL, NULL);
-      if (!rep) /* no Standard objects? */
-	break;
+      if (stdpath->stroke_or_fill & PDO_FILL) {
+        rep = create_standard_beziergon (num, &bezier[n]);
+      } else {
+        rep = create_standard_bezierline (num, &bezier[n], NULL, NULL);
+      }
+      if (!rep) {
+        /* no Standard objects? */
+        break;
+      }
       list = g_list_append (list, rep);
       n = i;
     }
   }
+
   if (!list) {
-    change = change_list_create ();
+    change = dia_object_change_list_new ();
   } else if (g_list_length (list) == 1) {
-    change = object_substitute (obj, (DiaObject *)list->data);
+    change = object_substitute (obj, DIA_OBJECT (list->data));
     g_list_free (list);
   } else {
     change = object_substitute (obj, create_standard_group (list));
@@ -714,19 +789,24 @@ _convert_to_beziers_callback (DiaObject *obj, Point *clicked, gpointer data)
 
   return change;
 }
-static ObjectChange *
+
+
+static DiaObjectChange *
 _show_control_lines (DiaObject *obj, Point *clicked, gpointer data)
 {
-  StdPath *stdpath = (StdPath *)obj;
+  StdPath *stdpath = (StdPath *) obj;
 
-  return object_toggle_prop(obj, "show_control_lines", !stdpath->show_control_lines);
+  return object_toggle_prop (obj,
+                             "show_control_lines",
+                             !stdpath->show_control_lines);
 }
+
 
 static DiaMenuItem _stdpath_menu_items[] = {
   { N_("Convert to Bezier"), _convert_to_beziers_callback, NULL, DIAMENU_ACTIVE },
   { N_("Invert Path"), _invert_path_callback, NULL, DIAMENU_ACTIVE },
-  { N_("Flip horizontal"), _path_flip_callback, NULL, DIAMENU_ACTIVE },
-  { N_("Flip vertical"), _path_flip_callback, GINT_TO_POINTER(1), DIAMENU_ACTIVE },
+  { N_("Flip Horizontal"), _path_flip_callback, NULL, DIAMENU_ACTIVE },
+  { N_("Flip Vertical"), _path_flip_callback, GINT_TO_POINTER(1), DIAMENU_ACTIVE },
   { N_("Rotate"), _path_rotate_callback, NULL, DIAMENU_ACTIVE },
   { N_("Shear"), _path_shear_callback, NULL, DIAMENU_ACTIVE },
   { N_("Show Control Lines"), _show_control_lines, NULL, DIAMENU_ACTIVE | DIAMENU_TOGGLE }
@@ -836,17 +916,20 @@ _stdpath_scale (StdPath *stdpath, real sx, real sy, const Point *around)
   }
 }
 
+
 /*!
  * \brief Move one of the objects handles
  * \memberof _StdPath
  */
-static ObjectChange*
-stdpath_move_handle (StdPath *stdpath,
-		     Handle *handle,
-		     Point *to, ConnectionPoint *cp,
-		     HandleMoveReason reason, ModifierKeys modifiers)
+static DiaObjectChange *
+stdpath_move_handle (StdPath          *stdpath,
+                     Handle           *handle,
+                     Point            *to,
+                     ConnectionPoint  *cp,
+                     HandleMoveReason  reason,
+                     ModifierKeys      modifiers)
 {
-  const real EPSILON = 0.01;
+  const double EPSILON = 0.01;
 
   /* move_handle is supposed to be just moving that and related handles (e.g.
    * when N is moved NE and NW will move too). But 'opposite' handles are not
@@ -977,7 +1060,7 @@ stdpath_move_handle (StdPath *stdpath,
  *
  * \memberof _StdPath
  */
-static ObjectChange*
+static DiaObjectChange *
 stdpath_move (StdPath *stdpath, Point *to)
 {
   DiaObject *obj = &stdpath->object;
@@ -1007,6 +1090,8 @@ stdpath_copy (StdPath *from)
   to = object_copy_using_properties (&from->object);
   return to;
 }
+
+
 /*!
  * \brief Destruction of the object
  * \memberof _StdPath
@@ -1014,12 +1099,13 @@ stdpath_copy (StdPath *from)
 static void
 stdpath_destroy (StdPath *stdpath)
 {
-  object_destroy(&stdpath->object);
-  if (stdpath->pattern)
-    g_object_unref (stdpath->pattern);
-  g_free (stdpath->points);
+  object_destroy (&stdpath->object);
+  g_clear_object (&stdpath->pattern);
+  g_clear_pointer (&stdpath->points, g_free);
   /* but not the object itself */
 }
+
+
 /*!
  * \brief Change the object state regarding selection
  * \memberof _StdPath
@@ -1066,12 +1152,13 @@ text_to_path (const Text *text, GArray *points)
   pango_layout_set_indent (layout, 0);
   pango_layout_set_justify (layout, FALSE);
   pango_layout_set_alignment (layout,
-			      text->alignment == ALIGN_LEFT ? PANGO_ALIGN_LEFT :
-			      text->alignment == ALIGN_RIGHT ? PANGO_ALIGN_RIGHT : PANGO_ALIGN_CENTER);
+                              text->alignment == DIA_ALIGN_LEFT ?
+                                PANGO_ALIGN_LEFT : text->alignment == DIA_ALIGN_RIGHT ?
+                                  PANGO_ALIGN_RIGHT : PANGO_ALIGN_CENTER);
 
   str = text_get_string_copy (text);
   pango_layout_set_text (layout, str, -1);
-  g_free (str);
+  g_clear_pointer (&str, g_free);
 
   pango_layout_get_extents (layout, &ink_rect, NULL);
   /* any surface should do - this one is always available */
@@ -1122,7 +1209,7 @@ text_to_path (const Text *text, GArray *points)
   /* finally scale it ? */
 
   /* clean up */
-  g_object_unref (layout);
+  g_clear_object (&layout);
   cairo_destroy (cr);
 
   return ret;
@@ -1141,8 +1228,8 @@ create_standard_path_from_text (const Text *text)
 
   if (obj) {
     StdPath *path = (StdPath *)obj;
-    Rectangle text_box;
-    const Rectangle *pbb = &path->object.bounding_box;
+    DiaRectangle text_box;
+    const DiaRectangle *pbb = &path->object.bounding_box;
     real sx, sy;
     Point pos;
 

@@ -15,7 +15,10 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <config.h>
+
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include "tool.h"
 #include "create_object.h"
@@ -26,14 +29,15 @@
 #include "interface.h"
 #include "defaults.h"
 #include "object.h"
+#include "dia-guide-tool.h"
 
 Tool *active_tool = NULL;
 Tool *transient_tool = NULL;
 static GtkWidget *active_button = NULL;
 static GtkWidget *former_button = NULL;
 
-void 
-tool_select_former(void) 
+void
+tool_select_former(void)
 {
   if (former_button) {
     g_signal_emit_by_name(G_OBJECT(former_button), "clicked",
@@ -92,13 +96,16 @@ tool_free(Tool *tool)
   case TEXTEDIT_TOOL :
     free_textedit_tool(tool);
     break;
+  case GUIDE_TOOL:
+    free_guide_tool(tool);
+    break;
   default:
-    g_assert(0);    
+    g_assert(0);
   }
 }
 
-void 
-tool_select(ToolType type, gpointer extra_data, 
+void
+tool_select(ToolType type, gpointer extra_data,
             gpointer user_data, GtkWidget *button,
             int invert_persistence)
 {
@@ -124,35 +131,43 @@ tool_select(ToolType type, gpointer extra_data,
   case TEXTEDIT_TOOL :
     active_tool = create_textedit_tool();
     break;
+  case GUIDE_TOOL :
+    active_tool = create_guide_tool ();
+    guide_tool_set_guide (active_tool, extra_data);
+    guide_tool_set_orientation (active_tool, GPOINTER_TO_INT(user_data));
+    break;
   default:
-    g_assert(0);    
+    g_assert(0);
   }
   if (button)
     active_button = button;
 }
 
+
 void
-tool_options_dialog_show(ToolType type, gpointer extra_data, 
-			 gpointer user_data, GtkWidget *button,
-                         int invert_persistence) 
+tool_options_dialog_show (ToolType   type,
+                          gpointer   extra_data,
+                          gpointer   user_data,
+                          GtkWidget *button,
+                          int        invert_persistence)
 {
   DiaObjectType *objtype;
 
-  if (active_tool->type != type) 
-    tool_select(type,extra_data,user_data,button,invert_persistence);
+  if (active_tool->type != type) {
+    tool_select (type, extra_data, user_data, button, invert_persistence);
+  }
 
-  switch(type) {
-  case MODIFY_TOOL:
+  switch (type) {
+    case CREATE_OBJECT_TOOL:
+      objtype = object_get_type ((char *) extra_data);
+      defaults_show (objtype, user_data);
       break;
-  case CREATE_OBJECT_TOOL:
-    objtype = object_get_type((char *)extra_data);
-    defaults_show(objtype, user_data);
-    break;
-  case MAGNIFY_TOOL:
-    break;
-  case SCROLL_TOOL:
-    break;
-  case TEXTEDIT_TOOL :
-    break;
+    case MODIFY_TOOL:
+    case MAGNIFY_TOOL:
+    case SCROLL_TOOL:
+    case TEXTEDIT_TOOL:
+    case GUIDE_TOOL:
+    default:
+      break;
   }
 }

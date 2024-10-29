@@ -21,12 +21,12 @@
 
 /* DO NOT USE THIS OBJECT AS A BASIS FOR A NEW OBJECT. */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "connectionpoint.h"
@@ -56,17 +56,17 @@ struct _Ellipse {
   Element element;
 
   ConnectionPoint connections[NUM_CONNECTIONS];
-  real border_width;
+  double border_width;
   Color border_color;
   Color inner_color;
   gboolean show_background;
-  LineStyle line_style;
-  real dashlength;
+  DiaLineStyle line_style;
+  double dashlength;
 
   Text *text;
-  real padding;
+  double padding;
 
-  TextFitting text_fitting;
+  DiaTextFitting text_fitting;
 };
 
 typedef struct _EllipseProperties {
@@ -79,11 +79,14 @@ static EllipseProperties default_properties;
 static real ellipse_distance_from(Ellipse *ellipse, Point *point);
 static void ellipse_select(Ellipse *ellipse, Point *clicked_point,
 		       DiaRenderer *interactive_renderer);
-static ObjectChange* ellipse_move_handle(Ellipse *ellipse, Handle *handle,
-					 Point *to, ConnectionPoint *cp,
-					 HandleMoveReason reason,
-			    ModifierKeys modifiers);
-static ObjectChange* ellipse_move(Ellipse *ellipse, Point *to);
+static DiaObjectChange* ellipse_move_handle    (Ellipse          *ellipse,
+                                                Handle           *handle,
+                                                Point            *to,
+                                                ConnectionPoint  *cp,
+                                                HandleMoveReason  reason,
+                                                ModifierKeys      modifiers);
+static DiaObjectChange* ellipse_move           (Ellipse          *ellipse,
+                                                Point            *to);
 static void ellipse_draw(Ellipse *ellipse, DiaRenderer *renderer);
 static void ellipse_update_data(Ellipse *ellipse, AnchorShape h,AnchorShape v);
 static DiaObject *ellipse_create(Point *startpoint,
@@ -163,41 +166,47 @@ ellipse_describe_props(Ellipse *ellipse)
   return ellipse_props;
 }
 
+
 static PropOffset ellipse_offsets[] = {
   ELEMENT_COMMON_PROPERTIES_OFFSETS,
-  { PROP_STDNAME_LINE_WIDTH, PROP_STDTYPE_LINE_WIDTH, offsetof(Ellipse, border_width) },
-  { "line_colour", PROP_TYPE_COLOUR, offsetof(Ellipse, border_color) },
-  { "fill_colour", PROP_TYPE_COLOUR, offsetof(Ellipse, inner_color) },
-  { "show_background", PROP_TYPE_BOOL, offsetof(Ellipse, show_background) },
+  { PROP_STDNAME_LINE_WIDTH, PROP_STDTYPE_LINE_WIDTH, offsetof (Ellipse, border_width) },
+  { "line_colour", PROP_TYPE_COLOUR, offsetof (Ellipse, border_color) },
+  { "fill_colour", PROP_TYPE_COLOUR, offsetof (Ellipse, inner_color) },
+  { "show_background", PROP_TYPE_BOOL, offsetof (Ellipse, show_background) },
   { "line_style", PROP_TYPE_LINESTYLE,
-    offsetof(Ellipse, line_style), offsetof(Ellipse, dashlength) },
-  { "padding", PROP_TYPE_REAL, offsetof(Ellipse, padding) },
-  {"text",PROP_TYPE_TEXT,offsetof(Ellipse,text)},
-  {"text_font",PROP_TYPE_FONT,offsetof(Ellipse,text),offsetof(Text,font)},
-  {PROP_STDNAME_TEXT_HEIGHT,PROP_STDTYPE_TEXT_HEIGHT,offsetof(Ellipse,text),offsetof(Text,height)},
-  {"text_colour",PROP_TYPE_COLOUR,offsetof(Ellipse,text),offsetof(Text,color)},
-  {"text_alignment",PROP_TYPE_ENUM,offsetof(Ellipse,text),offsetof(Text,alignment)},
-  {PROP_STDNAME_TEXT_FITTING,PROP_TYPE_ENUM,offsetof(Ellipse,text_fitting)},
+    offsetof (Ellipse, line_style), offsetof (Ellipse, dashlength) },
+  { "padding", PROP_TYPE_REAL, offsetof (Ellipse, padding) },
+  { "text", PROP_TYPE_TEXT, offsetof (Ellipse, text) },
+  { "text_font", PROP_TYPE_FONT, offsetof (Ellipse, text), offsetof(Text, font) },
+  { PROP_STDNAME_TEXT_HEIGHT, PROP_STDTYPE_TEXT_HEIGHT,
+    offsetof (Ellipse, text), offsetof (Text, height) },
+  { "text_colour", PROP_TYPE_COLOUR, offsetof (Ellipse, text), offsetof (Text, color) },
+  { "text_alignment", PROP_TYPE_ENUM, offsetof (Ellipse, text), offsetof(Text, alignment) },
+  { PROP_STDNAME_TEXT_FITTING, PROP_TYPE_ENUM, offsetof (Ellipse, text_fitting) },
   { NULL, 0, 0 },
 };
 
-static void
-ellipse_get_props(Ellipse *ellipse, GPtrArray *props)
-{
-  object_get_props_from_offsets(&ellipse->element.object,
-                                ellipse_offsets,props);
-}
 
 static void
-ellipse_set_props(Ellipse *ellipse, GPtrArray *props)
+ellipse_get_props (Ellipse *ellipse, GPtrArray *props)
 {
-  object_set_props_from_offsets(&ellipse->element.object,
-                                ellipse_offsets,props);
-  ellipse_update_data(ellipse, ANCHOR_MIDDLE, ANCHOR_MIDDLE);
+  object_get_props_from_offsets (DIA_OBJECT (ellipse),
+                                 ellipse_offsets, props);
 }
 
+
 static void
-init_default_values() {
+ellipse_set_props (Ellipse *ellipse, GPtrArray *props)
+{
+  object_set_props_from_offsets (DIA_OBJECT (ellipse),
+                                 ellipse_offsets, props);
+  ellipse_update_data (ellipse, ANCHOR_MIDDLE, ANCHOR_MIDDLE);
+}
+
+
+static void
+init_default_values (void)
+{
   static int defaults_initialized = 0;
 
   if (!defaults_initialized) {
@@ -207,10 +216,11 @@ init_default_values() {
   }
 }
 
+
 /* returns the radius of the ellipse along the ray from the centre of the
  * ellipse to the point (px, py) */
 static real
-ellipse_radius(Ellipse *ellipse, real px, real py)
+ellipse_radius (Ellipse *ellipse, real px, real py)
 {
   Element *elem = &ellipse->element;
   real w2 = elem->width * elem->width;
@@ -228,14 +238,18 @@ ellipse_radius(Ellipse *ellipse, real px, real py)
   px *= px;
   py *= py;
 
-  if (px <= 0.0 && py <= 0.0)
+  if (px <= 0.0 && py <= 0.0) {
     return 0; /* avoid division by zero */
+  }
+
   scale = w2 * h2 / (4*h2*px + 4*w2*py);
-  return sqrt((px + py)*scale);
+
+  return sqrt ((px + py) * scale);
 }
 
+
 static real
-ellipse_distance_from(Ellipse *ellipse, Point *point)
+ellipse_distance_from (Ellipse *ellipse, Point *point)
 {
   Element *elem = &ellipse->element;
   Point c;
@@ -244,105 +258,139 @@ ellipse_distance_from(Ellipse *ellipse, Point *point)
   c.y = elem->corner.y + elem->height/ 2;
 
   return distance_ellipse_point (&c, elem->width, elem->height,
-				 ellipse->border_width, point);
+                                 ellipse->border_width, point);
 }
+
 
 static void
-ellipse_select(Ellipse *ellipse, Point *clicked_point,
-	   DiaRenderer *interactive_renderer)
+ellipse_select (Ellipse     *ellipse,
+                Point       *clicked_point,
+                DiaRenderer *interactive_renderer)
 {
-  text_set_cursor(ellipse->text, clicked_point, interactive_renderer);
-  text_grab_focus(ellipse->text, &ellipse->element.object);
+  text_set_cursor (ellipse->text, clicked_point, interactive_renderer);
+  text_grab_focus (ellipse->text, &ellipse->element.object);
 
-  element_update_handles(&ellipse->element);
+  element_update_handles (&ellipse->element);
 }
 
-static ObjectChange*
-ellipse_move_handle(Ellipse *ellipse, Handle *handle,
-		    Point *to, ConnectionPoint *cp,
-		    HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+ellipse_move_handle (Ellipse          *ellipse,
+                     Handle           *handle,
+                     Point            *to,
+                     ConnectionPoint  *cp,
+                     HandleMoveReason  reason,
+                     ModifierKeys      modifiers)
 {
   AnchorShape horiz = ANCHOR_MIDDLE, vert = ANCHOR_MIDDLE;
   Point corner;
   real width, height;
 
-  assert(ellipse!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+  g_return_val_if_fail (ellipse != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
   /* remember ... */
   corner = ellipse->element.corner;
   width = ellipse->element.width;
   height = ellipse->element.height;
 
-  element_move_handle(&ellipse->element, handle->id, to, cp,
-		      reason, modifiers);
+  element_move_handle (&ellipse->element, handle->id, to, cp,
+                       reason, modifiers);
 
   switch (handle->id) {
-  case HANDLE_RESIZE_NW:
-    horiz = ANCHOR_END; vert = ANCHOR_END; break;
-  case HANDLE_RESIZE_N:
-    vert = ANCHOR_END; break;
-  case HANDLE_RESIZE_NE:
-    horiz = ANCHOR_START; vert = ANCHOR_END; break;
-  case HANDLE_RESIZE_E:
-    horiz = ANCHOR_START; break;
-  case HANDLE_RESIZE_SE:
-    horiz = ANCHOR_START; vert = ANCHOR_START; break;
-  case HANDLE_RESIZE_S:
-    vert = ANCHOR_START; break;
-  case HANDLE_RESIZE_SW:
-    horiz = ANCHOR_END; vert = ANCHOR_START; break;
-  case HANDLE_RESIZE_W:
-    horiz = ANCHOR_END; break;
-  default:
-    break;
+    case HANDLE_RESIZE_NW:
+      horiz = ANCHOR_END;
+      vert = ANCHOR_END;
+      break;
+    case HANDLE_RESIZE_N:
+      vert = ANCHOR_END;
+      break;
+    case HANDLE_RESIZE_NE:
+      horiz = ANCHOR_START;
+      vert = ANCHOR_END;
+      break;
+    case HANDLE_RESIZE_E:
+      horiz = ANCHOR_START;
+      break;
+    case HANDLE_RESIZE_SE:
+      horiz = ANCHOR_START;
+      vert = ANCHOR_START;
+      break;
+    case HANDLE_RESIZE_S:
+      vert = ANCHOR_START;
+      break;
+    case HANDLE_RESIZE_SW:
+      horiz = ANCHOR_END;
+      vert = ANCHOR_START;
+      break;
+    case HANDLE_RESIZE_W:
+      horiz = ANCHOR_END;
+      break;
+    case HANDLE_MOVE_STARTPOINT:
+    case HANDLE_MOVE_ENDPOINT:
+    case HANDLE_CUSTOM1:
+    case HANDLE_CUSTOM2:
+    case HANDLE_CUSTOM3:
+    case HANDLE_CUSTOM4:
+    case HANDLE_CUSTOM5:
+    case HANDLE_CUSTOM6:
+    case HANDLE_CUSTOM7:
+    case HANDLE_CUSTOM8:
+    case HANDLE_CUSTOM9:
+    default:
+      break;
   }
-  ellipse_update_data(ellipse, horiz, vert);
+  ellipse_update_data (ellipse, horiz, vert);
 
-  if (width != ellipse->element.width || height != ellipse->element.height)
+  if (width != ellipse->element.width || height != ellipse->element.height) {
     return element_change_new (&corner, width, height, &ellipse->element);
+  }
 
   return NULL;
 }
 
-static ObjectChange*
-ellipse_move(Ellipse *ellipse, Point *to)
+
+static DiaObjectChange *
+ellipse_move (Ellipse *ellipse, Point *to)
 {
   ellipse->element.corner = *to;
 
-  ellipse_update_data(ellipse, ANCHOR_MIDDLE, ANCHOR_MIDDLE);
+  ellipse_update_data (ellipse, ANCHOR_MIDDLE, ANCHOR_MIDDLE);
 
   return NULL;
 }
 
+
 static void
-ellipse_draw(Ellipse *ellipse, DiaRenderer *renderer)
+ellipse_draw (Ellipse *ellipse, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Element *elem;
   Point center;
 
-  assert(ellipse != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (ellipse != NULL);
+  g_return_if_fail (renderer != NULL);
 
   elem = &ellipse->element;
 
   center.x = elem->corner.x + elem->width/2;
   center.y = elem->corner.y + elem->height/2;
 
-  if (ellipse->show_background)
-    renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
-  renderer_ops->set_linewidth(renderer, ellipse->border_width);
-  renderer_ops->set_linestyle(renderer, ellipse->line_style, ellipse->dashlength);
-  renderer_ops->set_linejoin(renderer, LINEJOIN_MITER);
+  if (ellipse->show_background) {
+    dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+  }
+  dia_renderer_set_linewidth (renderer, ellipse->border_width);
+  dia_renderer_set_linestyle (renderer, ellipse->line_style, ellipse->dashlength);
+  dia_renderer_set_linejoin (renderer, DIA_LINE_JOIN_MITER);
 
-  renderer_ops->draw_ellipse (renderer, &center,
-			      elem->width, elem->height,
-			      (ellipse->show_background) ? &ellipse->inner_color : NULL,
-			      &ellipse->border_color);
+  dia_renderer_draw_ellipse (renderer,
+                             &center,
+                             elem->width,
+                             elem->height,
+                             (ellipse->show_background) ? &ellipse->inner_color : NULL,
+                             &ellipse->border_color);
 
-  text_draw(ellipse->text, renderer);
+  text_draw (ellipse->text, renderer);
 }
 
 
@@ -384,9 +432,9 @@ ellipse_update_data(Ellipse *ellipse, AnchorShape horiz, AnchorShape vert)
   radius1 = ellipse_radius(ellipse, p.x, p.y) - ellipse->border_width/2;
   radius2 = distance_point_point(&c, &p);
 
-  if (   (radius1 < radius2 && ellipse->text_fitting == TEXTFIT_WHEN_NEEDED)
+  if (   (radius1 < radius2 && ellipse->text_fitting == DIA_TEXT_FIT_WHEN_NEEDED)
       /* stop infinite resizing with 5% tolerance obsvered with _test_movement */
-      || (fabs(1.0 - radius2 / radius1) > 0.05 && ellipse->text_fitting == TEXTFIT_ALWAYS)) {
+      || (fabs(1.0 - radius2 / radius1) > 0.05 && ellipse->text_fitting == DIA_TEXT_FIT_ALWAYS)) {
     /* increase size of the ellipse while keeping its aspect ratio */
     elem->width  *= radius2 / radius1;
     elem->height *= radius2 / radius1;
@@ -394,20 +442,27 @@ ellipse_update_data(Ellipse *ellipse, AnchorShape horiz, AnchorShape vert)
 
   /* move shape if necessary ... */
   switch (horiz) {
-  case ANCHOR_MIDDLE:
-    elem->corner.x = center.x - elem->width/2; break;
-  case ANCHOR_END:
-    elem->corner.x = bottom_right.x - elem->width; break;
-  default:
-    break;
+    case ANCHOR_MIDDLE:
+      elem->corner.x = center.x - elem->width/2;
+      break;
+    case ANCHOR_END:
+      elem->corner.x = bottom_right.x - elem->width;
+      break;
+    case ANCHOR_START:
+    default:
+      break;
   }
+
   switch (vert) {
-  case ANCHOR_MIDDLE:
-    elem->corner.y = center.y - elem->height/2; break;
-  case ANCHOR_END:
-    elem->corner.y = bottom_right.y - elem->height; break;
-  default:
-    break;
+    case ANCHOR_MIDDLE:
+      elem->corner.y = center.y - elem->height/2;
+      break;
+    case ANCHOR_END:
+      elem->corner.y = bottom_right.y - elem->height;
+      break;
+    case ANCHOR_START:
+    default:
+      break;
   }
 
   p = elem->corner;
@@ -415,16 +470,18 @@ ellipse_update_data(Ellipse *ellipse, AnchorShape horiz, AnchorShape vert)
   p.y += elem->height / 2.0 - ellipse->text->height*ellipse->text->numlines/2 +
     ellipse->text->ascent;
   switch (ellipse->text->alignment) {
-  case ALIGN_LEFT:
-    p.x -= (elem->width - 2*(ellipse->padding + ellipse->border_width))/2;
-    break;
-  case ALIGN_RIGHT:
-    p.x += (elem->width - 2*(ellipse->padding + ellipse->border_width))/2;
-    break;
-  case ALIGN_CENTER:
-    break;
+    case DIA_ALIGN_LEFT:
+      p.x -= (elem->width - 2*(ellipse->padding + ellipse->border_width))/2;
+      break;
+    case DIA_ALIGN_RIGHT:
+      p.x += (elem->width - 2*(ellipse->padding + ellipse->border_width))/2;
+      break;
+    case DIA_ALIGN_CENTRE:
+      break;
+    default:
+      g_return_if_reached ();
   }
-  text_set_position(ellipse->text, &p);
+  text_set_position (ellipse->text, &p);
 
   /* Update connections: */
   c.x = elem->corner.x + elem->width / 2;
@@ -468,7 +525,7 @@ ellipse_create(Point *startpoint,
 
   init_default_values();
 
-  ellipse = g_malloc0(sizeof(Ellipse));
+  ellipse = g_new0 (Ellipse, 1);
   elem = &ellipse->element;
   obj = &elem->object;
 
@@ -492,12 +549,16 @@ ellipse_create(Point *startpoint,
   p = *startpoint;
   p.x += elem->width / 2.0;
   p.y += elem->height / 2.0 + font_height / 2;
-  ellipse->text = new_text("", font, font_height, &p, &ellipse->border_color,
-			   ALIGN_CENTER);
-  dia_font_unref(font);
+  ellipse->text = new_text ("",
+                            font,
+                            font_height,
+                            &p,
+                            &ellipse->border_color,
+                            DIA_ALIGN_CENTRE);
+  g_clear_object (&font);
 
   /* new default: let the user decide the size */
-  ellipse->text_fitting = TEXTFIT_WHEN_NEEDED;
+  ellipse->text_fitting = DIA_TEXT_FIT_WHEN_NEEDED;
 
   element_init(elem, 8, NUM_CONNECTIONS);
 
@@ -544,22 +605,28 @@ ellipse_save(Ellipse *ellipse, ObjectNode obj_node, DiaContext *ctx)
   data_add_boolean(new_attribute(obj_node, "show_background"),
 		   ellipse->show_background, ctx);
 
-  if (ellipse->line_style != LINESTYLE_SOLID)
-    data_add_enum(new_attribute(obj_node, "line_style"),
-		  ellipse->line_style, ctx);
+  if (ellipse->line_style != DIA_LINE_STYLE_SOLID) {
+    data_add_enum (new_attribute (obj_node, "line_style"),
+                   ellipse->line_style,
+                   ctx);
+  }
 
-  if (ellipse->line_style != LINESTYLE_SOLID &&
-      ellipse->dashlength != DEFAULT_LINESTYLE_DASHLEN)
-    data_add_real(new_attribute(obj_node, "dashlength"),
-                  ellipse->dashlength, ctx);
+  if (ellipse->line_style != DIA_LINE_STYLE_SOLID &&
+      ellipse->dashlength != DEFAULT_LINESTYLE_DASHLEN) {
+    data_add_real (new_attribute (obj_node, "dashlength"),
+                   ellipse->dashlength,
+                   ctx);
+  }
 
   data_add_real(new_attribute(obj_node, "padding"), ellipse->padding, ctx);
 
   data_add_text(new_attribute(obj_node, "text"), ellipse->text, ctx);
 
-  if (ellipse->text_fitting != TEXTFIT_WHEN_NEEDED)
-    data_add_enum(new_attribute(obj_node, PROP_STDNAME_TEXT_FITTING),
-		  ellipse->text_fitting, ctx);
+  if (ellipse->text_fitting != DIA_TEXT_FIT_WHEN_NEEDED) {
+    data_add_enum (new_attribute (obj_node, PROP_STDNAME_TEXT_FITTING),
+                   ellipse->text_fitting,
+                   ctx);
+  }
 }
 
 static DiaObject *
@@ -571,7 +638,7 @@ ellipse_load(ObjectNode obj_node, int version,DiaContext *ctx)
   int i;
   AttributeNode attr;
 
-  ellipse = g_malloc0(sizeof(Ellipse));
+  ellipse = g_new0 (Ellipse, 1);
   elem = &ellipse->element;
   obj = &elem->object;
 
@@ -600,7 +667,7 @@ ellipse_load(ObjectNode obj_node, int version,DiaContext *ctx)
   if (attr != NULL)
     ellipse->show_background = data_boolean( attribute_first_data(attr), ctx);
 
-  ellipse->line_style = LINESTYLE_SOLID;
+  ellipse->line_style = DIA_LINE_STYLE_SOLID;
   attr = object_find_attribute(obj_node, "line_style");
   if (attr != NULL)
     ellipse->line_style =  data_enum(attribute_first_data(attr), ctx);
@@ -616,17 +683,21 @@ ellipse_load(ObjectNode obj_node, int version,DiaContext *ctx)
     ellipse->padding =  data_real(attribute_first_data(attr), ctx);
 
   ellipse->text = NULL;
-  attr = object_find_attribute(obj_node, "text");
-  if (attr != NULL)
-    ellipse->text = data_text(attribute_first_data(attr), ctx);
-  else
-    ellipse->text = new_text_default(&obj->position, &ellipse->border_color, ALIGN_CENTER);
+  attr = object_find_attribute (obj_node, "text");
+  if (attr != NULL) {
+    ellipse->text = data_text (attribute_first_data (attr), ctx);
+  } else {
+    ellipse->text = new_text_default (&obj->position,
+                                      &ellipse->border_color,
+                                      DIA_ALIGN_CENTRE);
+  }
 
   /* old default: only growth, manual shrink */
-  ellipse->text_fitting = TEXTFIT_WHEN_NEEDED;
-  attr = object_find_attribute(obj_node, PROP_STDNAME_TEXT_FITTING);
-  if (attr != NULL)
-    ellipse->text_fitting = data_enum(attribute_first_data(attr), ctx);
+  ellipse->text_fitting = DIA_TEXT_FIT_WHEN_NEEDED;
+  attr = object_find_attribute (obj_node, PROP_STDNAME_TEXT_FITTING);
+  if (attr != NULL) {
+    ellipse->text_fitting = data_enum (attribute_first_data (attr), ctx);
+  }
 
   element_init(elem, 8, NUM_CONNECTIONS);
 

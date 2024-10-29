@@ -6,14 +6,14 @@ larger work --- this is in everyone's interest so that work is
 not duplicated.
 
 For more information on the authors, maintainers, etc., of dia,
-please see the file AUTHORS (dynamically generated).
+please see the file AUTHORS and the git history, after 20 years a lot of people have worked on Dia
 
-Visit the dia webpage at https://gitlab.gnome.org/GNOME/dia
+Visit the dia repository at https://gitlab.gnome.org/GNOME/dia
 for more information on the dia mailing list and many other
 dia-related things.
 
 If you need to alter the list of contributors, documentors,
-etc., the authoritative list is in app/authors.h.
+etc., the main list is in app/authors.h.
 
 
 ## Some comments about the source
@@ -44,17 +44,17 @@ the first argument. This is usually casted to the subtype in the function
 headed (gives all those pita warnings) so that you directly can use the info
 stored in the subclasses. Most ops are quite self-describing, and the code can
 be copy-pasted from an object like the one you're doing. Rendering to
-screen/postscript is done through a 'Renderer' abstraction that can be found
-in `lib/render.h`.
+screen/postscript is done through the 'DiaRenderer' abstraction that can be found
+in `lib/diarenderer.h`.
 
 ### XML based objects
-You can (from version 0.80) create new objects using a SVG like XML languange.
+You can (from version 0.80) create new objects using a SVG like XML language.
 The file doc/custom-shapes has more information about this.
 
 ### Handles and connection points
 An object has handles to resize it. A handle can be moved either because
 the user dragged it with the mouse, or the handle is attached to another
-object, which moved itself. The handles are diplayed as little squares
+object, which moved itself. The handles are displayed as little squares
 (red: normal, green: attached to an object, blue: can't be moved).
 
 When the handle of an object is connected to another object, it's always

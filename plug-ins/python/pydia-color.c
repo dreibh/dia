@@ -17,72 +17,122 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include "pydia-object.h"
 #include "pydia-color.h"
 
 #include <structmember.h> /* PyMemberDef */
 
+
 /*
  * New
  */
-PyObject* PyDiaColor_New (Color* color)
+PyObject *
+PyDiaColor_New (Color* color)
 {
   PyDiaColor *self;
-  
-  self = PyObject_NEW(PyDiaColor, &PyDiaColor_Type);
+
+  self = PyObject_NEW (PyDiaColor, &PyDiaColor_Type);
+
   if (!self) return NULL;
-  
+
   self->color = *color;
 
-  return (PyObject *)self;
+  return (PyObject *) self;
 }
+
 
 /*
  * Dealloc
  */
 static void
-PyDiaColor_Dealloc(PyObject *self)
+PyDiaColor_Dealloc (PyObject *self)
 {
-  PyObject_DEL(self);
+  PyObject_DEL (self);
 }
+
 
 /*
  * Compare
  */
-static int
-PyDiaColor_Compare(PyDiaColor *self,
-                  PyDiaColor *other)
+static PyObject *
+PyDiaColor_RichCompare (PyObject *self, PyObject *other, int op)
 {
-  return memcmp(&(self->color), &(other->color), sizeof(Color));
+  int res = memcmp (&(((PyDiaColor *) self)->color),
+                    &(((PyDiaColor *) other)->color),
+                    sizeof (Color));
+
+  switch (op) {
+    case Py_LT:
+      if (res < 0) {
+        Py_RETURN_TRUE;
+      }
+      break;
+    case Py_LE:
+      if (res <= 0) {
+        Py_RETURN_TRUE;
+      }
+      break;
+    case Py_NE:
+      if (res != 0) {
+        Py_RETURN_TRUE;
+      }
+      break;
+    case Py_GT:
+      if (res > 0) {
+        Py_RETURN_TRUE;
+      }
+      break;
+    case Py_GE:
+      if (res >= 0) {
+        Py_RETURN_TRUE;
+      }
+      break;
+    case Py_EQ:
+      if (res == 0) {
+        Py_RETURN_TRUE;
+      }
+      break;
+    default:
+      Py_RETURN_NOTIMPLEMENTED;
+  }
+
+  Py_RETURN_FALSE;
 }
+
 
 /*
  * Hash
  */
-static long
-PyDiaColor_Hash(PyObject *self)
+static Py_hash_t
+PyDiaColor_Hash (PyObject *self)
 {
-  return (long)self;
+  return (long) self;
 }
+
 
 /*
  * Repr / _Str
  */
 static PyObject *
-PyDiaColor_Str(PyDiaColor *self)
+PyDiaColor_Str (PyObject *self)
 {
-  PyObject* py_s;
-  gchar* s = g_strdup_printf("(%f,%f,%f,%f)",
-                             (float)(self->color.red),
-                             (float)(self->color.green),
-                             (float)(self->color.blue),
-                             (float)(self->color.alpha));
-  py_s = PyString_FromString(s);
-  g_free (s);
+  PyObject *py_s;
+  char *s = g_strdup_printf ("(%f,%f,%f,%f)",
+                             (float) (((PyDiaColor *) self)->color.red),
+                             (float) (((PyDiaColor *) self)->color.green),
+                             (float) (((PyDiaColor *) self)->color.blue),
+                             (float) (((PyDiaColor *) self)->color.alpha));
+
+  py_s = PyUnicode_FromString (s);
+  g_clear_pointer (&s, g_free);
+
   return py_s;
 }
+
 
 static PyMemberDef PyDiaColor_Members[] = {
     { "red", T_FLOAT, offsetof(PyDiaColor, color.red), 0,
@@ -95,40 +145,22 @@ static PyMemberDef PyDiaColor_Members[] = {
       "double: alpha color component [0 .. 1.0]" },
     { NULL }
 };
+
+
 /*
- * Python objetcs
+ * Python objects
  */
 PyTypeObject PyDiaColor_Type = {
-    PyObject_HEAD_INIT(NULL)
-    0,
-    "DiaColor",
-    sizeof(PyDiaColor),
-    0,
-    (destructor)PyDiaColor_Dealloc,
-    (printfunc)0,
-    (getattrfunc)0,
-    (setattrfunc)0,
-    (cmpfunc)PyDiaColor_Compare,
-    (reprfunc)0,
-    0,
-    0,
-    0,
-    (hashfunc)PyDiaColor_Hash,
-    (ternaryfunc)0,
-    (reprfunc)PyDiaColor_Str,
-    PyObject_GenericGetAttr, /* tp_getattro */
-    (setattrofunc)0,
-    (PyBufferProcs *)0,
-    0L, /* Flags */
-    "A color either defined by a color string or by a tuple with three elements "
-    "(r, g, b) with type float 0.0 ... 1.0 or range int 0 ... 65535",
-    (traverseproc)0,
-    (inquiry)0,
-    (richcmpfunc)0,
-    0, /* tp_weakliszoffset */
-    (getiterfunc)0,
-    (iternextfunc)0,
-    0, /* tp_methods */
-    PyDiaColor_Members, /* tp_members */
-    0
+  PyVarObject_HEAD_INIT (NULL, 0)
+  .tp_name = "DiaColor",
+  .tp_basicsize = sizeof (PyDiaColor),
+  .tp_dealloc = PyDiaColor_Dealloc,
+  .tp_richcompare = PyDiaColor_RichCompare,
+  .tp_hash = PyDiaColor_Hash,
+  .tp_str = PyDiaColor_Str,
+  .tp_getattro = PyObject_GenericGetAttr,
+  .tp_doc = "A color either defined by a color string or by a tuple with "
+            "three elements (r, g, b) with type float 0.0 ... 1.0 or range "
+            "int 0 ... 65535",
+  .tp_members = PyDiaColor_Members,
 };

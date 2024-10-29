@@ -1,7 +1,7 @@
 /* Dia -- an diagram creation/manipulation program
  * Copyright (C) 1998 Alexander Larsson
  *
- * This code renders boolean equations, as needed by the transitions' 
+ * This code renders boolean equations, as needed by the transitions'
  * receptivities.
  *
  * Copyright (C) 2000 Cyrille Chepelov
@@ -32,9 +32,9 @@ typedef enum {OP_AND, OP_OR, OP_XOR, OP_RISE, OP_FALL,
               OP_EQUAL,OP_LT,OP_GT} OperatorType;
 
 typedef void (*BlockGetBBFunc)(Block *block, Point *relpos, Boolequation *booleq,
-			       Rectangle *rect);
-typedef void (*BlockDrawFunc)(Block *block, 
-			      Boolequation *booleq, 
+			       DiaRectangle *rect);
+typedef void (*BlockDrawFunc)(Block *block,
+			      Boolequation *booleq,
 			      DiaRenderer *render);
 typedef void (*BlockDestroyFunc)(Block *block);
 
@@ -43,14 +43,15 @@ typedef struct {
   BlockDrawFunc draw;
   BlockDestroyFunc destroy;
 } BlockOps;
-  
+
+
 struct _Block {
   BlockType type;
   BlockOps *ops;
   Point bl, ur, pos;
   union {
     Block *inside; /* overline, parens */
-    const gchar *text;
+    char *text;
     GSList *contained;
     OperatorType operator;
   } d;
@@ -58,7 +59,7 @@ struct _Block {
 
 
 /* utility */
-inline static gboolean isspecial(gunichar c) 
+inline static gboolean isspecial(gunichar c)
 {
   switch (c) {
   case '!':
@@ -79,9 +80,11 @@ inline static gboolean isspecial(gunichar c)
 }
 
 /* Text block definition */
-static void 
-textblock_get_boundingbox(Block *block, Point *relpos, 
-			  Boolequation *booleq, Rectangle *rect)
+static void
+textblock_get_boundingbox (Block        *block,
+                           Point        *relpos,
+                           Boolequation *booleq,
+                           DiaRectangle *rect)
 {
   g_assert(block); g_assert(block->type == BLOCK_TEXT);
 
@@ -102,31 +105,37 @@ textblock_get_boundingbox(Block *block, Point *relpos,
   rect->right = block->ur.x;
 }
 
-static void 
-textblock_draw(Block *block,Boolequation *booleq,DiaRenderer *renderer)
+static void
+textblock_draw (Block *block, Boolequation *booleq, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   g_assert(block); g_assert(block->type == BLOCK_TEXT);
-  renderer_ops->set_font(renderer,booleq->font,booleq->fontheight);
-  renderer_ops->draw_string(renderer,block->d.text,
-			     &block->pos,ALIGN_LEFT,&booleq->color);
+  dia_renderer_set_font (renderer,booleq->font,booleq->fontheight);
+  dia_renderer_draw_string (renderer,
+                            block->d.text,
+                            &block->pos,
+                            DIA_ALIGN_LEFT,
+                            &booleq->color);
 }
 
-static void 
-textblock_destroy(Block *block)
+
+static void
+textblock_destroy (Block *block)
 {
   if (!block) return;
-  g_assert(block->type == BLOCK_TEXT);
-  g_free((void *)block->d.text);
-  g_free(block);
+
+  g_return_if_fail (block->type == BLOCK_TEXT);
+
+  g_clear_pointer (&block->d.text, g_free);
+  g_free (block);
 }
+
 
 static BlockOps text_block_ops = {
   textblock_get_boundingbox,
   textblock_draw,
   textblock_destroy};
-  
-static Block *textblock_create(const gchar **str) 
+
+static Block *textblock_create(const gchar **str)
 {
   const gchar *p = *str;
   Block *block;
@@ -139,7 +148,7 @@ static Block *textblock_create(const gchar **str)
     if (isspecial(c)) break;
     *str = p1;
   }
-  
+
   block = g_new0(Block,1);
   block->type = BLOCK_TEXT;
   block->ops = &text_block_ops;
@@ -179,13 +188,13 @@ static const gchar *opstring(OperatorType optype)
 
 static void
 opblock_get_boundingbox(Block *block, Point *relpos,
-			Boolequation *booleq, Rectangle *rect)
+			Boolequation *booleq, DiaRectangle *rect)
 {
   const gchar* ops;
   g_assert(block); g_assert(block->type == BLOCK_OPERATOR);
-  
+
   ops = opstring(block->d.operator);
-  
+
   block->pos = *relpos;
   block->bl.x = block->pos.x;
   block->bl.y = block->pos.y +
@@ -199,29 +208,36 @@ opblock_get_boundingbox(Block *block, Point *relpos,
   rect->right = block->ur.x;
 }
 
-static void 
-opblock_draw(Block *block, Boolequation *booleq,DiaRenderer *renderer)
+static void
+opblock_draw (Block *block, Boolequation *booleq, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   g_assert(block); g_assert(block->type == BLOCK_OPERATOR);
-  renderer_ops->set_font(renderer,booleq->font,booleq->fontheight);
-  renderer_ops->draw_string(renderer,opstring(block->d.operator),&block->pos,
-			     ALIGN_LEFT,&booleq->color);
+  dia_renderer_set_font (renderer,booleq->font,booleq->fontheight);
+  dia_renderer_draw_string (renderer,
+                            opstring (block->d.operator),
+                            &block->pos,
+                            DIA_ALIGN_LEFT,
+                            &booleq->color);
 }
-    
-static void opblock_destroy(Block *block)
+
+
+static void
+opblock_destroy (Block *block)
 {
   if (!block) return;
-  g_assert(block->type == BLOCK_OPERATOR);
-  g_free(block);
+
+  g_return_if_fail (block->type == BLOCK_OPERATOR);
+
+  g_free (block);
 }
+
 
 static BlockOps operator_block_ops = {
   opblock_get_boundingbox,
   opblock_draw,
   opblock_destroy};
 
-static Block *opblock_create(const gchar **str) 
+static Block *opblock_create(const gchar **str)
 {
   Block *block;
   gunichar c;
@@ -233,7 +249,7 @@ static Block *opblock_create(const gchar **str)
   block->type = BLOCK_OPERATOR;
   block->ops = &operator_block_ops;
   switch(c) {
-  case '&': 
+  case '&':
   case '.':
     block->d.operator = OP_AND;
     break;
@@ -248,7 +264,7 @@ static Block *opblock_create(const gchar **str)
   case '=':
     block->d.operator = OP_EQUAL;
     break;
-  case '<': 
+  case '<':
     block->d.operator = OP_LT;
     break;
   case '>':
@@ -269,15 +285,15 @@ static Block *opblock_create(const gchar **str)
 /* Overlineblock : */
 static void
 overlineblock_get_boundingbox(Block *block, Point *relpos,
-			      Boolequation *booleq, Rectangle *rect)
+			      Boolequation *booleq, DiaRectangle *rect)
 {
   g_assert(block); g_assert(block->type == BLOCK_OVERLINE);
-  
+
   block->d.inside->ops->get_boundingbox(block->d.inside,relpos,booleq,rect);
 
   block->bl = block->d.inside->bl;
   block->ur.x = block->d.inside->ur.x;
-  block->ur.y = 
+  block->ur.y =
     block->d.inside->ur.y - (3.0 * OVERLINE_RATIO * booleq->fontheight);
 
   /*rect->left = bl.x; */
@@ -286,33 +302,37 @@ overlineblock_get_boundingbox(Block *block, Point *relpos,
     rect->right = ur.x;*/
 }
 
-static void 
-overlineblock_draw(Block *block,Boolequation *booleq,DiaRenderer *renderer)
+static void
+overlineblock_draw (Block *block, Boolequation *booleq, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point ul,ur;
   g_assert(block); g_assert(block->type == BLOCK_OVERLINE);
-  block->d.inside->ops->draw(block->d.inside,booleq,renderer);
-  renderer_ops->set_linestyle(renderer,LINESTYLE_SOLID, 0.0);
-  renderer_ops->set_linewidth(renderer,booleq->fontheight * OVERLINE_RATIO);
+  block->d.inside->ops->draw (block->d.inside,booleq,renderer);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
+  dia_renderer_set_linewidth (renderer,booleq->fontheight * OVERLINE_RATIO);
   ul.x = block->bl.x;
   ur.y = ul.y = block->ur.y;
 
       /* FIXME: try to get the actual block width */
   ur.x = block->ur.x -
-      (dia_font_string_width("_", booleq->font,booleq->fontheight) / 2);
-  
-  renderer_ops->draw_line(renderer,&ul,&ur,&booleq->color);
+      (dia_font_string_width ("_", booleq->font,booleq->fontheight) / 2);
+
+  dia_renderer_draw_line (renderer,&ul,&ur,&booleq->color);
 }
 
+
 static void
-overlineblock_destroy(Block *block)
+overlineblock_destroy (Block *block)
 {
   if (!block) return;
-  g_assert(block->type == BLOCK_OVERLINE);
+
+  g_return_if_fail(block->type == BLOCK_OVERLINE);
+
   block->d.inside->ops->destroy(block->d.inside);
-  g_free(block);
+
+  g_free (block);
 }
+
 
 static BlockOps overline_block_ops = {
   overlineblock_get_boundingbox,
@@ -334,7 +354,7 @@ static Block *overlineblock_create(Block *inside)
 /* Parensblock : */
 static void
 parensblock_get_boundingbox(Block *block, Point *relpos,
-			    Boolequation *booleq, Rectangle *rect)
+			    Boolequation *booleq, DiaRectangle *rect)
 {
   real pheight,pwidth;
   Point temppos;
@@ -346,7 +366,7 @@ parensblock_get_boundingbox(Block *block, Point *relpos,
   pwidth = dia_font_string_width("()",booleq->font,pheight) / 2;
   temppos.x += pwidth;
   block->d.inside->ops->get_boundingbox(block->d.inside,&temppos,booleq,rect);
-  
+
   block->bl.x = block->pos.x;
   block->bl.y = block->pos.y + dia_font_descent("()",booleq->font,pheight);
   block->ur.x = block->d.inside->ur.x + pwidth;
@@ -358,41 +378,53 @@ parensblock_get_boundingbox(Block *block, Point *relpos,
   rect->right = block->ur.x;
 }
 
-static void 
-parensblock_draw(Block *block,Boolequation *booleq,DiaRenderer *renderer)
+static void
+parensblock_draw (Block *block, Boolequation *booleq, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point pt;
   real pheight;
 
   g_assert(block); g_assert(block->type == BLOCK_PARENS);
 
   pheight = block->d.inside->bl.y - block->d.inside->ur.y;
-  block->d.inside->ops->draw(block->d.inside,booleq,renderer);
+  block->d.inside->ops->draw (block->d.inside,booleq,renderer);
 
-  renderer_ops->set_font(renderer,booleq->font,pheight);
+  dia_renderer_set_font (renderer,booleq->font,pheight);
   pt.y = block->pos.y;
   pt.x = block->d.inside->ur.x;
 
-  renderer_ops->draw_string(renderer,"(",&block->pos,ALIGN_LEFT,&booleq->color);
-  renderer_ops->draw_string(renderer,")",&pt,ALIGN_LEFT,&booleq->color);
+  dia_renderer_draw_string (renderer,
+                            "(",
+                            &block->pos,
+                            DIA_ALIGN_LEFT,
+                            &booleq->color);
+  dia_renderer_draw_string (renderer,
+                            ")",
+                            &pt,
+                            DIA_ALIGN_LEFT,
+                            &booleq->color);
 }
- 
+
+
 static void
-parensblock_destroy(Block *block)
+parensblock_destroy (Block *block)
 {
   if (!block) return;
-  g_assert(block->type == BLOCK_PARENS);
-  block->d.inside->ops->destroy(block->d.inside);
-  g_free(block);
+
+  g_return_if_fail (block->type == BLOCK_PARENS);
+
+  block->d.inside->ops->destroy (block->d.inside);
+
+  g_free (block);
 }
+
 
 static BlockOps parens_block_ops = {
   parensblock_get_boundingbox,
   parensblock_draw,
   parensblock_destroy};
-  
-static Block *parensblock_create(Block *inside) 
+
+static Block *parensblock_create(Block *inside)
 {
   Block *block;
   /* *str is already in the inside */
@@ -405,14 +437,14 @@ static Block *parensblock_create(Block *inside)
 }
 
 /* Compoundblock : */
-static void 
+static void
 compoundblock_get_boundingbox(Block *block, Point *relpos,
-			      Boolequation *booleq, Rectangle *rect)
+			      Boolequation *booleq, DiaRectangle *rect)
 {
   GSList *elem;
   Block *inblk;
   Point pos;
-  Rectangle inrect;
+  DiaRectangle inrect;
 
   g_assert(block); g_assert(block->type == BLOCK_COMPOUND);
 
@@ -427,10 +459,10 @@ compoundblock_get_boundingbox(Block *block, Point *relpos,
   while (elem) {
     inblk = (Block *)(elem->data);
     if (!inblk) break;
-    
+
     inblk->ops->get_boundingbox(inblk,&pos,booleq,&inrect);
     rectangle_union(rect,&inrect);
-    
+
     pos.x = inblk->ur.x;
 
     elem = g_slist_next(elem);
@@ -453,19 +485,19 @@ static void compoundblock_draw(Block *block,
   while (elem) {
     inblk = (Block *)(elem->data);
     if (!inblk) break;
-    
+
     inblk->ops->draw(inblk,booleq,renderer);
-    
+
     elem = g_slist_next(elem);
   }
 }
 
-static void 
+static void
 compoundblock_destroy(Block *block)
 {
   GSList *elem;
   Block *inblk;
-  
+
   if (!block) return;
   g_assert(block->type == BLOCK_COMPOUND);
 
@@ -476,12 +508,12 @@ compoundblock_destroy(Block *block)
 
     inblk->ops->destroy(inblk);
     elem->data = NULL;
-    
+
     elem = g_slist_next(elem);
   }
 
   g_slist_free(block->d.contained);
-  g_free(block);
+  g_clear_pointer (&block, g_free);
 }
 
 static BlockOps compound_block_ops = {
@@ -490,10 +522,10 @@ static BlockOps compound_block_ops = {
   compoundblock_destroy};
 
 static Block *
-compoundblock_create(const gchar **str) 
+compoundblock_create(const gchar **str)
 {
   Block *block, *inblk;
-  
+
   block = g_new0(Block,1);
   block->type = BLOCK_COMPOUND;
   block->ops = &compound_block_ops;
@@ -551,43 +583,52 @@ compoundblock_create(const gchar **str)
 
 
 /* Boolequation : */
-void 
-boolequation_set_value(Boolequation *booleq, const gchar *value)
+void
+boolequation_set_value (Boolequation *booleq, const char *value)
 {
-  g_return_if_fail(booleq);
-  if (booleq->value) g_free((gchar *)booleq->value);
-  if (booleq->rootblock) booleq->rootblock->ops->destroy(booleq->rootblock);
+  g_return_if_fail (booleq);
+  g_clear_pointer (&booleq->value, g_free);
 
-  booleq->value = g_strdup(value);
-  booleq->rootblock = compoundblock_create(&value);
+  if (booleq->rootblock) {
+    booleq->rootblock->ops->destroy (booleq->rootblock);
+  }
+
+  booleq->value = g_strdup (value);
+  booleq->rootblock = compoundblock_create (&value);
   /* a good bounding box recalc here would be nice. */
 }
 
 
 Boolequation *
-boolequation_create(const gchar *value, DiaFont *font, real fontheight,
-		   Color *color)
+boolequation_create (const gchar *value,
+                     DiaFont     *font,
+                     real         fontheight,
+                     Color       *color)
 {
   Boolequation *booleq;
 
-  booleq = g_new0(Boolequation,1);
-  booleq->font = dia_font_ref(font);
+  booleq = g_new0 (Boolequation,1);
+  booleq->font = g_object_ref (font);
   booleq->fontheight = fontheight;
   booleq->color = *color;
-  boolequation_set_value(booleq,value);
+  boolequation_set_value (booleq,value);
 
   return booleq;
 }
 
-void 
+
+void
 boolequation_destroy(Boolequation *booleq)
 {
-  g_return_if_fail(booleq);
-  dia_font_unref(booleq->font);
-  if (booleq->value) g_free((gchar *)booleq->value);
-  if (booleq->rootblock) booleq->rootblock->ops->destroy(booleq->rootblock);
-  g_free(booleq);
+  g_return_if_fail (booleq);
+  g_clear_object (&booleq->font);
+  g_clear_pointer (&booleq->value, g_free);
+
+  if (booleq->rootblock) booleq->rootblock->ops->destroy (booleq->rootblock);
+
+  g_free (booleq);
 }
+
 
 void
 save_boolequation(ObjectNode obj_node, const gchar *attrname,
@@ -596,7 +637,7 @@ save_boolequation(ObjectNode obj_node, const gchar *attrname,
   data_add_string(new_attribute(obj_node,attrname),(gchar *)booleq->value, ctx);
 }
 
-void 
+void
 boolequation_draw(Boolequation *booleq, DiaRenderer *renderer)
 {
   if (booleq->rootblock) {
@@ -604,20 +645,21 @@ boolequation_draw(Boolequation *booleq, DiaRenderer *renderer)
   }
 }
 
-void boolequation_calc_boundingbox(Boolequation *booleq, Rectangle *box)
+void
+boolequation_calc_boundingbox(Boolequation *booleq, DiaRectangle *box)
 {
         /*
           booleq->ascent = dia_font_ascent(booleq->font,booleq->fontheight);
           booleq->descent = dia_font_descent(booleq->font,booleq->fontheight);
         */
-          
+
   box->left = box->right = booleq->pos.x;
   box->top = box->bottom = booleq->pos.y;
 
   if (booleq->rootblock) {
     booleq->rootblock->ops->get_boundingbox(booleq->rootblock,
                                             &booleq->pos,booleq,box);
-  }  
+  }
 
   booleq->width = box->right - box->left;
   booleq->height = box->bottom - box->top;

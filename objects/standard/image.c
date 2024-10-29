@@ -15,19 +15,16 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <config.h>
 
-#include <assert.h>
-#include <string.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
-#include <sys/stat.h>
 #include <time.h>
-#ifdef HAVE_UNIST_H
-#include <unistd.h>
-#endif
+#include <glib.h>
 #include <glib/gstdio.h>
 
-#include "intl.h"
 #include "message.h"
 #include "object.h"
 #include "element.h"
@@ -56,13 +53,13 @@ struct _Image {
 
   ConnectionPoint connections[NUM_CONNECTIONS];
 
-  real border_width;
+  double border_width;
   Color border_color;
-  LineStyle line_style;
-  real dashlength;
+  DiaLineStyle line_style;
+  double dashlength;
 
   DiaImage *image;
-  gchar *file;
+  char *file;
 
   gboolean inline_data;
   /* may contain the images pixbuf pointer - if so: reference counted! */
@@ -71,13 +68,13 @@ struct _Image {
   gboolean draw_border;
   gboolean keep_aspect;
 
-  real angle;
+  double angle;
 
   time_t mtime;
 };
 
 static struct _ImageProperties {
-  gchar *file;
+  char *file;
   gboolean draw_border;
   gboolean keep_aspect;
 } default_properties = { "", FALSE, TRUE };
@@ -85,10 +82,10 @@ static struct _ImageProperties {
 static real image_distance_from(Image *image, Point *point);
 static void image_select(Image *image, Point *clicked_point,
 		       DiaRenderer *interactive_renderer);
-static ObjectChange* image_move_handle(Image *image, Handle *handle,
+static DiaObjectChange* image_move_handle(Image *image, Handle *handle,
 				       Point *to, ConnectionPoint *cp,
 				       HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* image_move(Image *image, Point *to);
+static DiaObjectChange* image_move(Image *image, Point *to);
 static void image_draw(Image *image, DiaRenderer *renderer);
 static gboolean image_transform(Image *image, const DiaMatrix *m);
 static void image_update_data(Image *image);
@@ -220,25 +217,25 @@ image_get_props(Image *image, GPtrArray *props)
  * - set a new, non NULL pixbuf => use as image, inline
  */
 static void
-image_set_props(Image *image, GPtrArray *props)
+image_set_props (Image *image, GPtrArray *props)
 {
-  struct stat st;
+  GStatBuf st;
   time_t mtime = 0;
-  char *old_file = image->file ? g_strdup(image->file) : NULL;
+  char *old_file = image->file ? g_strdup (image->file) : NULL;
   const GdkPixbuf *old_pixbuf = dia_image_pixbuf (image->image);
   gboolean was_inline = image->inline_data;
 
-  object_set_props_from_offsets(&image->element.object, image_offsets, props);
+  object_set_props_from_offsets (&image->element.object, image_offsets, props);
 
   /* use old value on error */
-  if (!image->file || g_stat (image->file, &st) != 0)
+  if (!image->file || g_stat (image->file, &st) != 0) {
     mtime = image->mtime;
-  else
+  } else {
     mtime = st.st_mtime;
+  }
 
   if (   (!was_inline && image->inline_data && old_pixbuf)
-      || (   (!image->file || strlen(image->file) == 0)
-	  && old_pixbuf)
+      || ((!image->file || strlen (image->file) == 0) && old_pixbuf)
       || (image->pixbuf && (image->pixbuf != old_pixbuf))) { /* switch on inline */
     if (!image->pixbuf || old_pixbuf == image->pixbuf) { /* just reference the old image */
       image->pixbuf = g_object_ref ((GdkPixbuf *)old_pixbuf);
@@ -247,8 +244,7 @@ image_set_props(Image *image, GPtrArray *props)
       DiaImage *old_image = image->image;
       image->image = dia_image_new_from_pixbuf (image->pixbuf);
       image->pixbuf = g_object_ref ((GdkPixbuf *)dia_image_pixbuf (image->image));
-      if (old_image)
-        g_object_unref (old_image);
+      g_clear_object (&old_image);
       image->inline_data = TRUE;
     } else {
       image->inline_data = FALSE;
@@ -264,9 +260,7 @@ image_set_props(Image *image, GPtrArray *props)
     }
     if (!image->inline_data) {
       /* drop the pixbuf reference */
-      if (image->pixbuf)
-        g_object_unref (image->pixbuf);
-      image->pixbuf = NULL;
+      g_clear_object (&image->pixbuf);
     }
   } else if (   image->file && strlen(image->file) > 0
 	     && (   (!old_file || (strcmp (old_file, image->file) != 0))
@@ -293,7 +287,7 @@ image_set_props(Image *image, GPtrArray *props)
 	         image->file ? image->file : "",
 	         image->pixbuf, image->inline_data ? "TRUE" : "FALSE");
   }
-  g_free(old_file);
+  g_clear_pointer (&old_file, g_free);
   /* remember modification time */
   image->mtime = mtime;
 
@@ -304,7 +298,7 @@ static real
 image_distance_from(Image *image, Point *point)
 {
   Element *elem = &image->element;
-  Rectangle rect;
+  DiaRectangle rect;
   real bw = image->draw_border ? image->border_width : 0;
 
   if (image->angle != 0.0) {
@@ -319,22 +313,29 @@ image_distance_from(Image *image, Point *point)
   return distance_rectangle_point(&rect, point);
 }
 
+
 static void
-image_select(Image *image, Point *clicked_point,
-	     DiaRenderer *interactive_renderer)
+image_select (Image       *image,
+              Point       *clicked_point,
+              DiaRenderer *interactive_renderer)
 {
-  element_update_handles(&image->element);
+  element_update_handles (&image->element);
 }
 
-static ObjectChange*
-image_move_handle(Image *image, Handle *handle,
-		  Point *to, ConnectionPoint *cp,
-		  HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange*
+image_move_handle (Image            *image,
+                   Handle           *handle,
+                   Point            *to,
+                   ConnectionPoint  *cp,
+                   HandleMoveReason  reason,
+                   ModifierKeys      modifiers)
 {
   Element *elem = &image->element;
-  assert(image!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+
+  g_return_val_if_fail (image != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
   if (image->keep_aspect) {
     float width, height;
@@ -343,106 +344,117 @@ image_move_handle(Image *image, Handle *handle,
     height = image->element.height;
 
     switch (handle->id) {
-    case HANDLE_RESIZE_NW:
-      new_width = -(to->x-image->element.corner.x)+width;
-      new_height = -(to->y-image->element.corner.y)+height;
-      if (new_height == 0 || new_width/new_height > width/height) {
-	new_height = new_width*height/width;
-      } else {
-	new_width = new_height*width/height;
-      }
-      to->x = image->element.corner.x+(image->element.width-new_width);
-      to->y = image->element.corner.y+(image->element.height-new_height);
-      element_move_handle(elem, HANDLE_RESIZE_NW, to, cp, reason, modifiers);
-      break;
-    case HANDLE_RESIZE_N:
-      new_width = (-(to->y-image->element.corner.y)+height)*width/height;
-      to->x = image->element.corner.x+new_width;
-      element_move_handle(elem, HANDLE_RESIZE_NE, to, cp, reason, modifiers);
-      break;
-    case HANDLE_RESIZE_NE:
-      new_width = to->x-image->element.corner.x;
-      new_height = -(to->y-image->element.corner.y)+height;
-      if (new_height == 0 || new_width/new_height > width/height) {
-	new_height = new_width*height/width;
-      } else {
-	new_width = new_height*width/height;
-      }
-      to->x = image->element.corner.x+new_width;
-      to->y = image->element.corner.y+(image->element.height-new_height);
-      element_move_handle(elem, HANDLE_RESIZE_NE, to, cp, reason, modifiers);
-      break;
-    case HANDLE_RESIZE_E:
-      new_height = (to->x-image->element.corner.x)*height/width;
-      to->y = image->element.corner.y+new_height;
-      element_move_handle(elem, HANDLE_RESIZE_SE, to, cp, reason, modifiers);
-      break;
-    case HANDLE_RESIZE_SE:
-      new_width = to->x-image->element.corner.x;
-      new_height = to->y-image->element.corner.y;
-      if (new_height == 0 || new_width/new_height > width/height) {
-	new_height = new_width*height/width;
-      } else {
-	new_width = new_height*width/height;
-      }
-      to->x = image->element.corner.x+new_width;
-      to->y = image->element.corner.y+new_height;
-      element_move_handle(elem, HANDLE_RESIZE_SE, to, cp, reason, modifiers);
-      break;
-    case HANDLE_RESIZE_S:
-      new_width = (to->y-image->element.corner.y)*width/height;
-      to->x = image->element.corner.x+new_width;
-      element_move_handle(elem, HANDLE_RESIZE_SE, to, cp, reason, modifiers);
-      break;
-    case HANDLE_RESIZE_SW:
-      new_width = -(to->x-image->element.corner.x)+width;
-      new_height = to->y-image->element.corner.y;
-      if (new_height == 0 || new_width/new_height > width/height) {
-	new_height = new_width*height/width;
-      } else {
-	new_width = new_height*width/height;
-      }
-      to->x = image->element.corner.x+(image->element.width-new_width);
-      to->y = image->element.corner.y+new_height;
-      element_move_handle(elem, HANDLE_RESIZE_SW, to, cp, reason, modifiers);
-      break;
-    case HANDLE_RESIZE_W:
-      new_height = (-(to->x-image->element.corner.x)+width)*height/width;
-      to->y = image->element.corner.y+new_height;
-      element_move_handle(elem, HANDLE_RESIZE_SW, to, cp, reason, modifiers);
-      break;
-    default:
-      message_warning("Unforeseen handle in image_move_handle: %d\n",
-		      handle->id);
-
+      case HANDLE_RESIZE_NW:
+        new_width = -(to->x-image->element.corner.x)+width;
+        new_height = -(to->y-image->element.corner.y)+height;
+        if (new_height == 0 || new_width/new_height > width/height) {
+          new_height = new_width*height/width;
+        } else {
+          new_width = new_height*width/height;
+        }
+        to->x = image->element.corner.x+(image->element.width-new_width);
+        to->y = image->element.corner.y+(image->element.height-new_height);
+        element_move_handle (elem, HANDLE_RESIZE_NW, to, cp, reason, modifiers);
+        break;
+      case HANDLE_RESIZE_N:
+        new_width = (-(to->y-image->element.corner.y)+height)*width/height;
+        to->x = image->element.corner.x+new_width;
+        element_move_handle (elem, HANDLE_RESIZE_NE, to, cp, reason, modifiers);
+        break;
+      case HANDLE_RESIZE_NE:
+        new_width = to->x-image->element.corner.x;
+        new_height = -(to->y-image->element.corner.y)+height;
+        if (new_height == 0 || new_width/new_height > width/height) {
+          new_height = new_width*height/width;
+        } else {
+          new_width = new_height*width/height;
+        }
+        to->x = image->element.corner.x+new_width;
+        to->y = image->element.corner.y+(image->element.height-new_height);
+        element_move_handle (elem, HANDLE_RESIZE_NE, to, cp, reason, modifiers);
+        break;
+      case HANDLE_RESIZE_E:
+        new_height = (to->x-image->element.corner.x)*height/width;
+        to->y = image->element.corner.y+new_height;
+        element_move_handle (elem, HANDLE_RESIZE_SE, to, cp, reason, modifiers);
+        break;
+      case HANDLE_RESIZE_SE:
+        new_width = to->x-image->element.corner.x;
+        new_height = to->y-image->element.corner.y;
+        if (new_height == 0 || new_width/new_height > width/height) {
+          new_height = new_width*height/width;
+        } else {
+          new_width = new_height*width/height;
+        }
+        to->x = image->element.corner.x+new_width;
+        to->y = image->element.corner.y+new_height;
+        element_move_handle (elem, HANDLE_RESIZE_SE, to, cp, reason, modifiers);
+        break;
+      case HANDLE_RESIZE_S:
+        new_width = (to->y-image->element.corner.y)*width/height;
+        to->x = image->element.corner.x+new_width;
+        element_move_handle (elem, HANDLE_RESIZE_SE, to, cp, reason, modifiers);
+        break;
+      case HANDLE_RESIZE_SW:
+        new_width = -(to->x-image->element.corner.x)+width;
+        new_height = to->y-image->element.corner.y;
+        if (new_height == 0 || new_width/new_height > width/height) {
+          new_height = new_width*height/width;
+        } else {
+          new_width = new_height*width/height;
+        }
+        to->x = image->element.corner.x+(image->element.width-new_width);
+        to->y = image->element.corner.y+new_height;
+        element_move_handle (elem, HANDLE_RESIZE_SW, to, cp, reason, modifiers);
+        break;
+      case HANDLE_RESIZE_W:
+        new_height = (-(to->x-image->element.corner.x)+width)*height/width;
+        to->y = image->element.corner.y+new_height;
+        element_move_handle (elem, HANDLE_RESIZE_SW, to, cp, reason, modifiers);
+        break;
+      case HANDLE_MOVE_STARTPOINT:
+      case HANDLE_MOVE_ENDPOINT:
+      case HANDLE_CUSTOM1:
+      case HANDLE_CUSTOM2:
+      case HANDLE_CUSTOM3:
+      case HANDLE_CUSTOM4:
+      case HANDLE_CUSTOM5:
+      case HANDLE_CUSTOM6:
+      case HANDLE_CUSTOM7:
+      case HANDLE_CUSTOM8:
+      case HANDLE_CUSTOM9:
+      default:
+        message_warning ("Unforeseen handle in image_move_handle: %d\n",
+                        handle->id);
     }
   } else {
-    element_move_handle(elem, handle->id, to, cp, reason, modifiers);
+    element_move_handle (elem, handle->id, to, cp, reason, modifiers);
   }
-  image_update_data(image);
+  image_update_data (image);
 
   return NULL;
 }
 
-static ObjectChange*
-image_move(Image *image, Point *to)
+
+static DiaObjectChange*
+image_move (Image *image, Point *to)
 {
   image->element.corner = *to;
 
-  image_update_data(image);
+  image_update_data (image);
 
   return NULL;
 }
 
+
 static void
-image_draw(Image *image, DiaRenderer *renderer)
+image_draw (Image *image, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point ul_corner, lr_corner;
   Element *elem;
 
-  assert(image != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (image != NULL);
+  g_return_if_fail (renderer != NULL);
 
   elem = &image->element;
 
@@ -453,35 +465,48 @@ image_draw(Image *image, DiaRenderer *renderer)
   ul_corner.y = elem->corner.y - image->border_width/2;
 
   if (image->draw_border) {
-    renderer_ops->set_linewidth(renderer, image->border_width);
-    renderer_ops->set_linestyle(renderer, image->line_style, image->dashlength);
-    renderer_ops->set_linejoin(renderer, LINEJOIN_MITER);
+    dia_renderer_set_linewidth (renderer, image->border_width);
+    dia_renderer_set_linestyle (renderer, image->line_style, image->dashlength);
+    dia_renderer_set_linejoin (renderer, DIA_LINE_JOIN_MITER);
 
     if (image->angle != 0.0) {
       Point poly[4];
       element_get_poly (elem, image->angle, poly);
       /* need to grow the poly, XXX: done here by growing the border width */
-      renderer_ops->set_linewidth(renderer, image->border_width * 2);
-      renderer_ops->draw_polygon (renderer, poly, 4, NULL, &image->border_color);
+      dia_renderer_set_linewidth (renderer, image->border_width * 2);
+      dia_renderer_draw_polygon (renderer, poly, 4, NULL, &image->border_color);
     } else {
-      renderer_ops->draw_rect (renderer,
-			       &ul_corner, &lr_corner,
-			       NULL, &image->border_color);
+      dia_renderer_draw_rect (renderer,
+                              &ul_corner,
+                              &lr_corner,
+                              NULL,
+                              &image->border_color);
     }
   }
   /* Draw the image */
   if (image->image) {
-    if (image->angle == 0.0)
-      renderer_ops->draw_image (renderer, &elem->corner, elem->width,
-			        elem->height, image->image);
-    else
-      renderer_ops->draw_rotated_image (renderer, &elem->corner, elem->width,
-					elem->height, image->angle, image->image);
+    if (image->angle == 0.0) {
+      dia_renderer_draw_image (renderer,
+                               &elem->corner,
+                               elem->width,
+                               elem->height,
+                               image->image);
+    } else {
+      dia_renderer_draw_rotated_image (renderer,
+                                       &elem->corner,
+                                       elem->width,
+                                       elem->height,
+                                       image->angle,
+                                       image->image);
+    }
   } else {
-    DiaImage *broken = dia_image_get_broken();
-    renderer_ops->draw_image (renderer, &elem->corner, elem->width,
-			      elem->height, broken);
-    dia_image_unref(broken);
+    DiaImage *broken = dia_image_get_broken ();
+    dia_renderer_draw_image (renderer,
+                             &elem->corner,
+                             elem->width,
+                             elem->height,
+                             broken);
+    dia_image_unref (broken);
   }
 }
 
@@ -514,8 +539,9 @@ image_transform(Image *image, const DiaMatrix *m)
   return TRUE;
 }
 
+
 static void
-image_update_data(Image *image)
+image_update_data (Image *image)
 {
   Element *elem = &image->element;
   ElementBBExtras *extra = &elem->extra_spacing;
@@ -523,8 +549,8 @@ image_update_data(Image *image)
 
   if (image->keep_aspect && image->image) {
     /* maybe the image got changes since */
-    real aspect_org = (float)dia_image_width(image->image)
-                    / (float)dia_image_height(image->image);
+    real aspect_org = (float) dia_image_width (image->image)
+                    / (float) dia_image_height (image->image);
     real aspect_now = elem->width / elem->height;
 
     if (fabs (aspect_now - aspect_org) > 1e-4) {
@@ -541,7 +567,7 @@ image_update_data(Image *image)
     DiaMatrix m = { 1.0, 0.0, 0.0, 1.0, cx, cy };
     DiaMatrix t = { 1.0, 0.0, 0.0, 1.0, -cx, -cy };
     int i;
-    PolyBBExtras extra = { 0, };
+    PolyBBExtras extraa = { 0, };
     Point poly[4];
 
 
@@ -551,15 +577,15 @@ image_update_data(Image *image)
       transform_point (&image->connections[i].pos, &m);
 
     element_get_poly (elem, image->angle, poly);
-    extra.middle_trans = (image->draw_border ? image->border_width : 0.0);
-    polyline_bbox(poly, 4, &extra, TRUE, &elem->object.bounding_box);
+    extraa.middle_trans = (image->draw_border ? image->border_width : 0.0);
+    polyline_bbox (poly, 4, &extraa, TRUE, &elem->object.bounding_box);
   } else {
     /* the image border is drawn completely outside of the image, so no /2.0 on border width */
     extra->border_trans = (image->draw_border ? image->border_width : 0.0);
-    element_update_boundingbox(elem);
+    element_update_boundingbox (elem);
   }
   obj->position = elem->corner;
-  element_update_handles(elem);
+  element_update_handles (elem);
 }
 
 
@@ -574,7 +600,7 @@ image_create(Point *startpoint,
   DiaObject *obj;
   int i;
 
-  image = g_malloc0(sizeof(Image));
+  image = g_new0 (Image, 1);
   elem = &image->element;
   obj = &elem->object;
 
@@ -622,20 +648,18 @@ image_create(Point *startpoint,
   return &image->element.object;
 }
 
+
 static void
-image_destroy(Image *image)
+image_destroy (Image *image)
 {
-  if (image->file != NULL)
-    g_free(image->file);
+  g_clear_pointer (&image->file, g_free);
 
-  if (image->image != NULL)
-    dia_image_unref(image->image);
+  g_clear_object (&image->image);
+  g_clear_object (&image->pixbuf);
 
-  if (image->pixbuf != NULL)
-    g_object_unref(image->pixbuf);
-
-  element_destroy(&image->element);
+  element_destroy (&image->element);
 }
+
 
 static DiaObject *
 image_copy(Image *image)
@@ -647,7 +671,7 @@ image_copy(Image *image)
 
   elem = &image->element;
 
-  newimage = g_malloc0(sizeof(Image));
+  newimage = g_new0 (Image, 1);
   newelem = &newimage->element;
   newobj = &newelem->object;
 
@@ -700,11 +724,11 @@ image_save(Image *image, ObjectNode obj_node, DiaContext *ctx)
     data_add_color(new_attribute(obj_node, "border_color"),
 		   &image->border_color, ctx);
 
-  if (image->line_style != LINESTYLE_SOLID)
+  if (image->line_style != DIA_LINE_STYLE_SOLID)
     data_add_enum(new_attribute(obj_node, "line_style"),
 		  image->line_style, ctx);
 
-  if (image->line_style != LINESTYLE_SOLID &&
+  if (image->line_style != DIA_LINE_STYLE_SOLID &&
       image->dashlength != DEFAULT_LINESTYLE_DASHLEN)
     data_add_real(new_attribute(obj_node, "dashlength"),
 		  image->dashlength, ctx);
@@ -721,7 +745,7 @@ image_save(Image *image, ObjectNode obj_node, DiaContext *ctx)
     if (relative) {
       /* The image pathname has the diagram file pathname in the beginning */
       data_add_filename(new_attribute(obj_node, "file"), relative, ctx);
-      g_free (relative);
+      g_clear_pointer (&relative, g_free);
     } else {
       /* Save the absolute path: */
       data_add_filename(new_attribute(obj_node, "file"), image->file, ctx);
@@ -742,70 +766,78 @@ image_save(Image *image, ObjectNode obj_node, DiaContext *ctx)
   }
 }
 
+
 static DiaObject *
-image_load(ObjectNode obj_node, int version, DiaContext *ctx)
+image_load (ObjectNode obj_node, int version, DiaContext *ctx)
 {
   Image *image;
   Element *elem;
   DiaObject *obj;
-  int i;
   AttributeNode attr;
+  GStatBuf st;
   // char *diafile_dir;
 
-  image = g_malloc0(sizeof(Image));
+  image = g_new0 (Image, 1);
   elem = &image->element;
   obj = &elem->object;
 
   obj->type = &image_type;
   obj->ops = &image_ops;
 
-  element_load(elem, obj_node, ctx);
+  element_load (elem, obj_node, ctx);
 
   image->border_width = 0.1;
-  attr = object_find_attribute(obj_node, "border_width");
-  if (attr != NULL)
-    image->border_width =  data_real(attribute_first_data(attr), ctx);
-
-  image->border_color = color_black;
-  attr = object_find_attribute(obj_node, "border_color");
-  if (attr != NULL)
-    data_color(attribute_first_data(attr), &image->border_color, ctx);
-
-  image->line_style = LINESTYLE_SOLID;
-  attr = object_find_attribute(obj_node, "line_style");
-  if (attr != NULL)
-    image->line_style =  data_enum(attribute_first_data(attr), ctx);
-
-  image->dashlength = DEFAULT_LINESTYLE_DASHLEN;
-  attr = object_find_attribute(obj_node, "dashlength");
-  if (attr != NULL)
-    image->dashlength = data_real(attribute_first_data(attr), ctx);
-
-  image->draw_border = TRUE;
-  attr = object_find_attribute(obj_node, "draw_border");
-  if (attr != NULL)
-    image->draw_border =  data_boolean(attribute_first_data(attr), ctx);
-
-  image->keep_aspect = TRUE;
-  attr = object_find_attribute(obj_node, "keep_aspect");
-  if (attr != NULL)
-    image->keep_aspect =  data_boolean(attribute_first_data(attr), ctx);
-
-  image->angle = 0.0;
-  attr = object_find_attribute(obj_node, "angle");
-  if (attr != NULL)
-    image->angle = data_real(attribute_first_data(attr), ctx);
-
-  attr = object_find_attribute(obj_node, "file");
+  attr = object_find_attribute (obj_node, "border_width");
   if (attr != NULL) {
-    image->file =  data_filename(attribute_first_data(attr), ctx);
-  } else {
-    image->file = g_strdup("");
+    image->border_width = data_real (attribute_first_data (attr), ctx);
   }
 
-  element_init(elem, 8, NUM_CONNECTIONS);
+  image->border_color = color_black;
+  attr = object_find_attribute (obj_node, "border_color");
+  if (attr != NULL) {
+    data_color (attribute_first_data (attr), &image->border_color, ctx);
+  }
 
-  for (i=0;i<NUM_CONNECTIONS;i++) {
+  image->line_style = DIA_LINE_STYLE_SOLID;
+  attr = object_find_attribute (obj_node, "line_style");
+  if (attr != NULL) {
+    image->line_style = data_enum (attribute_first_data (attr), ctx);
+  }
+
+  image->dashlength = DEFAULT_LINESTYLE_DASHLEN;
+  attr = object_find_attribute (obj_node, "dashlength");
+  if (attr != NULL) {
+    image->dashlength = data_real (attribute_first_data (attr), ctx);
+  }
+
+  image->draw_border = TRUE;
+  attr = object_find_attribute (obj_node, "draw_border");
+  if (attr != NULL) {
+    image->draw_border = data_boolean (attribute_first_data (attr), ctx);
+  }
+
+  image->keep_aspect = TRUE;
+  attr = object_find_attribute (obj_node, "keep_aspect");
+  if (attr != NULL) {
+    image->keep_aspect = data_boolean (attribute_first_data (attr), ctx);
+  }
+
+  image->angle = 0.0;
+  attr = object_find_attribute (obj_node, "angle");
+  if (attr != NULL) {
+    image->angle = data_real (attribute_first_data (attr), ctx);
+  }
+
+  attr = object_find_attribute (obj_node, "file");
+  if (attr != NULL) {
+    image->file = data_filename (attribute_first_data (attr), ctx);
+  } else {
+    image->file = g_strdup ("");
+  }
+
+  element_init (elem, 8, NUM_CONNECTIONS);
+
+  for (int i = 0; i < NUM_CONNECTIONS; i++) {
     obj->connections[i] = &image->connections[i];
     image->connections[i].object = obj;
     image->connections[i].connected = NULL;
@@ -814,59 +846,64 @@ image_load(ObjectNode obj_node, int version, DiaContext *ctx)
 
   image->image = NULL;
 
-  if (strcmp(image->file, "")!=0) {
+  if (strcmp (image->file, "") != 0) {
     if (   g_path_is_absolute (image->file)
-	&& g_file_test (image->file, G_FILE_TEST_IS_REGULAR)) { /* Absolute pathname */
-      image->image = dia_image_load(image->file);
+        && g_file_test (image->file, G_FILE_TEST_IS_REGULAR)) {
+      /* Absolute pathname */
+      image->image = dia_image_load (image->file);
     } else { /* build from relative pathname */
-      gchar *image_filename = dia_absolutize_filename (dia_context_get_filename (ctx), image->file);
+      char *image_filename = dia_absolutize_filename (dia_context_get_filename (ctx),
+                                                      image->file);
 
-      image->image = dia_image_load(image_filename);
+      image->image = dia_image_load (image_filename);
       if (image->image != NULL) {
-	/* Found file in same directory as diagram. */
-	g_free(image->file);
-	image->file = image_filename;
+        /* Found file in same directory as diagram. */
+        g_clear_pointer (&image->file, g_free);
+        image->file = image_filename;
       } else {
-	/* not found as relative path, try literally */
-	g_free (image_filename);
+        /* not found as relative path, try literally */
+        g_clear_pointer (&image_filename, g_free);
 
-	image->image = dia_image_load(image->file);
-	if (image->image == NULL) {
-	  /* Didn't find file in current directory. */
-	  dia_context_add_message (ctx, _("The image file '%s' was not found.\n"), image->file);
-	}
+        image->image = dia_image_load (image->file);
+        if (image->image == NULL) {
+          /* Didn't find file in current directory. */
+          dia_context_add_message (ctx,
+                                   _("The image file '%s' was not found.\n"),
+                                   image->file);
+        }
       }
     }
   }
+
   /* if we don't have an image yet try to recover it from inlined data */
   if (!image->image) {
-    attr = object_find_attribute(obj_node, "pixbuf");
+    attr = object_find_attribute (obj_node, "pixbuf");
     if (attr != NULL) {
-      GdkPixbuf *pixbuf = data_pixbuf (attribute_first_data(attr), ctx);
+      GdkPixbuf *pixbuf = data_pixbuf (attribute_first_data (attr), ctx);
 
       if (pixbuf) {
-	image->image = dia_image_new_from_pixbuf (pixbuf);
-	image->inline_data = TRUE; /* avoid loosing it */
-	/* FIXME: should we reset the filename? */
-	g_object_unref (pixbuf);
+        image->image = dia_image_new_from_pixbuf (pixbuf);
+        image->inline_data = TRUE; /* avoid loosing it */
+        /* FIXME: should we reset the filename? */
+        g_clear_object (&pixbuf);
       }
     }
   } else {
-    attr = object_find_attribute(obj_node, "inline_data");
-    if (attr != NULL)
-      image->inline_data = data_boolean(attribute_first_data(attr), ctx);
+    attr = object_find_attribute (obj_node, "inline_data");
+    if (attr != NULL) {
+      image->inline_data = data_boolean (attribute_first_data (attr), ctx);
+    }
     /* Should be set pixbuf, too? Or leave it till the first get. */
   }
 
   /* update mtime */
-  {
-    struct stat st;
-    if (g_stat (image->file, &st) != 0)
-      st.st_mtime = 0;
-
-    image->mtime = st.st_mtime;
+  if (g_stat (image->file, &st) != 0) {
+    st.st_mtime = 0;
   }
-  image_update_data(image);
+
+  image->mtime = st.st_mtime;
+
+  image_update_data (image);
 
   return &image->element.object;
 }

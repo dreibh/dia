@@ -21,7 +21,9 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <string.h>
 
@@ -45,64 +47,82 @@ static PropOffset umlformalparameter_offsets[] = {
 
 PropDescDArrayExtra umlformalparameter_extra = {
   { umlformalparameter_props, umlformalparameter_offsets, "umlformalparameter" },
-  (NewRecordFunc)uml_formalparameter_new,
-  (FreeRecordFunc)uml_formalparameter_destroy
+  (NewRecordFunc) uml_formal_parameter_new,
+  (FreeRecordFunc) uml_formal_parameter_unref
 };
 
+G_DEFINE_BOXED_TYPE (UMLFormalParameter, uml_formal_parameter, uml_formal_parameter_ref, uml_formal_parameter_unref)
+
+
 UMLFormalParameter *
-uml_formalparameter_new(void)
+uml_formal_parameter_new (void)
 {
   UMLFormalParameter *param;
 
-  param = g_new0(UMLFormalParameter, 1);
-  param->name = g_strdup("");
+  param = g_rc_box_new0 (UMLFormalParameter);
+  param->name = NULL;
   param->type = NULL;
 
   return param;
 }
 
+
 UMLFormalParameter *
-uml_formalparameter_copy(UMLFormalParameter *param)
+uml_formal_parameter_copy (UMLFormalParameter *param)
 {
   UMLFormalParameter *newparam;
 
-  newparam = g_new0(UMLFormalParameter, 1);
+  newparam = uml_formal_parameter_new ();
 
-  newparam->name = g_strdup(param->name);
-  if (param->type != NULL) {
-    newparam->type = g_strdup(param->type);
-  } else {
-    newparam->type = NULL;
-  }
+  newparam->name = g_strdup (param->name);
+  newparam->type = g_strdup (param->type);
 
   return newparam;
 }
 
-void
-uml_formalparameter_destroy(UMLFormalParameter *param)
+
+UMLFormalParameter *
+uml_formal_parameter_ref (UMLFormalParameter *param)
 {
-  g_free(param->name);
-  if (param->type != NULL)
-    g_free(param->type);
-  g_free(param);
+  g_return_val_if_fail (param != NULL, NULL);
+
+  return g_rc_box_acquire (param);
 }
 
+
+static void
+formal_parameter_destroy (UMLFormalParameter *param)
+{
+  g_clear_pointer (&param->name, g_free);
+  g_clear_pointer (&param->type, g_free);
+}
+
+
 void
-uml_formalparameter_write(AttributeNode attr_node, UMLFormalParameter *param,
-			  DiaContext *ctx)
+uml_formal_parameter_unref (UMLFormalParameter *param)
+{
+  g_rc_box_release_full (param, (GDestroyNotify) formal_parameter_destroy);
+}
+
+
+void
+uml_formal_parameter_write (AttributeNode       attr_node,
+                            UMLFormalParameter *param,
+                            DiaContext         *ctx)
 {
   DataNode composite;
 
-  composite = data_add_composite(attr_node, "umlformalparameter", ctx);
+  composite = data_add_composite (attr_node, "umlformalparameter", ctx);
 
-  data_add_string(composite_add_attribute(composite, "name"),
-		  param->name, ctx);
-  data_add_string(composite_add_attribute(composite, "type"),
-		  param->type, ctx);
+  data_add_string (composite_add_attribute (composite, "name"),
+                   param->name, ctx);
+  data_add_string (composite_add_attribute (composite, "type"),
+                   param->type, ctx);
 }
 
+
 char *
-uml_get_formalparameter_string (UMLFormalParameter *parameter)
+uml_formal_parameter_get_string (UMLFormalParameter *parameter)
 {
   int len;
   char *str;
@@ -115,7 +135,7 @@ uml_get_formalparameter_string (UMLFormalParameter *parameter)
   }
 
   /* Generate string: */
-  str = g_malloc (sizeof (char) * (len + 1));
+  str = g_new0 (char, len + 1);
   strcpy (str, parameter->name ? parameter->name : "");
   if (parameter->type != NULL) {
     strcat (str, ":");

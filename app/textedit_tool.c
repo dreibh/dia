@@ -24,17 +24,27 @@
 #include "cursor.h"
 #include "object_ops.h"
 
-/** The text edit tool.  This tool allows the user to switch to a mode where
+
+/**
+ * click_select_object:
+ * @ddisp: the #DDisplay
+ * @clickedpoint: the #Point clicked
+ * @event: the #GdkEventButton
+ *
+ * The text edit tool.  This tool allows the user to switch to a mode where
  * clicking on an editable text will start text edit mode.  Clicking outside
  * of editable text will revert to selection tool.  Note that clicking this
  * tool doesn't enter text edit mode immediately, just allows it to be entered
  * by clicking an object.
+ *
+ * Since: dawn-of-time
  */
 static DiaObject *
-click_select_object(DDisplay *ddisp, Point *clickedpoint,
-		    GdkEventButton *event)
+click_select_object (DDisplay       *ddisp,
+                     Point          *clickedpoint,
+                     GdkEventButton *event)
 {
-  real click_distance = ddisplay_untransform_length(ddisp, 3.0);
+  double click_distance = ddisplay_untransform_length (ddisp, 3.0);
   Diagram *diagram = ddisp->diagram;
   DiaObject *obj;
 
@@ -157,6 +167,7 @@ create_textedit_tool(void)
   return (Tool *)tool;
 }
 
+
 void
 free_textedit_tool (Tool *tool)
 {
@@ -167,5 +178,5 @@ free_textedit_tool (Tool *tool)
   }
   ddisplay_set_all_cursor(default_cursor);
 
-  g_free (tool);
+  g_clear_pointer (&tool, g_free);
 }

@@ -27,46 +27,10 @@
 #include <glib.h>
 #include <math.h>
 
-/* Solaris 2.4, 2.6, probably 2.5.x, and possibly others prototype
-   finite() in ieeefp.h instead of math.h.  finite() might not be
-   available at all on some HP-UX configurations (in which case,
-   you're on your own). */
-#ifdef HAVE_IEEEFP_H
-#include <ieeefp.h>
-#endif
-#ifndef HAVE_ISINF
-#  ifndef isinf
-#    define isinf(a) (!finite(a))
-#  endif
-#endif
-
-#ifdef _MSC_VER
-/* #ifdef G_OS_WIN32  apparently _MSC_VER and mingw */
-   /* there are some things more in the gcc headers */
-#  include <float.h>
-#  define finite(a) _finite(a)
-#  ifndef isnan
-#    define isnan(a) _isnan(a)
-#  endif
-#endif
-#ifdef G_OS_WIN32
-#  define M_PI      3.14159265358979323846
-#  define M_SQRT2	1.41421356237309504880	/* sqrt(2) */
-#  define M_SQRT1_2 0.70710678118654752440	/* 1/sqrt(2) */
-#endif
-
-/* gcc -std=c89 doesn't have it either */
-#ifndef M_PI
-#define M_PI G_PI
-#endif
-#ifndef M_SQRT2
-#define M_SQRT2 G_SQRT2
-#endif
-#ifndef M_SQRT1_2
-#define M_SQRT1_2 (1.0/G_SQRT2)
-#endif
-
 G_BEGIN_DECLS
+
+#define DIA_RADIANS(degrees) ((degrees) * G_PI / 180.0)
+#define DIA_DEGREES(radians) ((radians) * 180.0 / G_PI)
 
 
 /*
@@ -76,33 +40,54 @@ G_BEGIN_DECLS
    |
    V  y
  */
-typedef real coord;
 
-/*! \brief A two dimensional position */
+
+/**
+ * Point:
+ * @x: horizontal
+ * @y: vertical
+ *
+ * A two dimensional position
+ *
+ * Since: dawn-of-time
+ */
 struct _Point {
-  coord x; /*!< horizontal */
-  coord y; /*!< vertical */
+  double x;
+  double y;
 };
 
-/*! \brief A rectangle given by upper left and lower right corner */
-struct _Rectangle {
-  coord left; /*!< x1 */
-  coord top; /*!< y1 */
-  coord right; /*!< x2 */
-  coord bottom; /*!< y2 */
+
+/**
+ * DiaRectangle:
+ * @left: top left x co-ord
+ * @top: top left y co-ord
+ * @right: bottom right x co-ord
+ * @button: bottom right y co-ord
+ *
+ * A rectangle given by upper left and lower right corner
+ *
+ * Since: 0.98
+ */
+struct _DiaRectangle {
+  double left;
+  double top;
+  double right;
+  double bottom;
 };
 
-/*! \brief A rectangle for fixed point e.g. pixel coordinates */
-struct _IntRectangle {
-  int left; /*!< x1 */
-  int top; /*!< y1 */
-  int right; /*!< x2 */
-  int bottom; /*!< y2 */
-};
 
-/*!
- * \brief BezPoint is a bezier point forming _Bezierline or _Beziergon
- * \ingroup ObjectParts
+/**
+ * BezPoint:
+ * @BEZ_MOVE_TO: move to point @p1
+ * @BEZ_LINE_TO: line to point @p1
+ * @BEZ_CURVE_TO: curve to point @p3 using @p1 and @p2 as control points
+ * @p1: main point in case of move or line-to, otherwise first control point
+ * @p2: second control point
+ * @p3: main point for 'true' bezier point
+ *
+ * #BezPoint is a bezier point forming #Bezierline or #Beziergon
+ *
+ * Since: dawn-of-time
  */
 struct _BezPoint {
   enum {
@@ -115,31 +100,42 @@ struct _BezPoint {
   Point p3; /*!< main point for 'true' bezier point */
 };
 
-/*!
- * \brief DiaMatrix used for affine transformation
+
+/**
+ * DiaMatrix:
  *
- * The struct is intentionally binary compatible with cairo_matrix_t.
+ * #DiaMatrix used for affine transformation
  *
- * \ingroup ObjectParts
+ * The struct is intentionally binary compatible with #cairo_matrix_t.
+ *
+ * Since: dawn-of-time
  */
 struct _DiaMatrix {
-  real xx; real yx;
-  real xy; real yy;
-  real x0; real y0;
+  double xx;
+  double yx;
+  double xy;
+  double yy;
+  double x0;
+  double y0;
 };
 
-gboolean dia_matrix_is_identity (const DiaMatrix *matix);
+
+gboolean dia_matrix_is_identity          (const DiaMatrix *matix);
 gboolean dia_matrix_get_angle_and_scales (const DiaMatrix *m,
-                                          real            *a,
-					  real            *sx,
-					  real            *sy);
-void dia_matrix_set_angle_and_scales (DiaMatrix *m,
-                                      real       a,
-				      real       sx,
-				      real       sy);
-void dia_matrix_multiply (DiaMatrix *result, const DiaMatrix *a, const DiaMatrix *b);
-gboolean dia_matrix_is_invertible (const DiaMatrix *matrix);
-void dia_matrix_set_rotate_around (DiaMatrix *result, real angle, const Point *around);
+                                          double          *a,
+                                          double          *sx,
+                                          double          *sy);
+void     dia_matrix_set_angle_and_scales (DiaMatrix       *m,
+                                          double           a,
+                                          double           sx,
+                                          double           sy);
+void     dia_matrix_multiply             (DiaMatrix       *result,
+                                          const DiaMatrix *a,
+                                          const DiaMatrix *b);
+gboolean dia_matrix_is_invertible        (const DiaMatrix *matrix);
+void     dia_matrix_set_rotate_around    (DiaMatrix       *result,
+                                          double           angle,
+                                          const Point     *around);
 
 #define ROUND(x) ((int) floor((x)+0.5))
 
@@ -257,16 +253,15 @@ point_copy_add_scaled(Point *dst, const Point *src,
 
 void point_convex(Point *dst, const Point *src1, const Point *src2, real alpha);
 
-void rectangle_union(Rectangle *r1, const Rectangle *r2);
-void int_rectangle_union(IntRectangle *r1, const IntRectangle *r2);
-void rectangle_intersection(Rectangle *r1, const Rectangle *r2);
-int rectangle_intersects(const Rectangle *r1, const Rectangle *r2);
-int point_in_rectangle(const Rectangle* r, const Point *p);
-int rectangle_in_rectangle(const Rectangle* outer, const Rectangle *inner);
-void rectangle_add_point(Rectangle *r, const Point *p);
+void rectangle_union(DiaRectangle *r1, const DiaRectangle *r2);
+void rectangle_intersection(DiaRectangle *r1, const DiaRectangle *r2);
+int rectangle_intersects(const DiaRectangle *r1, const DiaRectangle *r2);
+int point_in_rectangle(const DiaRectangle* r, const Point *p);
+int rectangle_in_rectangle(const DiaRectangle* outer, const DiaRectangle *inner);
+void rectangle_add_point(DiaRectangle *r, const Point *p);
 
 static inline gboolean
-rectangle_equals(const Rectangle *r1, const Rectangle *r2)
+rectangle_equals (const DiaRectangle *r1, const DiaRectangle *r2)
 {
   return ( (r2->left == r1->left) &&
            (r2->right == r1->right) &&
@@ -290,7 +285,7 @@ distance_point_point_manhattan(const Point *p1, const Point *p2)
   return ABS(dx) + ABS(dy);
 }
 
-real distance_rectangle_point(const Rectangle *rect, const Point *point);
+real distance_rectangle_point(const DiaRectangle *rect, const Point *point);
 real distance_line_point(const Point *line_start, const Point *line_end,
 			 real line_width, const Point *point);
 

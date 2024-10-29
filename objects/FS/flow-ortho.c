@@ -20,16 +20,15 @@
  * please send e-mail to David Thompson <dcthomp@mail.utexas.edu>
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
 
-#include "intl.h"
 #include "object.h"
-#include "objchange.h"
 #include "connection.h"
 #include "diarenderer.h"
 #include "handle.h"
@@ -44,7 +43,6 @@
 
 
 typedef struct _Orthflow Orthflow;
-typedef struct _OrthflowChange OrthflowChange;
 
 typedef enum {
   ORTHFLOW_ENERGY,
@@ -62,18 +60,31 @@ struct _Orthflow {
   Point textpos; /* This is the master position, only overridden in load */
 };
 
+
+#define DIA_FS_TYPE_ORTHFLOW_OBJECT_CHANGE dia_fs_orthflow_object_change_get_type ()
+G_DECLARE_FINAL_TYPE (DiaFSOrthflowObjectChange,
+                      dia_fs_orthflow_object_change,
+                      DIA_FS, ORTHFLOW_OBJECT_CHANGE,
+                      DiaObjectChange)
+
+
 enum OrthflowChangeType {
   TEXT_EDIT=1,
   FLOW_TYPE=2,
   BOTH=3
 };
 
-struct _OrthflowChange {
-  ObjectChange			obj_change ;
-  enum OrthflowChangeType	change_type ;
-  OrthflowType			type ;
-  char*				text ;
+
+struct _DiaFSOrthflowObjectChange {
+  DiaObjectChange          obj_change;
+  enum OrthflowChangeType  change_type;
+  OrthflowType             type;
+  char                    *text;
 };
+
+
+DIA_DEFINE_OBJECT_CHANGE (DiaFSOrthflowObjectChange, dia_fs_orthflow_object_change)
+
 
 Color orthflow_color_energy   = { 1.0f, 0.0f, 0.0f, 1.0f };
 Color orthflow_color_material = { 0.8f, 0.0f, 0.8f, 1.0f };
@@ -88,11 +99,14 @@ Color orthflow_color_signal   = { 0.0f, 0.0f, 1.0f, 1.0f };
 #define ORTHFLOW_ARROWWIDTH 0.5
 #define HANDLE_MOVE_TEXT (HANDLE_CUSTOM2)
 
-static ObjectChange* orthflow_move_handle(Orthflow *orthflow, Handle *handle,
-					  Point *to, ConnectionPoint *cp,
-					  HandleMoveReason reason,
-					  ModifierKeys modifiers);
-static ObjectChange* orthflow_move(Orthflow *orthflow, Point *to);
+static DiaObjectChange *orthflow_move_handle   (Orthflow         *orthflow,
+                                                Handle           *handle,
+                                                Point            *to,
+                                                ConnectionPoint  *cp,
+                                                HandleMoveReason  reason,
+                                                ModifierKeys      modifiers);
+static DiaObjectChange *orthflow_move          (Orthflow         *orthflow,
+                                                Point            *to);
 static void orthflow_select(Orthflow *orthflow, Point *clicked_point,
 			    DiaRenderer *interactive_renderer);
 static void orthflow_draw(Orthflow *orthflow, DiaRenderer *renderer);
@@ -208,71 +222,90 @@ orthflow_set_props(Orthflow *orthflow, GPtrArray *props)
 }
 
 
+static void
+dia_fs_orthflow_object_change_apply_revert (DiaFSOrthflowObjectChange *change,
+                                            DiaObject                 *obj)
+{
+  Orthflow *oflow = (Orthflow *) obj;
+
+  if (change->change_type == FLOW_TYPE || change->change_type == BOTH) {
+    OrthflowType type = oflow->type;
+    oflow->type = change->type;
+    change->type = type;
+    orthflow_update_data (oflow);
+  }
+
+  if (change->change_type & TEXT_EDIT || change->change_type == BOTH) {
+    char *tmp = text_get_string_copy (oflow->text);
+    text_set_string (oflow->text, change->text);
+    g_clear_pointer (&change->text, g_free);
+    change->text = tmp;
+  }
+}
+
 
 static void
-orthflow_change_apply_revert(ObjectChange* objchg, DiaObject* obj)
+dia_fs_orthflow_object_change_apply (DiaObjectChange *self, DiaObject *obj)
 {
-  struct _OrthflowChange* change = (struct _OrthflowChange*) objchg ;
-  Orthflow* oflow = (Orthflow*) obj ;
-
-  if ( change->change_type == FLOW_TYPE || change->change_type == BOTH ) {
-    OrthflowType type = oflow->type ;
-    oflow->type = change->type ;
-    change->type = type ;
-    orthflow_update_data(oflow) ;
-  }
-
-  if ( change->change_type & TEXT_EDIT  || change->change_type == BOTH ) {
-    char* tmp = text_get_string_copy( oflow->text ) ;
-    text_set_string( oflow->text, change->text ) ;
-    g_free( change->text ) ;
-    change->text = tmp ;
-  }
+  dia_fs_orthflow_object_change_apply_revert (DIA_FS_ORTHFLOW_OBJECT_CHANGE (self),
+                                              obj);
 }
+
 
 static void
-orthflow_change_free(ObjectChange* objchg)
+dia_fs_orthflow_object_change_revert (DiaObjectChange *self, DiaObject *obj)
 {
-  struct _OrthflowChange* change = (struct _OrthflowChange*) objchg ;
+  dia_fs_orthflow_object_change_apply_revert (DIA_FS_ORTHFLOW_OBJECT_CHANGE (self),
+                                              obj);
+}
 
-  if (change->change_type & TEXT_EDIT  || change->change_type == BOTH ) {
-    g_free(change->text) ;
+
+static void
+dia_fs_orthflow_object_change_free (DiaObjectChange *objchg)
+{
+  DiaFSOrthflowObjectChange* change = DIA_FS_ORTHFLOW_OBJECT_CHANGE (objchg);
+
+  if (change->change_type & TEXT_EDIT || change->change_type == BOTH) {
+    g_clear_pointer (&change->text, g_free);
   }
 }
 
-static ObjectChange*
-orthflow_create_change( enum OrthflowChangeType change_type,
-			OrthflowType type, Text* text )
-{
-  struct _OrthflowChange* change ;
-  change = g_new0( struct _OrthflowChange, 1 ) ;
-  change->obj_change.apply = (ObjectChangeApplyFunc) orthflow_change_apply_revert ;
-  change->obj_change.revert =  (ObjectChangeRevertFunc) orthflow_change_apply_revert ;
-  change->obj_change.free =  (ObjectChangeFreeFunc) orthflow_change_free ;
-  change->change_type = change_type ;
 
-  change->type = type ;
-  if ( text ) {
-    change->text = text_get_string_copy( text ) ;
+static DiaObjectChange*
+orthflow_create_change (enum OrthflowChangeType  change_type,
+                        OrthflowType             type,
+                        Text                    *text )
+{
+  DiaFSOrthflowObjectChange *change;
+
+  change = dia_object_change_new (DIA_FS_TYPE_ORTHFLOW_OBJECT_CHANGE);
+
+  change->change_type = change_type;
+
+  change->type = type;
+  if (text) {
+    change->text = text_get_string_copy (text);
   }
 
-  return (ObjectChange*) change ;
+  return DIA_OBJECT_CHANGE (change);
 }
 
-static real
+
+static double
 orthflow_distance_from(Orthflow *orthflow, Point *point)
 {
-  real linedist;
-  real textdist;
+  double linedist;
+  double textdist;
 
-  linedist = orthconn_distance_from( &orthflow->orth, point,
-				     orthflow->type == ORTHFLOW_MATERIAL ?
-				     ORTHFLOW_MATERIAL_WIDTH :
-				     ORTHFLOW_WIDTH ) ;
-  textdist = text_distance_from( orthflow->text, point ) ;
+  linedist = orthconn_distance_from (&orthflow->orth, point,
+                                     orthflow->type == ORTHFLOW_MATERIAL ?
+                                        ORTHFLOW_MATERIAL_WIDTH :
+                                        ORTHFLOW_WIDTH);
+  textdist = text_distance_from (orthflow->text, point);
 
-  return linedist > textdist ? textdist : linedist ;
+  return linedist > textdist ? textdist : linedist;
 }
+
 
 static void
 orthflow_select(Orthflow *orthflow, Point *clicked_point,
@@ -284,15 +317,20 @@ orthflow_select(Orthflow *orthflow, Point *clicked_point,
   orthconn_update_data(&orthflow->orth);
 }
 
-static ObjectChange*
-orthflow_move_handle(Orthflow *orthflow, Handle *handle,
-		     Point *to, ConnectionPoint *cp,
-		     HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+orthflow_move_handle (Orthflow         *orthflow,
+                      Handle           *handle,
+                      Point            *to,
+                      ConnectionPoint  *cp,
+                      HandleMoveReason  reason,
+                      ModifierKeys      modifiers)
 {
-  ObjectChange *change = NULL;
-  assert(orthflow!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+  DiaObjectChange *change = NULL;
+
+  g_return_val_if_fail (orthflow != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
   if (handle->id == HANDLE_MOVE_TEXT) {
     orthflow->textpos = *to;
@@ -315,37 +353,38 @@ orthflow_move_handle(Orthflow *orthflow, Handle *handle,
   return change;
 }
 
-static ObjectChange*
-orthflow_move(Orthflow *orthflow, Point *to)
+
+static DiaObjectChange *
+orthflow_move (Orthflow *orthflow, Point *to)
 {
-  ObjectChange *change;
+  DiaObjectChange *change;
 
   Point *points = &orthflow->orth.points[0];
   Point delta;
 
   delta = *to;
-  point_sub(&delta, &points[0]);
-  point_add(&orthflow->textpos, &delta);
+  point_sub (&delta, &points[0]);
+  point_add (&orthflow->textpos, &delta);
 
-  change = orthconn_move( &orthflow->orth, to ) ;
+  change = orthconn_move (&orthflow->orth, to);
 
-  orthflow_update_data(orthflow);
+  orthflow_update_data (orthflow);
 
   return change;
 }
 
+
 static void
-orthflow_draw(Orthflow *orthflow, DiaRenderer *renderer)
+orthflow_draw (Orthflow *orthflow, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   int n = orthflow->orth.numpoints ;
   Color* render_color = &orthflow_color_signal;
   Point *points;
   real linewidth;
   Arrow arrow;
 
-  assert(orthflow != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (orthflow != NULL);
+  g_return_if_fail (renderer != NULL);
 
   arrow.type = ARROW_FILLED_TRIANGLE;
   arrow.width = ORTHFLOW_ARROWWIDTH;
@@ -353,36 +392,39 @@ orthflow_draw(Orthflow *orthflow, DiaRenderer *renderer)
 
   points = &orthflow->orth.points[0];
 
-  renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
 
   switch (orthflow->type) {
-  case ORTHFLOW_SIGNAL:
-    linewidth = ORTHFLOW_WIDTH;
-    renderer_ops->set_linestyle(renderer, LINESTYLE_DASHED, ORTHFLOW_DASHLEN);
-    render_color = &orthflow_color_signal ;
-    break ;
-  case ORTHFLOW_MATERIAL:
-    linewidth = ORTHFLOW_MATERIAL_WIDTH;
-    renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
-    render_color = &orthflow_color_material ;
-    break ;
-  case ORTHFLOW_ENERGY:
-    linewidth = ORTHFLOW_WIDTH;
-    renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
-    render_color = &orthflow_color_energy ;
-    break ;
-  default:
-    linewidth = 0.001;
-    break;
+    case ORTHFLOW_SIGNAL:
+      linewidth = ORTHFLOW_WIDTH;
+      dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_DASHED, ORTHFLOW_DASHLEN);
+      render_color = &orthflow_color_signal;
+      break ;
+    case ORTHFLOW_MATERIAL:
+      linewidth = ORTHFLOW_MATERIAL_WIDTH;
+      dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
+      render_color = &orthflow_color_material;
+      break ;
+    case ORTHFLOW_ENERGY:
+      linewidth = ORTHFLOW_WIDTH;
+      dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
+      render_color = &orthflow_color_energy;
+      break ;
+    default:
+      linewidth = 0.001;
+      break;
   }
 
-  renderer_ops->set_linewidth(renderer, linewidth);
-  renderer_ops->draw_polyline_with_arrows(renderer, points, n,
-					  ORTHFLOW_WIDTH,
-					  render_color,
-					  NULL, &arrow);
+  dia_renderer_set_linewidth (renderer, linewidth);
+  dia_renderer_draw_polyline_with_arrows (renderer,
+                                          points,
+                                          n,
+                                          ORTHFLOW_WIDTH,
+                                          render_color,
+                                          NULL,
+                                          &arrow);
 
-  text_draw(orthflow->text, renderer);
+  text_draw (orthflow->text, renderer);
 }
 
 static DiaObject *
@@ -414,8 +456,13 @@ orthflow_create(Point *startpoint,
   orthflow->textpos = p;
   font = dia_font_new_from_style(DIA_FONT_SANS, ORTHFLOW_FONTHEIGHT);
 
-  orthflow->text = new_text("", font, ORTHFLOW_FONTHEIGHT, &p, &color_black, ALIGN_CENTER);
-  dia_font_unref(font);
+  orthflow->text = new_text ("",
+                             font,
+                             ORTHFLOW_FONTHEIGHT,
+                             &p,
+                             &color_black,
+                             DIA_ALIGN_CENTRE);
+  g_clear_object (&font);
 
 #if 0
   if ( orthflow_default_label ) {
@@ -476,7 +523,7 @@ orthflow_copy(Orthflow *orthflow)
 
   orth = &orthflow->orth;
 
-  neworthflow = g_malloc0(sizeof(Orthflow));
+  neworthflow = g_new0 (Orthflow, 1);
   neworth = &neworthflow->orth;
   newobj = &neworth->object;
 
@@ -495,38 +542,40 @@ orthflow_copy(Orthflow *orthflow)
 
 
 static void
-orthflow_update_data(Orthflow *orthflow)
+orthflow_update_data (Orthflow *orthflow)
 {
   OrthConn *orth = &orthflow->orth ;
   DiaObject *obj = &orth->object;
-  Rectangle rect;
+  DiaRectangle rect;
   Color* color = &orthflow_color_signal;
 
   switch (orthflow->type) {
-  case ORTHFLOW_ENERGY:
-    color = &orthflow_color_energy ;
-    break ;
-  case ORTHFLOW_MATERIAL:
-    color = &orthflow_color_material ;
-    break ;
-  case ORTHFLOW_SIGNAL:
-    color = &orthflow_color_signal ;
-    break ;
+    case ORTHFLOW_ENERGY:
+      color = &orthflow_color_energy ;
+      break;
+    case ORTHFLOW_MATERIAL:
+      color = &orthflow_color_material ;
+      break;
+    case ORTHFLOW_SIGNAL:
+      color = &orthflow_color_signal ;
+      break;
+    default:
+      g_return_if_reached ();
   }
-  text_set_color( orthflow->text, color ) ;
+  text_set_color (orthflow->text, color) ;
 
-  text_set_position( orthflow->text, &orthflow->textpos ) ;
+  text_set_position (orthflow->text, &orthflow->textpos) ;
   orthflow->text_handle.pos = orthflow->textpos;
 
-  orthconn_update_data(orth);
+  orthconn_update_data (orth);
   obj->position = orth->points[0];
 
   /* Boundingbox: */
-  orthconn_update_boundingbox(orth);
+  orthconn_update_boundingbox (orth);
 
   /* Add boundingbox for text: */
-  text_calc_boundingbox(orthflow->text, &rect) ;
-  rectangle_union(&obj->bounding_box, &rect);
+  text_calc_boundingbox (orthflow->text, &rect) ;
+  rectangle_union (&obj->bounding_box, &rect);
 }
 
 
@@ -550,7 +599,7 @@ orthflow_load(ObjectNode obj_node, int version, DiaContext *ctx)
   DiaObject *obj;
   PolyBBExtras *extra;
 
-  orthflow = g_malloc0(sizeof(Orthflow));
+  orthflow = g_new0 (Orthflow, 1);
 
   orth = &orthflow->orth;
   obj = &orth->object;
@@ -566,10 +615,16 @@ orthflow_load(ObjectNode obj_node, int version, DiaContext *ctx)
   if (attr != NULL)
     orthflow->text = data_text(attribute_first_data(attr), ctx);
   else { /* paranoid */
-    DiaFont *font = dia_font_new_from_style(DIA_FONT_SANS, ORTHFLOW_FONTHEIGHT);
+    DiaFont *font = dia_font_new_from_style (DIA_FONT_SANS,
+                                             ORTHFLOW_FONTHEIGHT);
 
-    orthflow->text = new_text("", font, ORTHFLOW_FONTHEIGHT, &obj->position, &color_black, ALIGN_CENTER);
-    dia_font_unref(font);
+    orthflow->text = new_text ("",
+                               font,
+                               ORTHFLOW_FONTHEIGHT,
+                               &obj->position,
+                               &color_black,
+                               DIA_ALIGN_CENTRE);
+    g_clear_object (&font);
   }
 
   attr = object_find_attribute(obj_node, "type");
@@ -596,11 +651,13 @@ orthflow_load(ObjectNode obj_node, int version, DiaContext *ctx)
   return &orthflow->orth.object;
 }
 
-static ObjectChange *
+
+static DiaObjectChange *
 orthflow_set_type_callback (DiaObject* obj, Point* clicked, gpointer data)
 {
-  ObjectChange* change ;
-  change = orthflow_create_change( FLOW_TYPE, ((Orthflow*)obj)->type, 0 ) ;
+  DiaObjectChange *change;
+
+  change = orthflow_create_change (FLOW_TYPE, ((Orthflow*)obj)->type, 0);
 
   ((Orthflow*)obj)->type = GPOINTER_TO_INT (data);
   orthflow_update_data((Orthflow*)obj);
@@ -608,14 +665,17 @@ orthflow_set_type_callback (DiaObject* obj, Point* clicked, gpointer data)
   return change;
 }
 
-static ObjectChange *
+
+static DiaObjectChange *
 orthflow_segment_callback (DiaObject* obj, Point* clicked, gpointer data)
 {
-  if ( GPOINTER_TO_INT (data) )
-     return orthconn_add_segment( (OrthConn*)obj, clicked ) ;
+  if (GPOINTER_TO_INT (data)) {
+    return orthconn_add_segment ((OrthConn*) obj, clicked);
+  }
 
-  return orthconn_delete_segment( (OrthConn*)obj, clicked ) ;
+  return orthconn_delete_segment ((OrthConn*) obj, clicked);
 }
+
 
 static DiaMenuItem orthflow_menu_items[] = {
   { N_("Energy"), orthflow_set_type_callback, (void*)ORTHFLOW_ENERGY, 1 },

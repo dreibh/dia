@@ -20,13 +20,21 @@
  *
  */
 
-#ifndef SHEETS_H
+#pragma once
 
 #include <gtk/gtk.h>
 
 #include "../lib/sheet.h"
 
 #include "sheets_dialog_callbacks.h"
+
+
+enum {
+  SO_COL_NAME,
+  SO_COL_LOCATION,
+  SO_COL_MOD,
+  SO_N_COL,
+};
 
 /* The theory behind these structures is simple.  Sheets and SheetObjects
    are wrapped in SheetMod's and SheetObjectMod's respectively.  Any changes
@@ -41,10 +49,6 @@ struct _SheetObjectMod
 {
   SheetObject sheet_object;
 
-  enum { OBJECT_TYPE_SVG,
-         OBJECT_TYPE_PROGRAMMED,
-         OBJECT_TYPE_UNASSIGNED } type;
-
   enum { SHEET_OBJECT_MOD_NONE,
          SHEET_OBJECT_MOD_NEW,
          SHEET_OBJECT_MOD_CHANGED,
@@ -56,9 +60,7 @@ struct _SheetObjectMod
 struct _SheetMod
 {
   Sheet sheet;
-
-  enum { SHEETMOD_TYPE_NORMAL,
-         SHEETMOD_TYPE_UNASSIGNED } type; /* reserved for future use */
+  Sheet *original;
 
   enum { SHEETMOD_MOD_NONE,
          SHEETMOD_MOD_NEW,
@@ -72,16 +74,9 @@ extern GtkWidget *sheets_dialog_optionmenu_menu;
 SheetObjectMod *sheets_append_sheet_object_mod   (SheetObject     *so,
                                                   SheetMod        *sm);
 SheetMod       *sheets_append_sheet_mods         (Sheet           *sheet);
-void            sheets_optionmenu_create         (GtkWidget       *option_menu,
-                                                  GtkWidget       *wrapbox,
-                                                  char            *sheet_name);
-void            create_object_pixmap             (SheetObject     *so,
-                                                  GtkWidget       *parent,
-                                                  GdkPixmap      **pixmap,
-                                                  GdkBitmap      **mask);
-gchar          *sheet_object_mod_get_type_string (SheetObjectMod  *som);
 gboolean        sheets_dialog_create             (void);
 GtkWidget      *lookup_widget                    (GtkWidget       *widget,
-                                                  const gchar     *widget_name);
-
-#endif /* SHEETS_H */
+                                                  const char      *widget_name);
+void            populate_store                   (GtkListStore    *store);
+void            select_sheet                     (GtkWidget       *combo,
+                                                  char            *sheet_name);

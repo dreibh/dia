@@ -16,14 +16,14 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
 
-#include "intl.h"
 #include "object.h"
 #include "connection.h"
 #include "diarenderer.h"
@@ -85,11 +85,14 @@ struct _Lifeline {
 #define HANDLE_BOXBOT (HANDLE_CUSTOM2)
 #define HANDLE_BOXMID (HANDLE_CUSTOM3)
 
-static ObjectChange* lifeline_move_handle(Lifeline *lifeline, Handle *handle,
-					  Point *to, ConnectionPoint *cp,
-					  HandleMoveReason reason,
-                                 ModifierKeys modifiers);
-static ObjectChange* lifeline_move(Lifeline *lifeline, Point *to);
+static DiaObjectChange *lifeline_move_handle   (Lifeline         *lifeline,
+                                                Handle           *handle,
+                                                Point            *to,
+                                                ConnectionPoint  *cp,
+                                                HandleMoveReason  reason,
+                                                ModifierKeys      modifiers);
+static DiaObjectChange *lifeline_move          (Lifeline         *lifeline,
+                                                Point            *to);
 static void lifeline_select(Lifeline *lifeline, Point *clicked_point,
                             DiaRenderer *interactive_renderer);
 static void lifeline_draw(Lifeline *lifeline, DiaRenderer *renderer);
@@ -117,7 +120,9 @@ typedef enum {
   LIFELINE_CHANGE_DEF = 0x05
 } LifelineChangeType;
 
-static ObjectChange *lifeline_create_change(Lifeline *lifeline, LifelineChangeType changetype, Point *clicked);
+static DiaObjectChange *lifeline_create_change (Lifeline           *lifeline,
+                                                LifelineChangeType  changetype,
+                                                Point              *clicked);
 
 static ObjectTypeOps lifeline_type_ops =
 {
@@ -252,6 +257,8 @@ lifeline_point_above_mid (Lifeline *lifeline,
 {
   return (pt->y < lifeline->boxmid_handle.pos.y);
 }
+
+
 /*!
  * Moving handles of a lifeline
  *
@@ -263,17 +270,20 @@ lifeline_point_above_mid (Lifeline *lifeline,
  *   by connected points)
  * - the bottom handle just move itself, not beyond the lower box handle
  */
-static ObjectChange*
-lifeline_move_handle(Lifeline *lifeline, Handle *handle,
-		     Point *to, ConnectionPoint *cp,
-		     HandleMoveReason reason, ModifierKeys modifiers)
+static DiaObjectChange *
+lifeline_move_handle (Lifeline         *lifeline,
+                      Handle           *handle,
+                      Point            *to,
+                      ConnectionPoint  *cp,
+                      HandleMoveReason  reason,
+                      ModifierKeys      modifiers)
 {
-  real s, dy;
+  double s, dy;
   Connection *conn;
 
-  assert(lifeline!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+  g_return_val_if_fail (lifeline != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
   conn = &lifeline->connection;
   if (handle->id == HANDLE_BOXBOT) {
@@ -336,40 +346,43 @@ lifeline_move_handle(Lifeline *lifeline, Handle *handle,
   return NULL;
 }
 
-static ObjectChange*
-lifeline_move(Lifeline *lifeline, Point *to)
+
+static DiaObjectChange *
+lifeline_move (Lifeline *lifeline, Point *to)
 {
   Point start_to_end;
   Point delta;
   Point *endpoints = &lifeline->connection.endpoints[0];
 
   delta = *to;
-  point_sub(&delta, &endpoints[0]);
+  point_sub (&delta, &endpoints[0]);
 
   start_to_end = endpoints[1];
-  point_sub(&start_to_end, &endpoints[0]);
+  point_sub (&start_to_end, &endpoints[0]);
 
   endpoints[1] = endpoints[0] = *to;
-  point_add(&endpoints[1], &start_to_end);
+  point_add (&endpoints[1], &start_to_end);
 
-  lifeline_update_data(lifeline);
+  lifeline_update_data (lifeline);
 
   return NULL;
 }
 
+
 static void
-lifeline_draw(Lifeline *lifeline, DiaRenderer *renderer)
+lifeline_draw (Lifeline *lifeline, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point *endpoints, p1, p2;
 
-  assert(lifeline != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (lifeline != NULL);
+  g_return_if_fail (renderer != NULL);
 
   endpoints = &lifeline->connection.endpoints[0];
 
-  renderer_ops->set_linewidth(renderer, LIFELINE_LINEWIDTH);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_DASHED, LIFELINE_DASHLEN);
+  dia_renderer_set_linewidth (renderer, LIFELINE_LINEWIDTH);
+  dia_renderer_set_linestyle (renderer,
+                              DIA_LINE_STYLE_DASHED,
+                              LIFELINE_DASHLEN);
 
   /* Ok, instead rendering one big line between two endpoints we just
      from endpoints to rtop and rbottom respectively.
@@ -379,16 +392,18 @@ lifeline_draw(Lifeline *lifeline, DiaRenderer *renderer)
   p1.x = p2.x = endpoints[0].x;
   p1.y = endpoints[0].y + lifeline->rtop;
   p2.y = endpoints[0].y + lifeline->rbot;
-  renderer_ops->draw_line(renderer,
-			   &endpoints[0], &p1,
-			   &lifeline->line_color);
-  renderer_ops->draw_line(renderer,
-			   &p2, &endpoints[1],
-			   &lifeline->line_color);
+  dia_renderer_draw_line (renderer,
+                          &endpoints[0],
+                          &p1,
+                          &lifeline->line_color);
+  dia_renderer_draw_line (renderer,
+                          &p2,
+                          &endpoints[1],
+                          &lifeline->line_color);
 
 
-  renderer_ops->set_linewidth(renderer, LIFELINE_BOXWIDTH);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
+  dia_renderer_set_linewidth (renderer, LIFELINE_BOXWIDTH);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
 
   p1.x = endpoints[0].x - LIFELINE_WIDTH/2.0;
   p1.y = endpoints[0].y + lifeline->rtop;
@@ -396,90 +411,107 @@ lifeline_draw(Lifeline *lifeline, DiaRenderer *renderer)
   p2.y = endpoints[0].y + lifeline->rbot;
 
   if (lifeline->draw_focuscontrol) {
-      renderer_ops->draw_rect(renderer,
-			       &p1, &p2,
-			       &lifeline->fill_color,
-			       &lifeline->line_color);
+    dia_renderer_draw_rect (renderer,
+                            &p1,
+                            &p2,
+                            &lifeline->fill_color,
+                            &lifeline->line_color);
   }
 
   if (lifeline->draw_cross) {
-      renderer_ops->set_linewidth(renderer, LIFELINE_CROSSWIDTH);
-      p1.x = endpoints[1].x + LIFELINE_CROSSLEN;
-      p2.x = endpoints[1].x - LIFELINE_CROSSLEN;
-      p1.y = endpoints[1].y + LIFELINE_CROSSLEN;
-      p2.y = endpoints[1].y - LIFELINE_CROSSLEN;
-      renderer_ops->draw_line(renderer,
-			       &p1, &p2,
-			       &lifeline->line_color);
-      p1.y = p2.y;
-      p2.y = endpoints[1].y + LIFELINE_CROSSLEN;
-      renderer_ops->draw_line(renderer,
-			       &p1, &p2,
-			       &lifeline->line_color);
-
+    dia_renderer_set_linewidth (renderer, LIFELINE_CROSSWIDTH);
+    p1.x = endpoints[1].x + LIFELINE_CROSSLEN;
+    p2.x = endpoints[1].x - LIFELINE_CROSSLEN;
+    p1.y = endpoints[1].y + LIFELINE_CROSSLEN;
+    p2.y = endpoints[1].y - LIFELINE_CROSSLEN;
+    dia_renderer_draw_line (renderer,
+                            &p1,
+                            &p2,
+                            &lifeline->line_color);
+    p1.y = p2.y;
+    p2.y = endpoints[1].y + LIFELINE_CROSSLEN;
+    dia_renderer_draw_line (renderer,
+                            &p1,
+                            &p2,
+                            &lifeline->line_color);
   }
 }
+
+
+#define DIA_UML_TYPE_LIFELINE_OBJECT_CHANGE dia_uml_lifeline_object_change_get_type ()
+G_DECLARE_FINAL_TYPE (DiaUMLLifelineObjectChange,
+                      dia_uml_lifeline_object_change,
+                      DIA_UML, LIFELINE_OBJECT_CHANGE,
+                      DiaObjectChange)
 
 
 /* DiaObject menu handling */
-typedef struct {
-  ObjectChange obj_change;
+struct _DiaUMLLifelineObjectChange {
+  DiaObjectChange obj_change;
 
-  ObjectChange *east, *west;
-  real cp_distance_change;
+  DiaObjectChange *east, *west;
+  double cp_distance_change;
   LifelineChangeType type;
-} LifelineChange;
+};
+
+
+DIA_DEFINE_OBJECT_CHANGE (DiaUMLLifelineObjectChange,
+                          dia_uml_lifeline_object_change)
+
 
 static void
-lifeline_change_apply(LifelineChange *change, DiaObject *obj)
+dia_uml_lifeline_object_change_apply (DiaObjectChange *self, DiaObject *obj)
 {
-  if( change->type == LIFELINE_CHANGE_ADD ||  change->type == LIFELINE_CHANGE_DEL ) {
-    change->west->apply(change->west,obj);
-    change->east->apply(change->east,obj);
+  DiaUMLLifelineObjectChange *change = DIA_UML_LIFELINE_OBJECT_CHANGE (self);
+
+  if (change->type == LIFELINE_CHANGE_ADD || change->type == LIFELINE_CHANGE_DEL) {
+    dia_object_change_apply (change->west,obj);
+    dia_object_change_apply (change->east,obj);
   } else {
-    ((Lifeline*)obj)->cp_distance += change->cp_distance_change;
+    ((Lifeline*) obj)->cp_distance += change->cp_distance_change;
   }
-
 }
 
+
 static void
-lifeline_change_revert(LifelineChange *change, DiaObject *obj)
+dia_uml_lifeline_object_change_revert (DiaObjectChange *self, DiaObject *obj)
 {
-  if( change->type == LIFELINE_CHANGE_ADD ||  change->type == LIFELINE_CHANGE_DEL ) {
-    change->west->revert(change->west,obj);
-    change->east->revert(change->east,obj);
+  DiaUMLLifelineObjectChange *change = DIA_UML_LIFELINE_OBJECT_CHANGE (self);
+
+  if (change->type == LIFELINE_CHANGE_ADD || change->type == LIFELINE_CHANGE_DEL) {
+    dia_object_change_revert (change->west,obj);
+    dia_object_change_revert (change->east,obj);
   } else {
-    ((Lifeline*)obj)->cp_distance -= change->cp_distance_change;
+    ((Lifeline*) obj)->cp_distance -= change->cp_distance_change;
   }
 }
+
 
 static void
-lifeline_change_free(LifelineChange *change)
+dia_uml_lifeline_object_change_free (DiaObjectChange *self)
 {
-  if( change->type == LIFELINE_CHANGE_ADD ||  change->type == LIFELINE_CHANGE_DEL ) {
-    if (change->east->free)
-      change->east->free(change->east);
-    g_free(change->east);
+  DiaUMLLifelineObjectChange *change = DIA_UML_LIFELINE_OBJECT_CHANGE (self);
 
-    if (change->west->free)
-      change->west->free(change->west);
-    g_free(change->west);
+  if (change->type == LIFELINE_CHANGE_ADD ||
+      change->type == LIFELINE_CHANGE_DEL) {
+    g_clear_pointer (&change->east, dia_object_change_unref);
+    g_clear_pointer (&change->west, dia_object_change_unref);
   }
 }
 
-static ObjectChange *
-lifeline_create_change(Lifeline *lifeline, LifelineChangeType changetype, Point *clicked)
-{
-  LifelineChange *vc;
 
-  vc = g_new0(LifelineChange,1);
-  vc->obj_change.apply = (ObjectChangeApplyFunc)lifeline_change_apply;
-  vc->obj_change.revert = (ObjectChangeRevertFunc)lifeline_change_revert;
-  vc->obj_change.free = (ObjectChangeFreeFunc)lifeline_change_free;
+static DiaObjectChange *
+lifeline_create_change (Lifeline           *lifeline,
+                        LifelineChangeType  changetype,
+                        Point              *clicked)
+{
+  DiaUMLLifelineObjectChange *vc;
+
+  vc = dia_object_change_new (DIA_UML_TYPE_LIFELINE_OBJECT_CHANGE);
+
   vc->type = changetype;
 
-  switch( vc->type )
-  {
+  switch (vc->type) {
     case LIFELINE_CHANGE_ADD:
       if (lifeline_point_above_mid (lifeline, clicked)) {
         vc->east = connpointline_add_point(lifeline->northeast,clicked);
@@ -510,17 +542,23 @@ lifeline_create_change(Lifeline *lifeline, LifelineChangeType changetype, Point 
       vc->cp_distance_change = LIFELINE_CP_DEFAULT_DISTANCE*2 - lifeline->cp_distance;
       lifeline->cp_distance += vc->cp_distance_change;
       break;
+    default:
+      g_return_val_if_reached (NULL);
   }
-  lifeline_update_data(lifeline);
-  return (ObjectChange *)vc;
+
+  lifeline_update_data (lifeline);
+
+  return DIA_OBJECT_CHANGE (vc);
 }
 
-static ObjectChange *
-lifeline_cp_callback(DiaObject *obj, Point *clicked, gpointer data)
+
+static DiaObjectChange *
+lifeline_cp_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
-  LifelineChangeType type = GPOINTER_TO_INT(data);
-  return lifeline_create_change((Lifeline *)obj, type, clicked);
+  LifelineChangeType type = GPOINTER_TO_INT (data);
+  return lifeline_create_change ((Lifeline *) obj, type, clicked);
 }
+
 
 static DiaMenuItem object_menu_items[] = {
   { N_("Add connection points"), lifeline_cp_callback, GINT_TO_POINTER(LIFELINE_CHANGE_ADD), 1 },
@@ -567,7 +605,7 @@ lifeline_create(Point *startpoint,
   DiaObject *obj;
   int i;
 
-  lifeline = g_malloc0(sizeof(Lifeline));
+  lifeline = g_new0 (Lifeline, 1);
   lifeline->cp_distance = LIFELINE_CP_DEFAULT_DISTANCE;
 
   conn = &lifeline->connection;

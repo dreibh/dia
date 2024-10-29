@@ -16,13 +16,13 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "diarenderer.h"
@@ -71,10 +71,10 @@ struct _UsecasePropertiesDialog {
 static real usecase_distance_from(Usecase *usecase, Point *point);
 static void usecase_select(Usecase *usecase, Point *clicked_point,
 			   DiaRenderer *interactive_renderer);
-static ObjectChange* usecase_move_handle(Usecase *usecase, Handle *handle,
+static DiaObjectChange* usecase_move_handle(Usecase *usecase, Handle *handle,
 					 Point *to, ConnectionPoint *cp,
 					 HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* usecase_move(Usecase *usecase, Point *to);
+static DiaObjectChange* usecase_move(Usecase *usecase, Point *to);
 static void usecase_draw(Usecase *usecase, DiaRenderer *renderer);
 static DiaObject *usecase_create(Point *startpoint,
 			      void *user_data,
@@ -193,21 +193,26 @@ usecase_select(Usecase *usecase, Point *clicked_point,
   element_update_handles(&usecase->element);
 }
 
-static ObjectChange*
-usecase_move_handle(Usecase *usecase, Handle *handle,
-		    Point *to, ConnectionPoint *cp,
-		    HandleMoveReason reason, ModifierKeys modifiers)
-{
-  assert(usecase!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
 
-  assert(handle->id < 8);
+static DiaObjectChange *
+usecase_move_handle (Usecase          *usecase,
+                     Handle           *handle,
+                     Point            *to,
+                     ConnectionPoint  *cp,
+                     HandleMoveReason  reason,
+                     ModifierKeys      modifiers)
+{
+  g_return_val_if_fail (usecase != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
+
+  g_return_val_if_fail (handle->id < 8, NULL);
 
   return NULL;
 }
 
-static ObjectChange*
+
+static DiaObjectChange*
 usecase_move(Usecase *usecase, Point *to)
 {
   real h;
@@ -229,16 +234,16 @@ usecase_move(Usecase *usecase, Point *to)
   return NULL;
 }
 
+
 static void
-usecase_draw(Usecase *usecase, DiaRenderer *renderer)
+usecase_draw (Usecase *usecase, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Element *elem;
-  real x, y, w, h;
+  double x, y, w, h;
   Point c;
 
-  assert(usecase != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (usecase != NULL);
+  g_return_if_fail (renderer != NULL);
 
   elem = &usecase->element;
 
@@ -258,20 +263,22 @@ usecase_draw(Usecase *usecase, DiaRenderer *renderer)
   }
 
 
-  renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
-  renderer_ops->set_linewidth(renderer, usecase->line_width);
+  dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+  dia_renderer_set_linewidth (renderer, usecase->line_width);
 
   if (usecase->collaboration)
-    renderer_ops->set_linestyle(renderer, LINESTYLE_DASHED, 1.0);
+    dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_DASHED, 1.0);
   else
-    renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
+    dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
 
-  renderer_ops->draw_ellipse(renderer,
-			     &c,
-			     w, h,
-			     &usecase->fill_color, &usecase->line_color);
+  dia_renderer_draw_ellipse (renderer,
+                             &c,
+                             w,
+                             h,
+                             &usecase->fill_color,
+                             &usecase->line_color);
 
-  text_draw(usecase->text, renderer);
+  text_draw (usecase->text, renderer);
 }
 
 
@@ -399,7 +406,7 @@ usecase_create(Point *startpoint,
   DiaFont *font;
   int i;
 
-  usecase = g_malloc0(sizeof(Usecase));
+  usecase = g_new0 (Usecase, 1);
   elem = &usecase->element;
   obj = &elem->object;
 
@@ -418,8 +425,8 @@ usecase_create(Point *startpoint,
   p.x += USECASE_WIDTH/2.0;
   p.y += USECASE_HEIGHT/2.0;
 
-  usecase->text = new_text("", font, 0.8, &p, &color_black, ALIGN_CENTER);
-  dia_font_unref(font);
+  usecase->text = new_text ("", font, 0.8, &p, &color_black, DIA_ALIGN_CENTRE);
+  g_clear_object (&font);
 
   usecase->text_outside = 0;
   usecase->collaboration = 0;

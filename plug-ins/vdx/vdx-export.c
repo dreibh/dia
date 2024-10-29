@@ -24,7 +24,9 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <stdio.h>
 
@@ -36,7 +38,6 @@
 #include <locale.h>
 #include <glib/gstdio.h>
 
-#include "intl.h"
 #include "geometry.h"
 #include "diarenderer.h"
 #include "filter.h"
@@ -45,6 +46,7 @@
 #include "prop_pixbuf.h"
 #include "dia_image.h"
 #include "group.h"
+#include "dia-layer.h"
 
 #include "vdx.h"
 #include "visio-types.h"
@@ -56,6 +58,15 @@
 #define VDX_RENDERER_CLASS(klass)   (G_TYPE_CHECK_CLASS_CAST ((klass), VDX_TYPE_RENDERER, VDXRendererClass))
 #define VDX_IS_RENDERER(obj)        (G_TYPE_CHECK_INSTANCE_TYPE ((obj), VDX_TYPE_RENDERER))
 #define VDX_RENDERER_GET_CLASS(obj) (G_TYPE_INSTANCE_GET_CLASS ((obj), VDX_TYPE_RENDERER, VDXRendererClass))
+
+
+enum {
+  PROP_0,
+  PROP_FONT,
+  PROP_FONT_HEIGHT,
+  LAST_PROP
+};
+
 
 GType vdx_renderer_get_type (void) G_GNUC_CONST;
 
@@ -75,14 +86,14 @@ struct _VDXRenderer
 
     int depth;
 
-    real linewidth;
-    LineCaps capsmode;
-    LineJoin joinmode;
-    LineStyle stylemode;
-    real dashlength;
-    FillStyle fillmode;
+    double linewidth;
+    DiaLineCaps capsmode;
+    DiaLineJoin joinmode;
+    DiaLineStyle stylemode;
+    double dashlength;
+    DiaFillStyle fillmode;
     DiaFont *font;
-    real fontheight;
+    double fontheight;
 
     /* Additions for VDX */
 
@@ -97,9 +108,11 @@ struct _VDXRenderer
 
 static void vdx_renderer_class_init (VDXRendererClass *klass);
 
-static gboolean export_vdx(DiagramData *data, DiaContext *ctx,
-			   const gchar *filename, const gchar *diafilename,
-			   void* user_data);
+static gboolean export_vdx (DiagramData *data,
+                            DiaContext  *ctx,
+                            const char  *filename,
+                            const char  *diafilename,
+                            void        *user_data);
 
 static int
 vdxCheckColor(VDXRenderer *renderer, Color *color);
@@ -139,6 +152,68 @@ vdx_renderer_get_type (void)
   return object_type;
 }
 
+/** Set font
+ * @param self a renderer
+ * @param font new font
+ * @param height new font height
+ */
+
+static void
+set_font (DiaRenderer *self, DiaFont *font, real height)
+{
+  VDXRenderer *renderer = VDX_RENDERER(self);
+
+  g_clear_object (&renderer->font);
+  renderer->font = g_object_ref (font);
+  renderer->fontheight = height;
+}
+
+static void
+vdx_renderer_set_property (GObject      *object,
+                           guint         property_id,
+                           const GValue *value,
+                           GParamSpec   *pspec)
+{
+  VDXRenderer *self = VDX_RENDERER (object);
+
+  switch (property_id) {
+    case PROP_FONT:
+      set_font (DIA_RENDERER (self),
+                DIA_FONT (g_value_get_object (value)),
+                self->fontheight);
+      break;
+    case PROP_FONT_HEIGHT:
+      set_font (DIA_RENDERER (self),
+                self->font,
+                g_value_get_double (value));
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
+      break;
+  }
+}
+
+static void
+vdx_renderer_get_property (GObject    *object,
+                           guint       property_id,
+                           GValue     *value,
+                           GParamSpec *pspec)
+{
+  VDXRenderer *self = VDX_RENDERER (object);
+
+  switch (property_id) {
+    case PROP_FONT:
+      g_value_set_object (value, self->font);
+      break;
+    case PROP_FONT_HEIGHT:
+      g_value_set_double (value, self->fontheight);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
+      break;
+  }
+}
+
 /** Finalise a renderer
  * @param object a renderer
  */
@@ -146,6 +221,10 @@ vdx_renderer_get_type (void)
 static void
 vdx_renderer_finalize (GObject *object)
 {
+  VDXRenderer *self = VDX_RENDERER (object);
+
+  g_clear_object (&self->font);
+
   G_OBJECT_CLASS (parent_class)->finalize (object);
 }
 
@@ -154,7 +233,7 @@ vdx_renderer_finalize (GObject *object)
  */
 
 static void
-begin_render(DiaRenderer *self, const Rectangle *update)
+begin_render(DiaRenderer *self, const DiaRectangle *update)
 {
     VDXRenderer *renderer = VDX_RENDERER(self);
     Color c;
@@ -237,72 +316,53 @@ set_linewidth(DiaRenderer *self, real linewidth)
   renderer->linewidth = linewidth;
 }
 
-/** Set line caps
- * @param self a renderer
- * @param mode new line caps
- */
 
+/*
+ * Set line caps
+ */
 static void
-set_linecaps(DiaRenderer *self, LineCaps mode)
+set_linecaps (DiaRenderer *self, DiaLineCaps mode)
 {
   VDXRenderer *renderer = VDX_RENDERER(self);
 
   renderer->capsmode = mode;
 }
 
-/** Set line join
- * @param self a renderer
- * @param mode new line join
- */
 
+/**
+ * Set line join
+ */
 static void
-set_linejoin(DiaRenderer *self, LineJoin mode)
+set_linejoin(DiaRenderer *self, DiaLineJoin mode)
 {
-  VDXRenderer *renderer = VDX_RENDERER(self);
+  VDXRenderer *renderer = VDX_RENDERER (self);
 
   renderer->joinmode = mode;
 }
 
-/** Set line style
- * @param self a renderer
- * @param mode new line style
- */
 
+/*
+ * Set line style
+ */
 static void
-set_linestyle(DiaRenderer *self, LineStyle mode, real dash_length)
+set_linestyle (DiaRenderer *self, DiaLineStyle mode, double dash_length)
 {
-  VDXRenderer *renderer = VDX_RENDERER(self);
+  VDXRenderer *renderer = VDX_RENDERER (self);
 
   renderer->stylemode = mode;
   renderer->dashlength = dash_length;
 }
 
-/** Set fill style
- * @param self a renderer
- * @param mode new file style
- */
 
+/*
+ * Set fill style
+ */
 static void
-set_fillstyle(DiaRenderer *self, FillStyle mode)
+set_fillstyle (DiaRenderer *self, DiaFillStyle mode)
 {
-  VDXRenderer *renderer = VDX_RENDERER(self);
+  VDXRenderer *renderer = VDX_RENDERER (self);
 
   renderer->fillmode = mode;
-}
-
-/** Set font
- * @param self a renderer
- * @param font new font
- * @param height new font height
- */
-
-static void
-set_font(DiaRenderer *self, DiaFont *font, real height)
-{
-  VDXRenderer *renderer = VDX_RENDERER(self);
-
-  renderer->font = font;
-  renderer->fontheight = height;
 }
 
 /** Get colour number from colour table
@@ -350,50 +410,61 @@ vdxCheckFont(VDXRenderer *renderer)
     return renderer->Fonts->len - 1;
 }
 
-/** Create a Visio line style object
- * @param self a VDXRenderer
- * @param color a colour
- * @param Line a Line object
- * @param start_arrow optional start arrow
- * @param end_arrow optional end arrow
+
+/**
+ * create_Line:
+ * @self: a VDXRenderer
+ * @color: a colour
+ * @Line: a Line object
+ * @start_arrow: optional start arrow
+ * @end_arrow: optional end arrow
+ *
+ * Create a Visio line style object
+ *
  * @todo join, caps, dashlength
  */
 static void
-create_Line(VDXRenderer *renderer, Color *color, struct vdx_Line *Line,
-            Arrow *start_arrow, Arrow *end_arrow)
+create_Line (VDXRenderer     *renderer,
+             Color           *color,
+             struct vdx_Line *Line,
+             Arrow           *start_arrow,
+             Arrow           *end_arrow)
 {
-    /* A Line (colour etc) */
-    memset(Line, 0, sizeof(*Line));
-    Line->any.type = vdx_types_Line;
-    switch (renderer->stylemode)
-    {
-    case LINESTYLE_DASHED:
-        Line->LinePattern = 2;
-        break;
-    case LINESTYLE_DOTTED:
-        Line->LinePattern = 3;
-        break;
-    case LINESTYLE_DASH_DOT:
-        Line->LinePattern = 4;
-        break;
-    case LINESTYLE_DASH_DOT_DOT:
-        Line->LinePattern = 5;
-        break;
+  /* A Line (colour etc) */
+  memset (Line, 0, sizeof (*Line));
+
+  Line->any.type = vdx_types_Line;
+
+  switch (renderer->stylemode) {
+    case DIA_LINE_STYLE_DASHED:
+      Line->LinePattern = 2;
+      break;
+    case DIA_LINE_STYLE_DOTTED:
+      Line->LinePattern = 3;
+      break;
+    case DIA_LINE_STYLE_DASH_DOT:
+      Line->LinePattern = 4;
+      break;
+    case DIA_LINE_STYLE_DASH_DOT_DOT:
+      Line->LinePattern = 5;
+      break;
+    case DIA_LINE_STYLE_DEFAULT:
+    case DIA_LINE_STYLE_SOLID:
     default:
-    case LINESTYLE_SOLID:
-        Line->LinePattern = 1;
-        break;
-    }
-    Line->LineColor = *color;
-    Line->LineColorTrans = 1.0 - color->alpha;
-    Line->LineWeight = renderer->linewidth / vdx_Line_Scale;
-    /* VDX only has Rounded (0) or Square (1) ends */
-    if (renderer->capsmode != LINECAPS_ROUND)
-	Line->LineCap = 1; /* Square */
-    if (start_arrow || end_arrow)
-    {
-        g_debug("create_Line (ARROWS)");
-    }
+      Line->LinePattern = 1;
+      break;
+  }
+  Line->LineColor = *color;
+  Line->LineColorTrans = 1.0 - color->alpha;
+  Line->LineWeight = renderer->linewidth / vdx_Line_Scale;
+  /* VDX only has Rounded (0) or Square (1) ends */
+  if (renderer->capsmode != DIA_LINE_CAPS_ROUND) {
+    Line->LineCap = 1; /* Square */
+  }
+
+  if (start_arrow || end_arrow) {
+    g_debug("create_Line (ARROWS)");
+  }
 }
 
 
@@ -624,7 +695,7 @@ static void draw_polyline(DiaRenderer *self, Point *points, int num_points,
     /* Free up list entries */
     g_slist_free(Geom.any.children);
     g_slist_free(Shape.any.children);
-    g_free(LineTo);
+    g_clear_pointer (&LineTo, g_free);
 }
 
 static void
@@ -739,14 +810,15 @@ _polygon (DiaRenderer *self,
 	Shape.any.children = g_slist_append(Shape.any.children, &Line);
     Shape.any.children = g_slist_append(Shape.any.children, &Geom);
 
-    /* Write out XML */
-    vdx_write_object(renderer->file, renderer->xml_depth, &Shape);
+  /* Write out XML */
+  vdx_write_object (renderer->file, renderer->xml_depth, &Shape);
 
-    /* Free up list entries */
-    g_slist_free(Geom.any.children);
-    g_slist_free(Shape.any.children);
-    g_free(LineTo);
+  /* Free up list entries */
+  g_slist_free (Geom.any.children);
+  g_slist_free (Shape.any.children);
+  g_clear_pointer (&LineTo, g_free);
 }
+
 
 /** Render a Dia filled polygon
  * @param self a renderer
@@ -1169,28 +1241,30 @@ draw_ellipse (DiaRenderer *self,
     g_slist_free(Shape.any.children);
 }
 
+
 /** Render a Dia string
  * @param self a renderer
  * @param text the string
  * @param pos start (or centre etc.)
  * @param alignment alignment
  * @param color line colour
- * @todo Alignment, colour
+ * @todo DiaAlignment, colour
  * @bug Bounding box incorrect
  */
-
-static void draw_string(DiaRenderer *self,
-			const char *text,
-			Point *pos, Alignment alignment,
-			Color *color)
+static void
+draw_string (DiaRenderer  *self,
+             const char   *text,
+             Point        *pos,
+             DiaAlignment  alignment,
+             Color        *color)
 {
-    VDXRenderer *renderer = VDX_RENDERER(self);
+    VDXRenderer *renderer = VDX_RENDERER (self);
     Point a;
     struct vdx_Shape Shape;
     struct vdx_XForm XForm;
     struct vdx_Para Para;
     struct vdx_Char Char;
-    struct vdx_Text Text;
+    struct vdx_Text vdxtext;
     struct vdx_pp pp;
     struct vdx_cp cp;
     struct vdx_text my_text;
@@ -1232,15 +1306,17 @@ static void draw_string(DiaRenderer *self,
     text_width *= 1.2;
     a.y += dia_font_descent(text, renderer->font, renderer->fontheight);
     switch (alignment) {
-    case ALIGN_LEFT:
-      /* nothing to do this appears to be default */
-      break;
-    case ALIGN_CENTER:
-      a.x -= text_width / 2.0;
-      break;
-    case ALIGN_RIGHT:
-      a.x -= text_width;
-      break;
+      case DIA_ALIGN_LEFT:
+        /* nothing to do this appears to be default */
+        break;
+      case DIA_ALIGN_CENTRE:
+        a.x -= text_width / 2.0;
+        break;
+      case DIA_ALIGN_RIGHT:
+        a.x -= text_width;
+        break;
+      default:
+        g_return_if_reached ();
     }
     a = visio_point(a);
     XForm.PinX = a.x;
@@ -1267,8 +1343,8 @@ static void draw_string(DiaRenderer *self,
     cp.any.type = vdx_types_cp;
 
     /* Text object - no attributes */
-    memset(&Text, 0, sizeof(Text));
-    Text.any.type = vdx_types_Text;
+    memset(&vdxtext, 0, sizeof(vdxtext));
+    vdxtext.any.type = vdx_types_Text;
 
     memset(&Para, 0, sizeof(Para));
     Para.any.type = vdx_types_Para;
@@ -1283,18 +1359,18 @@ static void draw_string(DiaRenderer *self,
     my_text.text = (char *)text;
 
     /* Construct the children */
-    Text.any.children = g_slist_append(Text.any.children, &pp);
-    Text.any.children = g_slist_append(Text.any.children, &cp);
-    Text.any.children = g_slist_append(Text.any.children, &my_text);
+    vdxtext.any.children = g_slist_append(vdxtext.any.children, &pp);
+    vdxtext.any.children = g_slist_append(vdxtext.any.children, &cp);
+    vdxtext.any.children = g_slist_append(vdxtext.any.children, &my_text);
 
     Shape.any.children = g_slist_append(Shape.any.children, &XForm);
     Shape.any.children = g_slist_append(Shape.any.children, &Char);
     Shape.any.children = g_slist_append(Shape.any.children, &Para);
-    Shape.any.children = g_slist_append(Shape.any.children, &Text);
+    Shape.any.children = g_slist_append(Shape.any.children, &vdxtext);
 
     vdx_write_object(renderer->file, renderer->xml_depth, &Shape);
 
-    g_slist_free(Text.any.children);
+    g_slist_free(vdxtext.any.children);
     g_slist_free(Shape.any.children);
 }
 
@@ -1390,25 +1466,25 @@ static void draw_image(DiaRenderer *self,
     Shape.any.children = g_slist_append(Shape.any.children, &ForeignData);
     ForeignData.any.children = g_slist_append(ForeignData.any.children, &text);
 
-    /* Write out XML */
-    vdx_write_object(renderer->file, renderer->xml_depth, &Shape);
+  /* Write out XML */
+  vdx_write_object (renderer->file, renderer->xml_depth, &Shape);
 
-    /* Free up list entries */
-    g_slist_free(ForeignData.any.children);
-    g_slist_free(Shape.any.children);
+  /* Free up list entries */
+  g_slist_free (ForeignData.any.children);
+  g_slist_free (Shape.any.children);
 
-    /* And the Base64 data */
-    g_free(text.text);
+  /* And the Base64 data */
+  g_clear_pointer (&text.text, g_free);
 }
+
 
 /** Convert Dia colour to hex string
  * @param c a colour
  * @returns string in form #000000
  * @note static buffer overwritten with next call; not thread-safe
  */
-
 const char *
-vdx_string_color(const Color c)
+vdx_string_color (const Color c)
 {
     static char buf[8];
     sprintf(buf, "#%.2X%.2X%.2X",
@@ -1432,7 +1508,7 @@ vdx_convert_xml_string(const char *s)
     if (strcspn(s, "&<>\"'") == strlen(s)) return s;
 
     /* Ensure we have enough space, even if all the string is quotes */
-    out = realloc(out, 6*strlen(s)+1);
+    out = g_renew (char, out, 6 * strlen (s) + 1);
     c = out;
 
     while(*s)
@@ -1483,7 +1559,6 @@ write_header(DiagramData *data, VDXRenderer *renderer)
     struct vdx_Char Char;
     struct vdx_Para Para;
     struct vdx_Tabs Tabs;
-    static Color color_black = { 0.0, 0.0, 0.0, 1.0 };
 
     g_debug("write_header");
 
@@ -1679,6 +1754,7 @@ write_trailer(DiagramData *data, VDXRenderer *renderer)
     fprintf(file, "</VisioDocument>\n");
 }
 
+
 /** Write VDX file
  * @param data diagram data
  * @param filename output file (should check suffix)
@@ -1686,16 +1762,17 @@ write_trailer(DiagramData *data, VDXRenderer *renderer)
  * @param user_data user data (unused)
  * @note Must know if 2002 or 2003 before start
  */
-
 static gboolean
-export_vdx(DiagramData *data, DiaContext *ctx,
-	   const gchar *filename, const gchar *diafilename,
-	   void* user_data)
+export_vdx (DiagramData *data,
+            DiaContext  *ctx,
+            const char  *filename,
+            const char  *diafilename,
+            void        *user_data)
 {
     FILE *file;
     VDXRenderer *renderer;
     int i;
-    Layer *layer;
+    DiaLayer *layer;
     char* old_locale;
 
     file = g_fopen(filename, "w");
@@ -1718,57 +1795,59 @@ export_vdx(DiagramData *data, DiaContext *ctx,
 
     renderer->version = 2002;   /* For now */
 
-    DIA_RENDERER_GET_CLASS(renderer)->begin_render(DIA_RENDERER(renderer), NULL);
+    dia_renderer_begin_render (DIA_RENDERER (renderer), NULL);
 
     /* First run through without drawing to setup tables */
-    for (i=0; i<data->layers->len; i++)
-    {
-        layer = (Layer *) g_ptr_array_index(data->layers, i);
-        if (layer->visible)
-            layer_render(layer, DIA_RENDERER(renderer), NULL, NULL, data, 0);
-        renderer->depth++;
+    for (i = 0; i < data_layer_count (data); i++) {
+      layer = data_layer_get_nth (data, i);
+      if (dia_layer_is_visible (layer)) {
+        dia_layer_render (layer, DIA_RENDERER (renderer), NULL, NULL, data, 0);
+      }
+      renderer->depth++;
     }
 
-    write_header(data, renderer);
+    write_header (data, renderer);
 
-    DIA_RENDERER_GET_CLASS(renderer)->end_render(DIA_RENDERER(renderer));
+    dia_renderer_end_render (DIA_RENDERER (renderer));
 
     renderer->first_pass = FALSE;
 
-    DIA_RENDERER_GET_CLASS(renderer)->begin_render(DIA_RENDERER(renderer), NULL);
+    dia_renderer_begin_render (DIA_RENDERER (renderer), NULL);
 
     /* Now render */
 
-    for (i=0; i<data->layers->len; i++)
-    {
-        layer = (Layer *) g_ptr_array_index(data->layers, i);
-        if (layer->visible)
-            layer_render(layer, DIA_RENDERER(renderer), NULL, NULL, data, 0);
-        renderer->depth++;
+    for (i = 0; i < data_layer_count (data); i++) {
+      layer = data_layer_get_nth (data, i);
+      if (dia_layer_is_visible (layer)) {
+        dia_layer_render (layer, DIA_RENDERER (renderer), NULL, NULL, data, 0);
+      }
+      renderer->depth++;
     }
 
-    DIA_RENDERER_GET_CLASS(renderer)->end_render(DIA_RENDERER(renderer));
+    dia_renderer_end_render (DIA_RENDERER (renderer));
 
-    /* Done */
+  /* Done */
 
-    write_trailer(data, renderer);
+  write_trailer (data, renderer);
 
-    g_object_unref(renderer);
+  g_clear_object (&renderer);
 
-    /* dont screw Dia's global state */
-    setlocale(LC_NUMERIC, old_locale);
+  /* dont screw Dia's global state */
+  setlocale (LC_NUMERIC, old_locale);
 
-    if (fclose(file) != 0) {
-	dia_context_add_message_with_errno (ctx, errno, _("Saving file '%s' failed."),
-					    dia_context_get_filename(ctx));
-	return FALSE;
-    }
-    return TRUE;
+  if (fclose (file) != 0) {
+    dia_context_add_message_with_errno (ctx, errno,
+                                        _("Saving file '%s' failed."),
+                                        dia_context_get_filename (ctx));
+    return FALSE;
+  }
+
+  return TRUE;
 }
 
 /* interface from filter.h */
 
-static const gchar *extensions[] = { "vdx", NULL };
+static const char *extensions[] = { "vdx", NULL };
 DiaExportFilter vdx_export_filter = {
   N_("Visio XML format"),
   extensions,
@@ -2047,6 +2126,8 @@ vdx_renderer_class_init (VDXRendererClass *klass)
 
   parent_class = g_type_class_peek_parent (klass);
 
+  object_class->set_property = vdx_renderer_set_property;
+  object_class->get_property = vdx_renderer_get_property;
   object_class->finalize = vdx_renderer_finalize;
 
   renderer_class->begin_render = begin_render;
@@ -2057,7 +2138,6 @@ vdx_renderer_class_init (VDXRendererClass *klass)
   renderer_class->set_linejoin = set_linejoin;
   renderer_class->set_linestyle = set_linestyle;
   renderer_class->set_fillstyle = set_fillstyle;
-  renderer_class->set_font = set_font;
 
   renderer_class->draw_line = draw_line;
   renderer_class->draw_polyline = draw_polyline;
@@ -2080,4 +2160,7 @@ vdx_renderer_class_init (VDXRendererClass *klass)
 
   renderer_class->draw_rounded_rect = draw_rounded_rect;
   /* Further high level methods not required (or desired?) */
+
+  g_object_class_override_property (object_class, PROP_FONT, "font");
+  g_object_class_override_property (object_class, PROP_FONT_HEIGHT, "font-height");
 }

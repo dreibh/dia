@@ -22,14 +22,14 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 #include <glib.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "connectionpoint.h"
@@ -72,11 +72,14 @@ typedef struct _Chronoref {
 static real chronoref_distance_from(Chronoref *chronoref, Point *point);
 static void chronoref_select(Chronoref *chronoref, Point *clicked_point,
 		       DiaRenderer *interactive_renderer);
-static ObjectChange* chronoref_move_handle(Chronoref *chronoref, Handle *handle,
-					   Point *to, ConnectionPoint *cp,
-					   HandleMoveReason reason,
-			    ModifierKeys modifiers);
-static ObjectChange* chronoref_move(Chronoref *chronoref, Point *to);
+static DiaObjectChange *chronoref_move_handle  (Chronoref        *chronoref,
+                                                Handle           *handle,
+                                                Point            *to,
+                                                ConnectionPoint  *cp,
+                                                HandleMoveReason  reason,
+                                                ModifierKeys      modifiers);
+static DiaObjectChange *chronoref_move         (Chronoref        *chronoref,
+                                                Point            *to);
 static void chronoref_draw(Chronoref *chronoref, DiaRenderer *renderer);
 static void chronoref_update_data(Chronoref *chronoref);
 static DiaObject *chronoref_create(Point *startpoint,
@@ -233,46 +236,55 @@ chronoref_select(Chronoref *chronoref, Point *clicked_point,
   element_update_handles(&chronoref->element);
 }
 
-static ObjectChange*
-chronoref_move_handle(Chronoref *chronoref, Handle *handle,
-		      Point *to, ConnectionPoint *cp,
-		      HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+chronoref_move_handle (Chronoref        *chronoref,
+                       Handle           *handle,
+                       Point            *to,
+                       ConnectionPoint  *cp,
+                       HandleMoveReason  reason,
+                       ModifierKeys      modifiers)
 {
   g_assert(chronoref!=NULL);
   g_assert(handle!=NULL);
   g_assert(to!=NULL);
 
-  element_move_handle(&chronoref->element, handle->id, to, cp,
-		      reason, modifiers);
-  chronoref_update_data(chronoref);
+  element_move_handle (&chronoref->element,
+                       handle->id,
+                       to,
+                       cp,
+                       reason,
+                       modifiers);
+  chronoref_update_data (chronoref);
 
   return NULL;
 }
 
-static ObjectChange*
-chronoref_move(Chronoref *chronoref, Point *to)
+
+static DiaObjectChange *
+chronoref_move (Chronoref *chronoref, Point *to)
 {
   chronoref->element.corner = *to;
-  chronoref_update_data(chronoref);
+  chronoref_update_data (chronoref);
 
   return NULL;
 }
 
+
 static void
-chronoref_draw(Chronoref *chronoref, DiaRenderer *renderer)
+chronoref_draw (Chronoref *chronoref, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Element *elem;
   Point lr_corner;
   real t;
   Point p1,p2,p3;
 
-  assert(renderer != NULL);
+  g_return_if_fail (renderer != NULL);
 
   elem = &chronoref->element;
 
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
-  renderer_ops->set_linejoin(renderer, LINEJOIN_MITER);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
+  dia_renderer_set_linejoin (renderer, DIA_LINE_JOIN_MITER);
 
 
   lr_corner.x = elem->corner.x + elem->width;
@@ -280,43 +292,46 @@ chronoref_draw(Chronoref *chronoref, DiaRenderer *renderer)
 
   p1.y = p2.y = elem->corner.y;
 
-  renderer_ops->set_font(renderer, chronoref->font, chronoref->font_size);
+  dia_renderer_set_font (renderer, chronoref->font, chronoref->font_size);
   p3.y = p2.y + chronoref->majgrad_height +
-    dia_font_ascent("1",chronoref->font, chronoref->font_size);
+    dia_font_ascent ("1",chronoref->font, chronoref->font_size);
 
-  renderer_ops->set_linewidth(renderer, chronoref->light_lwidth);
+  dia_renderer_set_linewidth (renderer, chronoref->light_lwidth);
   if (chronoref->time_lstep > 0.0) {
     p2.y = p1.y + chronoref->mingrad_height;
     for (t = chronoref->firstmaj, p1.x = chronoref->firstmin_x;
-	 p1.x <= lr_corner.x;
-	 t += chronoref->time_lstep, p1.x += chronoref->mingrad) {
+         p1.x <= lr_corner.x;
+         t += chronoref->time_lstep, p1.x += chronoref->mingrad) {
       p2.x = p1.x;
 
-      renderer_ops->draw_line(renderer,&p1,&p2,&chronoref->color);
+      dia_renderer_draw_line (renderer,&p1,&p2,&chronoref->color);
     }
   }
 
-  renderer_ops->set_linewidth(renderer, chronoref->main_lwidth);
+  dia_renderer_set_linewidth (renderer, chronoref->main_lwidth);
   if (chronoref->time_step > 0.0) {
     p2.y = p1.y + chronoref->majgrad_height;
 
     for (t = chronoref->firstmaj, p1.x = chronoref->firstmaj_x;
-	 p1.x <= lr_corner.x;
-	 t += chronoref->time_step, p1.x += chronoref->majgrad) {
+         p1.x <= lr_corner.x;
+         t += chronoref->time_step, p1.x += chronoref->majgrad) {
       char time[10];
       p3.x = p2.x = p1.x;
 
-      renderer_ops->draw_line(renderer,&p1,&p2,&chronoref->color);
-      g_snprintf(time,sizeof(time),"%.*f",chronoref->spec,t);
-      renderer_ops->draw_string(renderer,time,&p3,ALIGN_CENTER,
-				 &chronoref->font_color);
+      dia_renderer_draw_line (renderer,&p1,&p2,&chronoref->color);
+      g_snprintf (time,sizeof(time),"%.*f",chronoref->spec,t);
+      dia_renderer_draw_string (renderer,
+                                time,
+                                &p3,
+                                DIA_ALIGN_CENTRE,
+                                &chronoref->font_color);
     }
   }
   p1.x = elem->corner.x;
   p2.x = lr_corner.x;
   p1.y = p2.y = elem->corner.y;
 
-  renderer_ops->draw_line(renderer,&p1,&p2,&chronoref->color);
+  dia_renderer_draw_line (renderer,&p1,&p2,&chronoref->color);
 }
 
 static void
@@ -454,9 +469,9 @@ chronoref_create(Point *startpoint,
 static void
 chronoref_destroy(Chronoref *chronoref)
 {
-  dia_font_unref(chronoref->font);
-  connpointline_destroy(chronoref->scale);
-  element_destroy(&chronoref->element);
+  g_clear_object (&chronoref->font);
+  connpointline_destroy (chronoref->scale);
+  element_destroy (&chronoref->element);
 }
 
 static DiaObject *

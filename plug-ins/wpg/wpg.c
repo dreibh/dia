@@ -22,11 +22,14 @@
 /*
  * ToDo:
  * - if helper points - like arc centers - are not in Dia's extent box
- *   their clipping produces unpredictable results 
+ *   their clipping produces unpredictable results
  * - the font setting needs improvement (maybe on Dia's side)
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
+
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -35,12 +38,12 @@
 #include <glib.h>
 #include <glib/gstdio.h>
 
-#include "intl.h"
 #include "geometry.h"
 #include "dia_image.h"
 #include "diarenderer.h"
 #include "filter.h"
 #include "plug-ins.h"
+#include "font.h"
 
 /* Noise reduction for
  * return value of 'fwrite', declared with attribute warn_unused_result
@@ -72,6 +75,15 @@ G_BEGIN_DECLS
 #define WPG_IS_RENDERER(obj)        (G_TYPE_CHECK_INSTANCE_TYPE ((obj), WPG_TYPE_RENDERER))
 #define WPG_RENDERER_GET_CLASS(obj) (G_TYPE_INSTANCE_GET_CLASS ((obj), WPG_TYPE_RENDERER, WpgRendererClass))
 
+
+enum {
+  PROP_0,
+  PROP_FONT,
+  PROP_FONT_HEIGHT,
+  LAST_PROP
+};
+
+
 GType wpg_renderer_get_type (void) G_GNUC_CONST;
 
 typedef struct _WpgRenderer WpgRenderer;
@@ -93,6 +105,9 @@ struct _WpgRenderer
 
 
   DiaContext* ctx;
+
+  DiaFont *font;
+  double font_height;
 };
 
 struct _WpgRendererClass
@@ -141,7 +156,7 @@ fwrite_le(void* buf, size_t size, size_t count, FILE* f)
 }
 #endif
 
-/* 
+/*
  * color cube len, WPG is limited to 256 colors. To get simple
  * color reduction algorithms only 216 = 6^3 of them are used.
  */
@@ -149,7 +164,7 @@ fwrite_le(void* buf, size_t size, size_t count, FILE* f)
 
 /*
  * "To avoid problems with WPC products the first 16 colors of
- *  the color map should never be changed". 
+ *  the color map should never be changed".
  * Define WPG_NUM_DEF_COLORS to 0 ignore this statement (It
  * appears to work more reliable; tested with WinWord 97 and
  * Designer 4.1 - the latter does not respect the color maps
@@ -157,14 +172,14 @@ fwrite_le(void* buf, size_t size, size_t count, FILE* f)
  */
 #define WPG_NUM_DEF_COLORS 0 /* 16 */
 
-/* 
- * helper functions 
+/*
+ * helper functions
  */
 static guint8
 LookupColor(WpgRenderer *renderer, Color* colour)
 {
   /* find nearest color in the renderers color map */
-  /* the following hack does only work with a correctly 
+  /* the following hack does only work with a correctly
      sorted color map */
   unsigned long i = (int)floor(colour->red * (CC_LEN - 1))
                   + (int)floor(colour->green * (CC_LEN - 1)) * CC_LEN
@@ -172,7 +187,7 @@ LookupColor(WpgRenderer *renderer, Color* colour)
   DIAG_NOTE(g_message("LookupColor %d.", i));
   if (i >= CC_LEN * CC_LEN * CC_LEN)
     return CC_LEN * CC_LEN * CC_LEN - 1 + WPG_NUM_DEF_COLORS;
-  else 
+  else
     return i + WPG_NUM_DEF_COLORS;
 }
 
@@ -250,21 +265,21 @@ WriteFillAttr(WpgRenderer *renderer, Color* colour, gboolean bFill)
   }
 }
 
-/* 
- * render functions 
- */ 
+/*
+ * render functions
+ */
 static void
-begin_render(DiaRenderer *self, const Rectangle *update)
+begin_render(DiaRenderer *self, const DiaRectangle *update)
 {
   WpgRenderer *renderer = WPG_RENDERER (self);
 #if 0
-  const WPGFileHead wpgFileHead = { "\377WPC", 16, 
+  const WPGFileHead wpgFileHead = { "\377WPC", 16,
                                    1, 22,
-                                   1, 0, /* Version */ 
+                                   1, 0, /* Version */
                                    0, 0};
 #else
   /* static conversion to little endian */
-  const char wpgFileHead[16] = {255, 'W', 'P', 'C', 16, 0, 0, 0, 
+  const char wpgFileHead[16] = {255, 'W', 'P', 'C', 16, 0, 0, 0,
                                 1, 22, 1, 0, 0, 0, 0, 0};
 #endif
 
@@ -295,7 +310,7 @@ begin_render(DiaRenderer *self, const Rectangle *update)
     /*
     g_print("%d\t%d\t%d\n", pPal[3*i  ], pPal[3*i+1], pPal[3*i+2]);
      */
-  } 
+  }
 
   WriteRecHead(renderer, WPG_COLORMAP, CC_LEN*CC_LEN*CC_LEN*3 + 2*sizeof(guint16));
   i = WPG_NUM_DEF_COLORS; /* start color */
@@ -309,7 +324,7 @@ begin_render(DiaRenderer *self, const Rectangle *update)
   WriteFillAttr(renderer, &color, TRUE);
   WriteFillAttr(renderer, &color, FALSE);
 
-  g_free(pPal);
+  g_clear_pointer (&pPal, g_free);
 }
 
 static void
@@ -326,7 +341,7 @@ end_render(DiaRenderer *self)
 
 static void
 set_linewidth(DiaRenderer *self, real linewidth)
-{  
+{
   WpgRenderer *renderer = WPG_RENDERER (self);
 
   DIAG_NOTE(g_message("set_linewidth %f", linewidth));
@@ -334,128 +349,138 @@ set_linewidth(DiaRenderer *self, real linewidth)
   renderer->LineAttr.Width = SC(linewidth);
 }
 
-static void
-set_linecaps(DiaRenderer *self, LineCaps mode)
-{
-  DIAG_NOTE(g_message("set_linecaps %d", mode));
 
-  switch(mode) {
-  case LINECAPS_DEFAULT:
-  case LINECAPS_BUTT:
-    break;
-  case LINECAPS_ROUND:
-    break;
-  case LINECAPS_PROJECTING:
-    break;
-  default:
-    g_warning("WpgRenderer : Unsupported line-caps mode specified!\n");
+static void
+set_linecaps (DiaRenderer *self, DiaLineCaps mode)
+{
+  DIAG_NOTE (g_message("set_linecaps %d", mode));
+
+  switch (mode) {
+    case DIA_LINE_CAPS_DEFAULT:
+    case DIA_LINE_CAPS_BUTT:
+      break;
+    case DIA_LINE_CAPS_ROUND:
+      break;
+    case DIA_LINE_CAPS_PROJECTING:
+      break;
+    default:
+      g_warning("WpgRenderer : Unsupported line-caps mode specified!\n");
   }
 }
 
-static void
-set_linejoin(DiaRenderer *self, LineJoin mode)
-{
-  DIAG_NOTE(g_message("set_join %d", mode));
 
-  switch(mode) {
-  case LINEJOIN_DEFAULT:
-  case LINEJOIN_MITER:
-    break;
-  case LINEJOIN_ROUND:
-    break;
-  case LINEJOIN_BEVEL:
-    break;
-  default:
-    g_warning("WpgRenderer : Unsupported line-join mode specified!\n");
+static void
+set_linejoin (DiaRenderer *self, DiaLineJoin mode)
+{
+  DIAG_NOTE (g_message ("set_join %d", mode));
+
+  switch (mode) {
+    case DIA_LINE_JOIN_DEFAULT:
+    case DIA_LINE_JOIN_MITER:
+      break;
+    case DIA_LINE_JOIN_ROUND:
+      break;
+    case DIA_LINE_JOIN_BEVEL:
+      break;
+    default:
+      g_warning ("WpgRenderer : Unsupported line-join mode specified!\n");
   }
 }
 
+
 static void
-set_linestyle(DiaRenderer *self, LineStyle mode, real dash_length)
+set_linestyle (DiaRenderer *self, DiaLineStyle mode, double dash_length)
 {
   WpgRenderer *renderer = WPG_RENDERER (self);
 
-  DIAG_NOTE(g_message("set_linestyle %d, %g", mode, dash_length));
+  DIAG_NOTE (g_message ("set_linestyle %d, %g", mode, dash_length));
 
   /* line type */
   switch (mode) {
-  case LINESTYLE_DEFAULT:
-  case LINESTYLE_SOLID:
-    renderer->LineAttr.Type = WPG_LA_SOLID;
-    break;
-  case LINESTYLE_DASHED:
-    if (dash_length < 0.5)
-      renderer->LineAttr.Type = WPG_LA_SHORTDASH;
-    else
-      renderer->LineAttr.Type = WPG_LA_MEDIUMDASH;
-    break;
-  case LINESTYLE_DASH_DOT:
-    renderer->LineAttr.Type = WPG_LA_DASHDOT;
-    break;
-  case LINESTYLE_DASH_DOT_DOT:
-    renderer->LineAttr.Type = WPG_LA_DASHDOTDOT;
-    break;
-  case LINESTYLE_DOTTED:
-    renderer->LineAttr.Type = WPG_LA_DOTS;
-    break;
-  default:
-    g_warning("WpgRenderer : Unsupported fill mode specified!\n");
+    case DIA_LINE_STYLE_DEFAULT:
+    case DIA_LINE_STYLE_SOLID:
+      renderer->LineAttr.Type = WPG_LA_SOLID;
+      break;
+    case DIA_LINE_STYLE_DASHED:
+      if (dash_length < 0.5)
+        renderer->LineAttr.Type = WPG_LA_SHORTDASH;
+      else
+        renderer->LineAttr.Type = WPG_LA_MEDIUMDASH;
+      break;
+    case DIA_LINE_STYLE_DASH_DOT:
+      renderer->LineAttr.Type = WPG_LA_DASHDOT;
+      break;
+    case DIA_LINE_STYLE_DASH_DOT_DOT:
+      renderer->LineAttr.Type = WPG_LA_DASHDOTDOT;
+      break;
+    case DIA_LINE_STYLE_DOTTED:
+      renderer->LineAttr.Type = WPG_LA_DOTS;
+      break;
+    default:
+      g_warning ("WpgRenderer : Unsupported fill mode specified!\n");
   }
 }
 
+
 static void
-set_fillstyle(DiaRenderer *self, FillStyle mode)
+set_fillstyle (DiaRenderer *self, DiaFillStyle mode)
 {
   WpgRenderer *renderer = WPG_RENDERER (self);
 
-  DIAG_NOTE(g_message("set_fillstyle %d", mode));
+  DIAG_NOTE (g_message ("set_fillstyle %d", mode));
 
   switch(mode) {
-  case FILLSTYLE_SOLID:
-    renderer->FillAttr.Type = WPG_FA_SOLID;
-    break;
-  default:
-    g_warning("WpgRenderer : Unsupported fill mode specified!\n");
+    case DIA_FILL_STYLE_SOLID:
+      renderer->FillAttr.Type = WPG_FA_SOLID;
+      break;
+    default:
+      g_warning ("WpgRenderer : Unsupported fill mode specified!\n");
   }
 }
 
+
 static void
-set_font(DiaRenderer *self, DiaFont *font, real height)
+wpg_renderer_set_font (DiaRenderer *self, DiaFont *font, double height)
 {
   WpgRenderer *renderer = WPG_RENDERER (self);
 
   /* FIXME PANGO: this is a little broken. Use better matching. */
-    
+
   const char *family_name;
   DIAG_NOTE(g_message("set_font %f %s", height, font->name));
-  renderer->TextStyle.Height = SC(height);
+  renderer->TextStyle.Height = SC (height);
 
-  family_name = dia_font_get_family(font);
-  
-  if ((strstr(family_name, "courier")) || (strstr(family_name, "monospace")))
+  g_print ("f: %p h: %f\n", font, height);
+
+  g_set_object (&renderer->font, font);
+
+  family_name = dia_font_get_family (font);
+
+  if ((strstr (family_name, "courier")) || (strstr (family_name, "monospace"))) {
     renderer->TextStyle.Font = 0x0DF0;
-  else if ((strstr(family_name, "times")) || (strstr(family_name, "serif")))
+  } else if ((strstr (family_name, "times")) || (strstr (family_name, "serif"))) {
     renderer->TextStyle.Font = 0x1950;
-  else
+  } else {
     renderer->TextStyle.Font = 0x1150; /* Helv */
-
+  }
 }
 
+
 /* Need to translate coord system:
- * 
+ *
  *   Dia x,y -> Wpg x,-y
  *
  * doing it before scaling.
  */
 static void
-draw_line(DiaRenderer *self, 
-          Point *start, Point *end, 
+draw_line(DiaRenderer *self,
+          Point *start, Point *end,
           Color *line_colour)
 {
   WpgRenderer *renderer = WPG_RENDERER (self);
   gint16 pData[4];
 
-  DIAG_NOTE(g_message("draw_line %f,%f -> %f, %f", 
+  DIAG_NOTE(g_message("draw_line %f,%f -> %f, %f",
             start->x, start->y, end->x, end->y));
 
   WriteLineAttr(renderer, line_colour);
@@ -471,15 +496,15 @@ draw_line(DiaRenderer *self,
 }
 
 static void
-draw_polyline(DiaRenderer *self, 
-              Point *points, int num_points, 
+draw_polyline(DiaRenderer *self,
+              Point *points, int num_points,
               Color *line_colour)
 {
   WpgRenderer *renderer = WPG_RENDERER (self);
   int i;
   gint16* pData;
 
-  DIAG_NOTE(g_message("draw_polyline n:%d %f,%f ...", 
+  DIAG_NOTE(g_message("draw_polyline n:%d %f,%f ...",
             num_points, points->x, points->y));
 
   g_return_if_fail(1 < num_points);
@@ -502,12 +527,12 @@ draw_polyline(DiaRenderer *self,
 
   fwrite_le(pData, sizeof(gint16), num_points*2, renderer->file);
 
-  g_free(pData);
+  g_clear_pointer (&pData, g_free);
 }
 
 static void
-draw_polygon(DiaRenderer *self, 
-             Point *points, int num_points, 
+draw_polygon(DiaRenderer *self,
+             Point *points, int num_points,
              Color *fill, Color *stroke)
 {
   WpgRenderer *renderer = WPG_RENDERER (self);
@@ -515,7 +540,7 @@ draw_polygon(DiaRenderer *self,
   int i;
   WPG_LineAttr lt = renderer->LineAttr.Type;
 
-  DIAG_NOTE(g_message("draw_polygon n:%d %f,%f ...", 
+  DIAG_NOTE(g_message("draw_polygon n:%d %f,%f ...",
             num_points, points->x, points->y));
 
   if (!stroke)
@@ -547,11 +572,11 @@ draw_polygon(DiaRenderer *self,
   /* switch off fill */
   WriteFillAttr(renderer, fill ? fill : stroke, FALSE);
 
-  g_free(pData);
+  g_clear_pointer (&pData, g_free);
 }
 
 static void
-draw_rect(DiaRenderer *self, 
+draw_rect(DiaRenderer *self,
           Point *ul_corner, Point *lr_corner,
           Color *fill, Color *stroke)
 {
@@ -559,7 +584,7 @@ draw_rect(DiaRenderer *self,
   gint16* pData;
   WPG_LineAttr lt = renderer->LineAttr.Type;
 
-  DIAG_NOTE(g_message("draw_rect %f,%f -> %f,%f", 
+  DIAG_NOTE(g_message("draw_rect %f,%f -> %f,%f",
             ul_corner->x, ul_corner->y, lr_corner->x, lr_corner->y));
 
   g_return_if_fail (fill || stroke);
@@ -584,11 +609,11 @@ draw_rect(DiaRenderer *self,
     renderer->LineAttr.Type = lt;
   /* switch off fill */
   WriteFillAttr(renderer, fill ? fill : stroke, FALSE);
-  g_free(pData);
+  g_clear_pointer (&pData, g_free);
 }
 
 static void
-draw_arc(DiaRenderer *self, 
+draw_arc(DiaRenderer *self,
 	 Point *center,
 	 real width, real height,
 	 real angle1, real angle2,
@@ -598,7 +623,7 @@ draw_arc(DiaRenderer *self,
   WPGEllipse ell;
   gboolean counter_clockwise = angle2 > angle1;
 
-  DIAG_NOTE(g_message("draw_arc %fx%f <%f,<%f", 
+  DIAG_NOTE(g_message("draw_arc %fx%f <%f,<%f",
             width, height, angle1, angle2));
 
   ell.x = SCX(center->x);
@@ -628,7 +653,7 @@ draw_arc(DiaRenderer *self,
 }
 
 static void
-fill_arc(DiaRenderer *self, 
+fill_arc(DiaRenderer *self,
          Point *center,
          real width, real height,
          real angle1, real angle2,
@@ -638,7 +663,7 @@ fill_arc(DiaRenderer *self,
   WPGEllipse ell;
   gboolean counter_clockwise = angle2 > angle1;
 
-  DIAG_NOTE(g_message("fill_arc %fx%f <%f,<%f", 
+  DIAG_NOTE(g_message("fill_arc %fx%f <%f,<%f",
             width, height, angle1, angle2));
 
   ell.x = SCX(center->x);
@@ -669,7 +694,7 @@ fill_arc(DiaRenderer *self,
 }
 
 static void
-draw_ellipse(DiaRenderer *self, 
+draw_ellipse(DiaRenderer *self,
              Point *center,
              real width, real height,
              Color *fill, Color *stroke)
@@ -677,7 +702,7 @@ draw_ellipse(DiaRenderer *self,
   WpgRenderer *renderer = WPG_RENDERER (self);
   WPGEllipse ell;
 
-  DIAG_NOTE(g_message("draw_ellipse %fx%f center @ %f,%f", 
+  DIAG_NOTE(g_message("draw_ellipse %fx%f center @ %f,%f",
             width, height, center->x, center->y));
 
   ell.x = SCX(center->x);
@@ -703,7 +728,7 @@ draw_ellipse(DiaRenderer *self,
 }
 
 static void
-draw_bezier(DiaRenderer *self, 
+draw_bezier(DiaRenderer *self,
             BezPoint *points,
             int numpoints,
             Color *colour)
@@ -713,7 +738,7 @@ draw_bezier(DiaRenderer *self,
   guint16 data[2];
   int i;
 
-  DIAG_NOTE(g_message("draw_bezier n:%d %fx%f ...", 
+  DIAG_NOTE(g_message("draw_bezier n:%d %fx%f ...",
             numpoints, points->p1.x, points->p1.y));
 
   WriteLineAttr(renderer, colour);
@@ -735,38 +760,39 @@ draw_bezier(DiaRenderer *self,
    */
   pts[0].x = SCX( points[0].p1.x);
   pts[0].y = SCY(-points[0].p1.y);
-  for (i = 1; i < numpoints; i++)
-  {
-    switch (points[i].type)
-    {
-    case BEZ_MOVE_TO:
-    case BEZ_LINE_TO:
-      /* just the point */
-      pts[i*3-2].x = pts[i*3-1].x = pts[i*3].x = SCX( points[i].p1.x);
-      pts[i*3-2].y = pts[i*3-1].y = pts[i*3].y = SCY(-points[i].p1.y);
-      break;
-    case BEZ_CURVE_TO:
-      /* first control point */
-      pts[i*3-2].x = SCX( points[i].p1.x);
-      pts[i*3-2].y = SCY(-points[i].p1.y);
-      /* second control point */
-      pts[i*3-1].x = SCX( points[i].p2.x);
-      pts[i*3-1].y = SCY(-points[i].p2.y);
-      /* this segments end point */
-      pts[i*3].x = SCX( points[i].p3.x);
-      pts[i*3].y = SCY(-points[i].p3.y);
-      break;
+  for (i = 1; i < numpoints; i++) {
+    switch (points[i].type) {
+      case BEZ_MOVE_TO:
+      case BEZ_LINE_TO:
+        /* just the point */
+        pts[i*3-2].x = pts[i*3-1].x = pts[i*3].x = SCX( points[i].p1.x);
+        pts[i*3-2].y = pts[i*3-1].y = pts[i*3].y = SCY(-points[i].p1.y);
+        break;
+      case BEZ_CURVE_TO:
+        /* first control point */
+        pts[i*3-2].x = SCX( points[i].p1.x);
+        pts[i*3-2].y = SCY(-points[i].p1.y);
+        /* second control point */
+        pts[i*3-1].x = SCX( points[i].p2.x);
+        pts[i*3-1].y = SCY(-points[i].p2.y);
+        /* this segments end point */
+        pts[i*3].x = SCX( points[i].p3.x);
+        pts[i*3].y = SCY(-points[i].p3.y);
+        break;
+      default:
+        g_warning ("Unknown type %i", points[i].type);
+        break;
     }
   }
 
-  fwrite_le(pts, sizeof(gint16), 2*(numpoints*3-2), renderer->file);
-  g_free(pts);
+  fwrite_le (pts, sizeof (gint16), 2 * (numpoints*3-2), renderer->file);
+  g_clear_pointer (&pts, g_free);
 }
 
 static gpointer parent_class = NULL;
 
 static void
-draw_beziergon (DiaRenderer *self, 
+draw_beziergon (DiaRenderer *self,
 		BezPoint *points,
 		int numpoints,
 		Color *fill,
@@ -793,11 +819,14 @@ draw_beziergon (DiaRenderer *self,
   if (stroke) /* XXX: still not closing the path */
     draw_bezier (self, points, numpoints, stroke);
 }
+
+
 static void
-draw_string(DiaRenderer *self,
-            const char *text,
-            Point *pos, Alignment alignment,
-            Color *colour)
+draw_string (DiaRenderer  *self,
+             const char   *text,
+             Point        *pos,
+             DiaAlignment  alignment,
+             Color        *colour)
 {
   WpgRenderer *renderer = WPG_RENDERER (self);
   gint16 len;
@@ -805,7 +834,7 @@ draw_string(DiaRenderer *self,
 
   len = strlen(text);
 
-  DIAG_NOTE(g_message("draw_string(%d) %f,%f %s", 
+  DIAG_NOTE(g_message("draw_string(%d) %f,%f %s",
             len, pos->x, pos->y, text));
 
   if (len < 1) return; /* shouldn't this be handled by Dia's core ? */
@@ -813,15 +842,18 @@ draw_string(DiaRenderer *self,
   renderer->TextStyle.YAlign = 3; /* bottom ??? */
 
   switch (alignment) {
-  case ALIGN_LEFT:
-    renderer->TextStyle.XAlign = 0;
-    break;
-  case ALIGN_CENTER:
-    renderer->TextStyle.XAlign = 1;
-    break;
-  case ALIGN_RIGHT:
-    renderer->TextStyle.XAlign = 2;
-    break;
+    case DIA_ALIGN_LEFT:
+      renderer->TextStyle.XAlign = 0;
+      break;
+    case DIA_ALIGN_CENTRE:
+      renderer->TextStyle.XAlign = 1;
+      break;
+    case DIA_ALIGN_RIGHT:
+      renderer->TextStyle.XAlign = 2;
+      break;
+    default:
+      g_warning ("Unknown alignment %i", alignment);
+      break;
   }
 
   renderer->TextStyle.Color = LookupColor(renderer, colour);
@@ -880,7 +912,7 @@ draw_image(DiaRenderer *self,
   bmp.Xdpi = 72; /* ??? */
   bmp.Ydpi = 72;
 
-  DIAG_NOTE(g_message("draw_image %fx%f [%d,%d] @%f,%f", 
+  DIAG_NOTE(g_message("draw_image %fx%f [%d,%d] @%f,%f",
             width, height, bmp.Width, bmp.Height, point->x, point->y));
 
   pDiaImg = dia_image_rgb_data(image);
@@ -909,7 +941,7 @@ draw_image(DiaRenderer *self,
 
       if (cnt > 0)
       {
-        if ((b == b_1) && (cnt < 127)) 
+        if ((b == b_1) && (cnt < 127))
           cnt++; /* increase counter*/
         else
         {
@@ -928,7 +960,7 @@ draw_image(DiaRenderer *self,
     *p++ = (cnt | 0x80); /* write last value(s) */
     *p++ = b;
   }
-  DIAG_NOTE(g_message( "Width x Height: %d RLE: %d", 
+  DIAG_NOTE(g_message( "Width x Height: %d RLE: %d",
 	      bmp.Width * bmp.Height, p - pOut));
 
   if ((p - pOut) > 32767) {
@@ -953,14 +985,14 @@ draw_image(DiaRenderer *self,
     j = p - pOut;
     for (i = 0; i < j; i+=2)
     {
-      for (x = 0; x < (pOut[i] & 0x7F); x++) 
+      for (x = 0; x < (pOut[i] & 0x7F); x++)
         fwrite(&pOut[i+1], 1, 1, f);
     }
     fclose(f);
   }
 #endif
-  g_free(pDiaImg);
-  g_free(pOut);
+  g_clear_pointer (&pDiaImg, g_free);
+  g_clear_pointer (&pOut, g_free);
 }
 
 /* gobject boiler plate */
@@ -990,14 +1022,64 @@ wpg_renderer_get_type (void)
                                             "WpgRenderer",
                                             &object_info, 0);
     }
-  
+
   return object_type;
+}
+
+
+static void
+wpg_renderer_set_property (GObject      *object,
+                           guint         property_id,
+                           const GValue *value,
+                           GParamSpec   *pspec)
+{
+  WpgRenderer *self = WPG_RENDERER (object);
+
+  switch (property_id) {
+    case PROP_FONT:
+      wpg_renderer_set_font (DIA_RENDERER (self),
+                             DIA_FONT (g_value_get_object (value)),
+                             self->font_height);
+      break;
+    case PROP_FONT_HEIGHT:
+      wpg_renderer_set_font (DIA_RENDERER (self),
+                             self->font,
+                             g_value_get_double (value));
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
+      break;
+  }
+}
+
+
+static void
+wpg_renderer_get_property (GObject    *object,
+                           guint       property_id,
+                           GValue     *value,
+                           GParamSpec *pspec)
+{
+  WpgRenderer *self = WPG_RENDERER (object);
+
+  switch (property_id) {
+    case PROP_FONT:
+      g_value_set_object (value, self->font);
+      break;
+    case PROP_FONT_HEIGHT:
+      g_value_set_double (value, self->font_height);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
+      break;
+  }
 }
 
 static void
 wpg_renderer_finalize (GObject *object)
 {
   WpgRenderer *wpg_renderer = WPG_RENDERER (object);
+
+  g_clear_object (&wpg_renderer->font);
 
   if (wpg_renderer->file)
     fclose(wpg_renderer->file);
@@ -1014,6 +1096,8 @@ wpg_renderer_class_init (WpgRendererClass *klass)
 
   parent_class = g_type_class_peek_parent (klass);
 
+  object_class->set_property = wpg_renderer_set_property;
+  object_class->get_property = wpg_renderer_get_property;
   object_class->finalize = wpg_renderer_finalize;
 
   /* renderer members */
@@ -1025,8 +1109,6 @@ wpg_renderer_class_init (WpgRendererClass *klass)
   renderer_class->set_linejoin   = set_linejoin;
   renderer_class->set_linestyle  = set_linestyle;
   renderer_class->set_fillstyle  = set_fillstyle;
-
-  renderer_class->set_font  = set_font;
 
   renderer_class->draw_line    = draw_line;
   renderer_class->draw_polygon = draw_polygon;
@@ -1043,6 +1125,9 @@ wpg_renderer_class_init (WpgRendererClass *klass)
 
   renderer_class->draw_bezier   = draw_bezier;
   renderer_class->draw_beziergon = draw_beziergon;
+
+  g_object_class_override_property (object_class, PROP_FONT, "font");
+  g_object_class_override_property (object_class, PROP_FONT_HEIGHT, "font-height");
 }
 
 /* dia export funtion */
@@ -1053,13 +1138,13 @@ export_data(DiagramData *data, DiaContext *ctx,
 {
   WpgRenderer *renderer;
   FILE *file;
-  Rectangle *extent;
+  DiaRectangle *extent;
   real width, height;
 
   file = g_fopen(filename, "wb"); /* "wb" for binary! */
 
   if (file == NULL) {
-    dia_context_add_message_with_errno (ctx, errno, _("Can't open output file %s"), 
+    dia_context_add_message_with_errno (ctx, errno, _("Can't open output file %s"),
 					dia_context_get_filename(ctx));
     return FALSE;
   }
@@ -1072,7 +1157,7 @@ export_data(DiagramData *data, DiaContext *ctx,
   extent = &data->extents;
 
   /* use extents */
-  DIAG_NOTE(g_message("export_data extents %f,%f -> %f,%f", 
+  DIAG_NOTE(g_message("export_data extents %f,%f -> %f,%f",
             extent->left, extent->top, extent->right, extent->bottom));
 
   width  = extent->right - extent->left;
@@ -1102,7 +1187,7 @@ export_data(DiagramData *data, DiaContext *ctx,
 
   data_render(data, DIA_RENDERER(renderer), NULL, NULL, NULL);
 
-  g_object_unref(renderer);
+  g_clear_object (&renderer);
 
   return TRUE;
 }

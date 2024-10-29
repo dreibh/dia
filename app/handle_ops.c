@@ -20,6 +20,7 @@
 #include "handle_ops.h"
 #include "handle.h"
 #include "color.h"
+#include "diainteractiverenderer.h"
 
 /* This value is best left odd so that the handles are centered. */
 #define HANDLE_SIZE 9
@@ -47,58 +48,58 @@ static const Color handle_color_connected[NUM_HANDLE_TYPES<<1] =
 };
 
 void
-handle_draw(Handle *handle, DDisplay *ddisp)
+handle_draw (Handle *handle, DDisplay *ddisp)
 {
   gboolean some_selected;
   int x,y;
   DiaRenderer *renderer = ddisp->renderer;
-  DiaInteractiveRendererInterface *irenderer =
-    DIA_GET_INTERACTIVE_RENDERER_INTERFACE (ddisp->renderer);
   const Color *color;
 
-  ddisplay_transform_coords(ddisp, handle->pos.x, handle->pos.y, &x, &y);
+  ddisplay_transform_coords (ddisp, handle->pos.x, handle->pos.y, &x, &y);
   /* change handle color to reflect different behaviour for multiple selected */
   /* this code relies on the fact that only selected objects get their handles drawn */
   some_selected = g_list_length (ddisp->diagram->data->selected) > 1;
 
-  if  (handle->connected_to != NULL) {
+  if (handle->connected_to != NULL) {
     color = &handle_color_connected[handle->type + (some_selected ? NUM_HANDLE_TYPES : 0)];
   } else {
     color = &handle_color[handle->type + (some_selected ? NUM_HANDLE_TYPES : 0)];
   }
 
-  DIA_RENDERER_GET_CLASS(renderer)->set_linewidth(renderer, 0.0);
-  DIA_RENDERER_GET_CLASS(renderer)->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
-  DIA_RENDERER_GET_CLASS(renderer)->set_linejoin(renderer, LINEJOIN_MITER);
-  DIA_RENDERER_GET_CLASS(renderer)->set_fillstyle(renderer, FILLSTYLE_SOLID);
-  
+  dia_renderer_set_linewidth (renderer, 0.0);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
+  dia_renderer_set_linejoin (renderer, DIA_LINE_JOIN_MITER);
+  dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
 
-  irenderer->fill_pixel_rect(renderer,
-			     x - HANDLE_SIZE/2 + 1,
-			     y - HANDLE_SIZE/2 + 1,
-			     HANDLE_SIZE-2, HANDLE_SIZE-2,
-			     /* it does not change the color, but does not reflect taht in the signature */
-			     (Color *)color);
-  
-  irenderer->draw_pixel_rect(renderer,
-			     x - HANDLE_SIZE/2,
-			     y - HANDLE_SIZE/2,
-			     HANDLE_SIZE-1, HANDLE_SIZE-1,
-			     &color_black);
 
-    
-  
+  dia_interactive_renderer_fill_pixel_rect (DIA_INTERACTIVE_RENDERER (renderer),
+                                            x - HANDLE_SIZE/2 + 1,
+                                            y - HANDLE_SIZE/2 + 1,
+                                            HANDLE_SIZE-2,
+                                            HANDLE_SIZE-2,
+                                            /* it does not change the color, but does not reflect that in the signature */
+                                            (Color *) color);
+
+  dia_interactive_renderer_draw_pixel_rect (DIA_INTERACTIVE_RENDERER (renderer),
+                                            x - HANDLE_SIZE/2,
+                                            y - HANDLE_SIZE/2,
+                                            HANDLE_SIZE-1,
+                                            HANDLE_SIZE-1,
+                                            &color_black);
+
   if (handle->connect_type != HANDLE_NONCONNECTABLE) {
-    irenderer->draw_pixel_line
-                         (renderer,
-			  x - HANDLE_SIZE/2, y - HANDLE_SIZE/2,
-			  x + HANDLE_SIZE/2, y + HANDLE_SIZE/2,
-			  &color_black);
-    irenderer->draw_pixel_line
-                         (renderer,
-			  x - HANDLE_SIZE/2, y + HANDLE_SIZE/2,
-			  x + HANDLE_SIZE/2, y - HANDLE_SIZE/2,
-			  &color_black);
+    dia_interactive_renderer_draw_pixel_line (DIA_INTERACTIVE_RENDERER (renderer),
+                                              x - HANDLE_SIZE/2,
+                                              y - HANDLE_SIZE/2,
+                                              x + HANDLE_SIZE/2,
+                                              y + HANDLE_SIZE/2,
+                                              &color_black);
+    dia_interactive_renderer_draw_pixel_line (DIA_INTERACTIVE_RENDERER (renderer),
+                                              x - HANDLE_SIZE/2,
+                                              y + HANDLE_SIZE/2,
+                                              x + HANDLE_SIZE/2,
+                                              y - HANDLE_SIZE/2,
+                                              &color_black);
   }
 }
 
@@ -119,7 +120,7 @@ handle_is_clicked(DDisplay *ddisp, Handle *handle, Point *pos)
 
   if (handle==NULL)
     return FALSE;
-  
+
   dx = ABS(handle->pos.x - pos->x);
   dy = ABS(handle->pos.y - pos->y);
 

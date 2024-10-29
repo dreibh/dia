@@ -21,12 +21,12 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 
-#include "intl.h"
 #include "object.h"
 #include "orth_conn.h"
 #include "connectionpoint.h"
@@ -50,10 +50,15 @@ typedef struct _Arc {
   gboolean uparrow;
 } Arc;
 
-static ObjectChange* arc_move_handle(Arc *arc, Handle *handle,
-				     Point *to, ConnectionPoint *cp,
-				     HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* arc_move(Arc *arc, Point *to);
+
+static DiaObjectChange *arc_move_handle         (Arc              *arc,
+                                                 Handle           *handle,
+                                                 Point            *to,
+                                                 ConnectionPoint  *cp,
+                                                 HandleMoveReason  reason,
+                                                 ModifierKeys      modifiers);
+static DiaObjectChange *arc_move                (Arc              *arc,
+                                                 Point            *to);
 static void arc_select(Arc *arc, Point *clicked_point,
 			      DiaRenderer *interactive_renderer);
 static void arc_draw(Arc *arc, DiaRenderer *renderer);
@@ -169,61 +174,69 @@ arc_select(Arc *arc, Point *clicked_point,
   orthconn_update_data(&arc->orth);
 }
 
-static ObjectChange*
-arc_move_handle(Arc *arc, Handle *handle,
-		Point *to, ConnectionPoint *cp,
-		HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+arc_move_handle (Arc              *arc,
+                 Handle           *handle,
+                 Point            *to,
+                 ConnectionPoint  *cp,
+                 HandleMoveReason  reason,
+                 ModifierKeys      modifiers)
 {
-  ObjectChange *change;
-  change = orthconn_move_handle(&arc->orth, handle, to, cp, reason, modifiers);
-  arc_update_data(arc);
+  DiaObjectChange *change;
+
+  change = orthconn_move_handle (&arc->orth, handle, to, cp, reason, modifiers);
+  arc_update_data (arc);
 
   return change;
 }
 
 
-static ObjectChange*
-arc_move(Arc *arc, Point *to)
+static DiaObjectChange *
+arc_move (Arc *arc, Point *to)
 {
-  ObjectChange *change;
+  DiaObjectChange *change;
 
-  change = orthconn_move(&arc->orth, to);
-  arc_update_data(arc);
+  change = orthconn_move (&arc->orth, to);
+  arc_update_data (arc);
 
   return change;
 }
+
 
 static void
-arc_draw(Arc *arc, DiaRenderer *renderer)
+arc_draw (Arc *arc, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   OrthConn *orth = &arc->orth;
   Point *points;
   int n,i;
+  Arrow arrow = { ARC_ARROW_TYPE, ARC_ARROW_LENGTH, ARC_ARROW_WIDTH };
 
   points = &orth->points[0];
   n = orth->numpoints;
 
-  renderer_ops->set_linewidth(renderer, ARC_LINE_WIDTH);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
-  renderer_ops->set_linejoin(renderer, LINEJOIN_MITER);
-  renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
+  dia_renderer_set_linewidth (renderer, ARC_LINE_WIDTH);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
+  dia_renderer_set_linejoin (renderer, DIA_LINE_JOIN_MITER);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
 
-  renderer_ops->draw_polyline(renderer, points, n, &color_black);
+  dia_renderer_draw_polyline (renderer, points, n, &color_black);
 
   if (arc->uparrow) {
     for (i=0;i<n-1; i++) {
       if ((points[i].y > points[i+1].y) &&
-	  (ABS(points[i+1].y-points[i].y) > 5 * ARC_ARROW_LENGTH)) {
-	/* Draw an arrow on the middle of the line */
-	Point m;
-	m.x = points[i].x; /* == points[i+1].x */
-	m.y = .5 * (points[i].y + points[i+1].y) - (.5 * ARC_ARROW_LENGTH);
-	arrow_draw(renderer, ARC_ARROW_TYPE,
-		   &m,&points[i],
-		   ARC_ARROW_LENGTH, ARC_ARROW_WIDTH,
-		   ARC_LINE_WIDTH,
-		   &color_black, &color_white);
+          (ABS (points[i+1].y-points[i].y) > 5 * ARC_ARROW_LENGTH)) {
+        /* Draw an arrow on the middle of the line */
+        Point m;
+        m.x = points[i].x; /* == points[i+1].x */
+        m.y = .5 * (points[i].y + points[i+1].y) - (.5 * ARC_ARROW_LENGTH);
+        dia_arrow_draw (&arrow,
+                        renderer,
+                        &m,
+                        &points[i],
+                        ARC_LINE_WIDTH,
+                        &color_black,
+                        &color_white);
       }
     }
   }
@@ -239,7 +252,7 @@ arc_create(Point *startpoint,
   OrthConn *orth;
   DiaObject *obj;
 
-  arc = g_malloc0(sizeof(Arc));
+  arc = g_new0 (Arc, 1);
   orth = &arc->orth;
   obj = &orth->object;
 
@@ -285,29 +298,36 @@ arc_update_data(Arc *arc)
 }
 
 
-static ObjectChange *
-arc_add_segment_callback(DiaObject *obj, Point *clicked, gpointer data)
+static DiaObjectChange *
+arc_add_segment_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
-  ObjectChange *change;
-  change = orthconn_add_segment((OrthConn *)obj, clicked);
-  arc_update_data((Arc *)obj);
+  DiaObjectChange *change;
+
+  change = orthconn_add_segment ((OrthConn *) obj, clicked);
+  arc_update_data ((Arc *) obj);
+
   return change;
 }
 
-static ObjectChange *
-arc_delete_segment_callback(DiaObject *obj, Point *clicked, gpointer data)
+
+static DiaObjectChange *
+arc_delete_segment_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
-  ObjectChange *change;
-  change = orthconn_delete_segment((OrthConn *)obj, clicked);
-  arc_update_data((Arc *)obj);
+  DiaObjectChange *change;
+
+  change = orthconn_delete_segment ((OrthConn *) obj, clicked);
+  arc_update_data ((Arc *) obj);
+
   return change;
 }
+
 
 static DiaMenuItem object_menu_items[] = {
   { N_("Add segment"), arc_add_segment_callback, NULL, 1 },
   { N_("Delete segment"), arc_delete_segment_callback, NULL, 1 },
   ORTHCONN_COMMON_MENUS,
 };
+
 
 static DiaMenu object_menu = {
   "Arc",

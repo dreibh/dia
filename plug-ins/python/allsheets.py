@@ -17,7 +17,12 @@
 #   You should have received a copy of the GNU General Public License
 #   along with this program; if not, write to the Free Software
 #   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
-import dia, os, string
+import dia, os
+import tempfile
+import webbrowser
+
+import gettext
+_ = gettext.gettext
 
 # Given a list of "sheet objects" return the common namespace of the object types
 def so_get_namespace (sol) :
@@ -26,13 +31,13 @@ def so_get_namespace (sol) :
 		return "Empty"
 	for ot, descr, fname in sol :
 		if ot :
-			sp = string.split(ot.name, " - ")
+			sp = ot.name.split(" - ")
 			if len(sp) > 1 :
-				if names.has_key (sp[0]) :
+				if sp[0] in names:
 					names[sp[0]] += 1
 				else :
 					names[sp[0]] = 1
-	return string.join (names.keys(), ",")
+	return ",".join (list(names.keys()))
 
 def check_objecttype_overlap (sheets) :
 	types = dia.registered_types()
@@ -43,23 +48,23 @@ def check_objecttype_overlap (sheets) :
 		del types["Standard - %s" % (s,)]
 	# got through all the sheets to match against registered types
 	missing = []
-	for sheet in sheets :
-		for ot, descr, fname in sheet.objects :
-			if types.has_key (ot.name) :
-				if ot == types[ot.name] :
+	for sheet in sheets:
+		for ot, descr, fname in sheet.objects:
+			if ot.name in types:
+				if ot == types[ot.name]:
 					del types[ot.name]
-				else :
-					print "Mix-up:", ot.name
-			else :
+				else:
+					print("Mix-up:", ot.name)
+			else:
 				# sheet referencing a type not available
-				missing.append (ot.name)
+				missing.append(ot.name)
 	# from the dictionary removed every type referenced just once?
-	print types
+	print(types)
 
 def isheets_cb (data, flags) :
 	sheets = dia.registered_sheets ()
 	check_objecttype_overlap (sheets)
-	path = os.environ["TEMP"] + os.path.sep + "dia-sheets.html"
+	path = tempfile.gettempdir() + os.path.sep + "dia-sheets.html"
 	f = open (path, "w")
 	f.write ("""
 <html><head><title>Dia Sheets</title></head><body>
@@ -75,7 +80,8 @@ def isheets_cb (data, flags) :
 </body></html>
 """)
 	dia.message(0, "'" + path + "' saved.")
+	webbrowser.open('file://' + os.path.realpath(path))
 
-dia.register_action ("HelpInspectSheets", "Dia Sheets Inspection",
+dia.register_action ("HelpInspectSheets", _("Dia _Sheets Inspection"),
                      "/ToolboxMenu/Help/HelpExtensionStart",
                      isheets_cb)

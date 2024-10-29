@@ -21,17 +21,22 @@
 
 #include <config.h>
 
-#include <assert.h>
 #include <math.h>
 #include <string.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "diarenderer.h"
 #include "attributes.h"
 #include "text.h"
 #include "properties.h"
+
+#define DIA_AADL_TYPE_POINT_OBJECT_CHANGE dia_aadl_point_object_change_get_type ()
+G_DECLARE_FINAL_TYPE (DiaAADLPointObjectChange,
+                      dia_aadl_point_object_change,
+                      DIA_AADL, POINT_OBJECT_CHANGE,
+                      DiaObjectChange)
+
 
 #undef min
 #define min(a,b) (a<b?a:b)
@@ -175,11 +180,14 @@ void aadlbox_update_ports(Aadlbox *aadlbox);
 real aadlbox_distance_from(Aadlbox *aadlbox, Point *point);
 void aadlbox_select(Aadlbox *aadlbox, Point *clicked_point,
 		    DiaRenderer *interactive_renderer);
-ObjectChange* aadlbox_move_handle(Aadlbox *aadlbox, Handle *handle,
-				  Point *to, ConnectionPoint *cp,
-				  HandleMoveReason reason,
-				  ModifierKeys modifiers);
-ObjectChange* aadlbox_move(Aadlbox *aadlbox, Point *to);
+DiaObjectChange *aadlbox_move_handle (Aadlbox          *aadlbox,
+                                      Handle           *handle,
+                                      Point            *to,
+                                      ConnectionPoint  *cp,
+                                      HandleMoveReason  reason,
+                                      ModifierKeys      modifiers);
+DiaObjectChange *aadlbox_move        (Aadlbox          *aadlbox,
+                                      Point            *to);
 void aadlbox_draw(Aadlbox *aadlbox, DiaRenderer *renderer);
 DiaObject *aadlbox_create(Point *startpoint, void *user_data,
 			  Handle **handle1, Handle **handle2);
@@ -194,7 +202,7 @@ void aadlbox_load(ObjectNode obj_node, int version, DiaContext *ctx,
 			Aadlbox *aadlbox);
 
 /* aadldata.c */
-void aadlbox_project_point_on_rectangle(Rectangle *rectangle,
+void aadlbox_project_point_on_rectangle(DiaRectangle *rectangle,
 					Point *p,real *angle);
  void aadldata_project_point_on_nearest_border(Aadlbox *aadlbox,
  					 Point *p,real *angle);
@@ -207,14 +215,16 @@ aadlbox_inclined_project_point_on_nearest_border(Aadlbox *aadlbox,Point *p,
 void aadlprocess_text_position(Aadlbox *aadlbox, Point *p);
 
 /* aadlthread.c */
-void aadlbox_draw_inclined_box(Aadlbox *aadlbox, DiaRenderer *renderer,
-				      LineStyle linestyle);
+void aadlbox_draw_inclined_box (Aadlbox      *aadlbox,
+                                DiaRenderer  *renderer,
+                                DiaLineStyle  linestyle);
 /* aadlsubprogram.c */
 void
 aadlsubprogram_project_point_on_nearest_border(Aadlbox *aadlbox,Point *p,
 					       real *angle);
 /* aadlsystem.c */
-void aadlbox_draw_rounded_box (Aadlbox *aadlbox, DiaRenderer *renderer,
-			       LineStyle linestyle);
+void aadlbox_draw_rounded_box  (Aadlbox      *aadlbox,
+                                DiaRenderer  *renderer,
+                                DiaLineStyle  linestyle);
 
 

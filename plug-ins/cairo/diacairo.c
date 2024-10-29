@@ -20,13 +20,17 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#define G_LOG_DOMAIN "DiaCairo"
+
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
+
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
 
 #include <errno.h>
-#define G_LOG_DOMAIN "DiaCairo"
 #include <glib.h>
 #include <glib/gstdio.h>
 
@@ -42,7 +46,6 @@
 #ifdef CAIRO_HAS_WIN32_SURFACE
 #include <cairo-win32.h>
 /* avoid namespace collisions */
-#define Rectangle RectangleWin32
 #endif
 #ifdef CAIRO_HAS_SCRIPT_SURFACE
 #include <cairo-script.h>
@@ -50,7 +53,6 @@
 
 #include <pango/pangocairo.h>
 
-#include "intl.h"
 #include "geometry.h"
 #include "dia_image.h"
 #include "diarenderer.h"
@@ -68,6 +70,15 @@ static DiaExportFilter ps_export_filter = {
     cairo_export_data,
     (void*)OUTPUT_PS,
     "cairo-ps" /* unique name */
+};
+
+static const gchar *eps_extensions[] = { "eps", NULL };
+static DiaExportFilter eps_export_filter = {
+    N_("Encapsulated PostScript"),
+    eps_extensions,
+    cairo_export_data,
+    (void*)OUTPUT_EPS,
+    "cairo-eps"
 };
 #endif
 
@@ -143,11 +154,13 @@ static DiaExportFilter wmf_export_filter = {
     FILTER_DONT_GUESS /* don't use this if not asked explicit */
 };
 
-static ObjectChange *
+
+static DiaObjectChange *
 cairo_clipboard_callback (DiagramData *data,
-                          const gchar *filename,
-                          guint flags, /* further additions */
-                          void *user_data)
+                          const char  *filename,
+                          /* further additions */
+                          guint        flags,
+                          void        *user_data)
 {
   DiaContext *ctx = dia_context_new(_("Cairo Clipboard Copy"));
 
@@ -170,13 +183,15 @@ static DiaCallbackFilter cb_clipboard = {
 };
 #endif
 
+
 static DiaCallbackFilter cb_gtk_print = {
-    "FilePrintGTK",
-    N_("Print (GTK) \342\200\246"),
-    "/InvisibleMenu/File/FilePrint",
-    cairo_print_callback,
-    (void*)OUTPUT_PDF
+  "FilePrintGTK",
+  N_("Print (GTK) …"),
+  "/InvisibleMenu/File/FilePrint",
+  cairo_print_callback,
+  (void *) OUTPUT_PDF
 };
+
 
 static gboolean
 _plugin_can_unload (PluginInfo *info)
@@ -190,6 +205,7 @@ static void
 _plugin_unload (PluginInfo *info)
 {
 #ifdef CAIRO_HAS_PS_SURFACE
+  filter_unregister_export(&eps_export_filter);
   filter_unregister_export(&ps_export_filter);
 #endif
 #ifdef CAIRO_HAS_PDF_SURFACE
@@ -226,6 +242,7 @@ dia_plugin_init(PluginInfo *info)
   png_export_filter.renderer_type = g_type_from_name ("DiaCairoInteractiveRenderer");
 
 #ifdef CAIRO_HAS_PS_SURFACE
+  filter_register_export(&eps_export_filter);
   filter_register_export(&ps_export_filter);
 #endif
 #ifdef CAIRO_HAS_PDF_SURFACE

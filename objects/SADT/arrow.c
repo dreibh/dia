@@ -19,12 +19,12 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 
-#include "intl.h"
 #include "object.h"
 #include "orth_conn.h"
 #include "connectionpoint.h"
@@ -66,10 +66,15 @@ typedef struct _Sadtarrow {
   Color line_color;
 } Sadtarrow;
 
-static ObjectChange* sadtarrow_move_handle(Sadtarrow *sadtarrow, Handle *handle,
-					   Point *to, ConnectionPoint *cp,
-					   HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* sadtarrow_move(Sadtarrow *sadtarrow, Point *to);
+
+static DiaObjectChange *sadtarrow_move_handle        (Sadtarrow        *sadtarrow,
+                                                      Handle           *handle,
+                                                      Point            *to,
+                                                      ConnectionPoint  *cp,
+                                                      HandleMoveReason  reason,
+                                                      ModifierKeys      modifiers);
+static DiaObjectChange *sadtarrow_move               (Sadtarrow        *sadtarrow,
+                                                      Point            *to);
 static void sadtarrow_select(Sadtarrow *sadtarrow, Point *clicked_point,
 			      DiaRenderer *interactive_renderer);
 static void sadtarrow_draw(Sadtarrow *sadtarrow, DiaRenderer *renderer);
@@ -197,34 +202,44 @@ sadtarrow_select(Sadtarrow *sadtarrow, Point *clicked_point,
   orthconn_update_data(&sadtarrow->orth);
 }
 
-static ObjectChange*
-sadtarrow_move_handle(Sadtarrow *sadtarrow, Handle *handle,
-		      Point *to, ConnectionPoint *cp,
-		      HandleMoveReason reason, ModifierKeys modifiers)
-{
-  ObjectChange *change;
-  assert(sadtarrow!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
 
-  change = orthconn_move_handle(&sadtarrow->orth, handle, to, cp,
-				   reason, modifiers);
-  sadtarrow_update_data(sadtarrow);
+static DiaObjectChange *
+sadtarrow_move_handle (Sadtarrow        *sadtarrow,
+                       Handle           *handle,
+                       Point            *to,
+                       ConnectionPoint  *cp,
+                       HandleMoveReason  reason,
+                       ModifierKeys      modifiers)
+{
+  DiaObjectChange *change;
+
+  g_return_val_if_fail (sadtarrow != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
+
+  change = orthconn_move_handle (&sadtarrow->orth,
+                                 handle,
+                                 to,
+                                 cp,
+                                 reason,
+                                 modifiers);
+  sadtarrow_update_data (sadtarrow);
 
   return change;
 }
 
 
-static ObjectChange*
-sadtarrow_move(Sadtarrow *sadtarrow, Point *to)
+static DiaObjectChange *
+sadtarrow_move (Sadtarrow *sadtarrow, Point *to)
 {
-  ObjectChange *change;
+  DiaObjectChange *change;
 
-  change = orthconn_move(&sadtarrow->orth, to);
-  sadtarrow_update_data(sadtarrow);
+  change = orthconn_move (&sadtarrow->orth, to);
+  sadtarrow_update_data (sadtarrow);
 
   return change;
 }
+
 
 static void draw_dot(DiaRenderer *renderer,
 		     Point *end, Point *vect, Color *col);
@@ -234,10 +249,10 @@ static void draw_tunnel(DiaRenderer *renderer,
 #define GBASE .45
 #define GMULT .55
 
+
 static void
-sadtarrow_draw(Sadtarrow *sadtarrow, DiaRenderer *renderer)
+sadtarrow_draw (Sadtarrow *sadtarrow, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   OrthConn *orth = &sadtarrow->orth;
   Point *points;
   int n;
@@ -247,9 +262,9 @@ sadtarrow_draw(Sadtarrow *sadtarrow, DiaRenderer *renderer)
   points = &orth->points[0];
   n = orth->numpoints;
 
-  renderer_ops->set_linewidth(renderer, ARROW_LINE_WIDTH);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0);
-  renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
+  dia_renderer_set_linewidth (renderer, ARROW_LINE_WIDTH);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
 
   col = sadtarrow->line_color;
   if (sadtarrow->autogray &&
@@ -264,102 +279,114 @@ sadtarrow_draw(Sadtarrow *sadtarrow, DiaRenderer *renderer)
   arrow.length = ARROW_HEAD_LENGTH;
   arrow.width = ARROW_HEAD_WIDTH;
 
-  renderer_ops->draw_rounded_polyline_with_arrows
-    (renderer, points, n, ARROW_LINE_WIDTH, &col,
-     sadtarrow->style == SADT_ARROW_DOTTED?&arrow:NULL,
-     sadtarrow->style != SADT_ARROW_DISABLED?&arrow:NULL,
-     ARROW_CORNER_RADIUS);
+  dia_renderer_draw_rounded_polyline_with_arrows (renderer,
+                                                  points,
+                                                  n,
+                                                  ARROW_LINE_WIDTH,
+                                                  &col,
+                                                  sadtarrow->style == SADT_ARROW_DOTTED?&arrow:NULL,
+                                                  sadtarrow->style != SADT_ARROW_DISABLED?&arrow:NULL,
+                                                  ARROW_CORNER_RADIUS);
 
   /* Draw the extra stuff. */
   switch (sadtarrow->style) {
-  case SADT_ARROW_IMPORTED:
-    draw_tunnel(renderer,&points[0],&points[1],&col);
-    break;
-  case SADT_ARROW_IMPLIED:
-    draw_tunnel(renderer,&points[n-1],&points[n-2],&col);
-    break;
-  case SADT_ARROW_DOTTED:
-    draw_dot(renderer,&points[n-1], &points[n-2],&col);
-    draw_dot(renderer,&points[0], &points[1],&col);
-    break;
-  case SADT_ARROW_NORMAL:
-  case SADT_ARROW_DISABLED:
-    break;
+    case SADT_ARROW_IMPORTED:
+      draw_tunnel (renderer,&points[0],&points[1],&col);
+      break;
+    case SADT_ARROW_IMPLIED:
+      draw_tunnel (renderer,&points[n-1],&points[n-2],&col);
+      break;
+    case SADT_ARROW_DOTTED:
+      draw_dot (renderer,&points[n-1], &points[n-2],&col);
+      draw_dot (renderer,&points[0], &points[1],&col);
+      break;
+    case SADT_ARROW_NORMAL:
+    case SADT_ARROW_DISABLED:
+    default:
+      break;
   }
 }
 
-static void draw_dot(DiaRenderer *renderer,
-		     Point *end, Point *vect, Color *col)
+
+static void
+draw_dot (DiaRenderer *renderer,
+          Point       *end,
+          Point       *vect,
+          Color       *col)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point vv,vp,vt,pt;
   real vlen;
   vv = *end;
-  point_sub(&vv,vect);
-  vlen = distance_point_point(vect,end);
+  point_sub (&vv,vect);
+  vlen = distance_point_point (vect,end);
   if (vlen < 1E-7) return;
-  point_scale(&vv,1/vlen);
+  point_scale (&vv,1/vlen);
 
   vp.y = vv.x;
   vp.x = -vv.y;
 
   pt = *end;
     vt = vp;
-  point_scale(&vt,ARROW_DOT_WOFFSET);
-  point_add(&pt,&vt);
+  point_scale (&vt,ARROW_DOT_WOFFSET);
+  point_add (&pt,&vt);
   vt = vv;
-  point_scale(&vt,-ARROW_DOT_LOFFSET);
-  point_add(&pt,&vt);
+  point_scale (&vt,-ARROW_DOT_LOFFSET);
+  point_add (&pt,&vt);
 
-  renderer_ops->set_fillstyle(renderer,FILLSTYLE_SOLID);
-  renderer_ops->draw_ellipse(renderer,&pt,
-			     ARROW_DOT_RADIUS,ARROW_DOT_RADIUS,
-			     col, NULL);
+  dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+  dia_renderer_draw_ellipse (renderer,
+                             &pt,
+                             ARROW_DOT_RADIUS,
+                             ARROW_DOT_RADIUS,
+                             col,
+                             NULL);
 }
 
-static void draw_tunnel(DiaRenderer *renderer,
-			     Point *end, Point *vect, Color *col)
+static void
+draw_tunnel (DiaRenderer *renderer,
+             Point       *end,
+             Point       *vect,
+             Color       *col)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point vv,vp,vt1,vt2;
   BezPoint curve1[2];
   BezPoint curve2[2];
 
   real vlen;
   vv = *end;
-  point_sub(&vv,vect);
-  vlen = distance_point_point(vect,end);
+  point_sub (&vv,vect);
+  vlen = distance_point_point (vect,end);
   if (vlen < 1E-7) return;
-  point_scale(&vv,1/vlen);
+  point_scale (&vv,1/vlen);
   vp.y = vv.x;
   vp.x = -vv.y;
 
   curve1[0].type = curve2[0].type = BEZ_MOVE_TO;
   curve1[0].p1   = curve2[0].p1   = *end;
   vt1 = vv;
-  point_scale(&vt1,-ARROW_PARENS_LOFFSET - (.5*ARROW_PARENS_LENGTH));
-  point_add(&curve1[0].p1,&vt1); point_add(&curve2[0].p1,&vt1);
+  point_scale (&vt1,-ARROW_PARENS_LOFFSET - (.5*ARROW_PARENS_LENGTH));
+  point_add (&curve1[0].p1,&vt1); point_add (&curve2[0].p1,&vt1);
                                            /* gcc, work for me, please. */
   vt2 = vp;
-  point_scale(&vt2,ARROW_PARENS_WOFFSET);
-  point_add(&curve1[0].p1,&vt2);  point_sub(&curve2[0].p1,&vt2);
+  point_scale (&vt2,ARROW_PARENS_WOFFSET);
+  point_add (&curve1[0].p1,&vt2);  point_sub (&curve2[0].p1,&vt2);
 
   vt2 = vp;
   vt1 = vv;
-  point_scale(&vt1,2.0*ARROW_PARENS_LENGTH / 6.0);
-  point_scale(&vt2,ARROW_PARENS_LENGTH / 6.0);
+  point_scale (&vt1,2.0*ARROW_PARENS_LENGTH / 6.0);
+  point_scale (&vt2,ARROW_PARENS_LENGTH / 6.0);
   curve1[1].type = curve2[1].type = BEZ_CURVE_TO;
   curve1[1].p1 = curve1[0].p1;  curve2[1].p1 = curve2[0].p1;
-  point_add(&curve1[1].p1,&vt1);  point_add(&curve2[1].p1,&vt1);
-  point_add(&curve1[1].p1,&vt2);  point_sub(&curve2[1].p1,&vt2);
+  point_add (&curve1[1].p1,&vt1);  point_add (&curve2[1].p1,&vt1);
+  point_add (&curve1[1].p1,&vt2);  point_sub (&curve2[1].p1,&vt2);
   curve1[1].p2 = curve1[1].p1;  curve2[1].p2 = curve2[1].p1;
-  point_add(&curve1[1].p2,&vt1);  point_add(&curve2[1].p2,&vt1);
+  point_add (&curve1[1].p2,&vt1);  point_add (&curve2[1].p2,&vt1);
   curve1[1].p3 = curve1[1].p2;  curve2[1].p3 = curve2[1].p2;
-  point_add(&curve1[1].p3,&vt1);  point_add(&curve2[1].p3,&vt1);
-  point_sub(&curve1[1].p3,&vt2);  point_add(&curve2[1].p3,&vt2);
+  point_add (&curve1[1].p3,&vt1);  point_add (&curve2[1].p3,&vt1);
+  point_sub (&curve1[1].p3,&vt2);  point_add (&curve2[1].p3,&vt2);
 
-  renderer_ops->draw_bezier(renderer,curve1,2,col);
-  renderer_ops->draw_bezier(renderer,curve2,2,col);
+  dia_renderer_draw_bezier (renderer,curve1,2,col);
+  dia_renderer_draw_bezier (renderer,curve2,2,col);
 }
 
 
@@ -373,7 +400,7 @@ sadtarrow_create(Point *startpoint,
   OrthConn *orth;
   DiaObject *obj;
 
-  sadtarrow = g_malloc0(sizeof(Sadtarrow));
+  sadtarrow = g_new0 (Sadtarrow, 1);
   orth = &sadtarrow->orth;
   obj = &orth->object;
 
@@ -416,45 +443,54 @@ sadtarrow_update_data(Sadtarrow *sadtarrow)
   extra->end_trans = MAX(ARROW_LINE_WIDTH/2.0,ARROW_HEAD_WIDTH/2.0);
 
   switch(sadtarrow->style) {
-  case SADT_ARROW_IMPORTED:
-    extra->start_trans = MAX(ARROW_LINE_WIDTH/2.0,
-                             ARROW_PARENS_WOFFSET + ARROW_PARENS_LENGTH/3);
-    break;
-  case SADT_ARROW_IMPLIED:
-    extra->end_trans = MAX(ARROW_LINE_WIDTH/2.0,
-                             MAX(ARROW_PARENS_WOFFSET + ARROW_PARENS_LENGTH/3,
-                                 ARROW_HEAD_WIDTH/2.0));
-    break;
-  case SADT_ARROW_DOTTED:
-    extra->start_long = extra->end_long;
-    extra->end_trans =
-      extra->start_trans = MAX(MAX(MAX(ARROW_HEAD_WIDTH,ARROW_HEAD_LENGTH),
-                                   ARROW_LINE_WIDTH/2.0),
-                               ARROW_DOT_WOFFSET+ARROW_DOT_RADIUS);
-    break;
-  default:
-    break;
+    case SADT_ARROW_IMPORTED:
+      extra->start_trans = MAX(ARROW_LINE_WIDTH/2.0,
+                              ARROW_PARENS_WOFFSET + ARROW_PARENS_LENGTH/3);
+      break;
+    case SADT_ARROW_IMPLIED:
+      extra->end_trans = MAX(ARROW_LINE_WIDTH/2.0,
+                              MAX(ARROW_PARENS_WOFFSET + ARROW_PARENS_LENGTH/3,
+                                  ARROW_HEAD_WIDTH/2.0));
+      break;
+    case SADT_ARROW_DOTTED:
+      extra->start_long = extra->end_long;
+      extra->end_trans =
+        extra->start_trans = MAX(MAX(MAX(ARROW_HEAD_WIDTH,ARROW_HEAD_LENGTH),
+                                    ARROW_LINE_WIDTH/2.0),
+                                ARROW_DOT_WOFFSET+ARROW_DOT_RADIUS);
+      break;
+    case SADT_ARROW_NORMAL:
+    case SADT_ARROW_DISABLED:
+    default:
+      break;
   }
-  orthconn_update_boundingbox(orth);
+  orthconn_update_boundingbox (orth);
 }
 
-static ObjectChange *
-sadtarrow_add_segment_callback(DiaObject *obj, Point *clicked, gpointer data)
+
+static DiaObjectChange *
+sadtarrow_add_segment_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
-  ObjectChange *change;
-  change = orthconn_add_segment((OrthConn *)obj, clicked);
-  sadtarrow_update_data((Sadtarrow *)obj);
+  DiaObjectChange *change;
+
+  change = orthconn_add_segment ((OrthConn *) obj, clicked);
+  sadtarrow_update_data ((Sadtarrow *) obj);
+
   return change;
 }
 
-static ObjectChange *
-sadtarrow_delete_segment_callback(DiaObject *obj, Point *clicked, gpointer data)
+
+static DiaObjectChange *
+sadtarrow_delete_segment_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
-  ObjectChange *change;
-  change = orthconn_delete_segment((OrthConn *)obj, clicked);
-  sadtarrow_update_data((Sadtarrow *)obj);
+  DiaObjectChange *change;
+
+  change = orthconn_delete_segment ((OrthConn *) obj, clicked);
+  sadtarrow_update_data ((Sadtarrow *) obj);
+
   return change;
 }
+
 
 static DiaMenuItem object_menu_items[] = {
   { N_("Add segment"), sadtarrow_add_segment_callback, NULL, 1 },

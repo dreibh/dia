@@ -15,10 +15,11 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef FOCUS_H
-#define FOCUS_H
+
+#pragma once
 
 #include "diatypes.h"
+#include "dia-object-change.h"
 
 struct _Focus {
   DiaObject *obj;
@@ -27,8 +28,12 @@ struct _Focus {
 
   /* return TRUE if modified object.
      Set change if object is changed. */
-  int (*key_event)(Focus *focus, guint keystate, guint keysym, const gchar *str, int strlen,
-                   ObjectChange **change);
+  int (*key_event) (Focus            *focus,
+                    guint             keystate,
+                    guint             keysym,
+                    const char       *str,
+                    int               strlen,
+                    DiaObjectChange **change);
 };
 
 void request_focus(Focus *focus);
@@ -41,9 +46,3 @@ void remove_focus_on_diagram(DiagramData *dia);
 gboolean remove_focus_object(DiaObject *obj);
 void reset_foci_on_diagram(DiagramData *dia);
 DiaObject* focus_get_object(Focus *focus);
-
-#endif /* FOCUS_H */
-
-
-
-

@@ -16,13 +16,13 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 
-#include "intl.h"
 #include "object.h"
 #include "connection.h"
 #include "diarenderer.h"
@@ -62,10 +62,10 @@ struct _Implements {
 #define HANDLE_CIRCLE_SIZE (HANDLE_CUSTOM1)
 #define HANDLE_MOVE_TEXT (HANDLE_CUSTOM2)
 
-static ObjectChange* implements_move_handle(Implements *implements, Handle *handle,
+static DiaObjectChange* implements_move_handle(Implements *implements, Handle *handle,
 					    Point *to, ConnectionPoint *cp,
 					    HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* implements_move(Implements *implements, Point *to);
+static DiaObjectChange* implements_move(Implements *implements, Point *to);
 static void implements_select(Implements *implements, Point *clicked_point,
 			      DiaRenderer *interactive_renderer);
 static void implements_draw(Implements *implements, DiaRenderer *renderer);
@@ -197,16 +197,20 @@ implements_select(Implements *implements, Point *clicked_point,
   connection_update_handles(&implements->connection);
 }
 
-static ObjectChange*
-implements_move_handle(Implements *implements, Handle *handle,
-		       Point *to, ConnectionPoint *cp,
-		       HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+implements_move_handle (Implements       *implements,
+                        Handle           *handle,
+                        Point            *to,
+                        ConnectionPoint  *cp,
+                        HandleMoveReason  reason,
+                        ModifierKeys      modifiers)
 {
   Point v1, v2;
 
-  assert(implements!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+  g_return_val_if_fail (implements != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
   if (handle->id == HANDLE_MOVE_TEXT) {
     implements->text_pos = *to;
@@ -233,7 +237,7 @@ implements_move_handle(Implements *implements, Handle *handle,
   return NULL;
 }
 
-static ObjectChange*
+static DiaObjectChange*
 implements_move(Implements *implements, Point *to)
 {
   Point start_to_end;
@@ -257,35 +261,39 @@ implements_move(Implements *implements, Point *to)
 }
 
 static void
-implements_draw(Implements *implements, DiaRenderer *renderer)
+implements_draw (Implements *implements, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point *endpoints;
 
-  assert(implements != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (implements != NULL);
+  g_return_if_fail (renderer != NULL);
 
   endpoints = &implements->connection.endpoints[0];
 
-  renderer_ops->set_linewidth(renderer, implements->line_width);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
-  renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
+  dia_renderer_set_linewidth (renderer, implements->line_width);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
 
-  renderer_ops->draw_line(renderer,
-			   &endpoints[0], &endpoints[1],
-			   &implements->line_color);
-  renderer_ops->draw_ellipse(renderer, &implements->circle_center,
-			      implements->circle_diameter,
-			      implements->circle_diameter,
-			      &color_white, &implements->line_color);
+  dia_renderer_draw_line (renderer,
+                          &endpoints[0],
+                          &endpoints[1],
+                          &implements->line_color);
+  dia_renderer_draw_ellipse (renderer,
+                             &implements->circle_center,
+                             implements->circle_diameter,
+                             implements->circle_diameter,
+                             &color_white,
+                             &implements->line_color);
 
 
-  renderer_ops->set_font(renderer, implements->font, implements->font_height);
-  if (implements->text)
-    renderer_ops->draw_string(renderer,
-			       implements->text,
-			       &implements->text_pos, ALIGN_LEFT,
-			       &implements->text_color);
+  dia_renderer_set_font (renderer, implements->font, implements->font_height);
+  if (implements->text) {
+    dia_renderer_draw_string (renderer,
+                              implements->text,
+                              &implements->text_pos,
+                              DIA_ALIGN_LEFT,
+                              &implements->text_color);
+  }
 }
 
 static DiaObject *
@@ -299,7 +307,7 @@ implements_create(Point *startpoint,
   DiaObject *obj;
   Point defaultlen = { 1.0, 1.0 };
 
-  implements = g_malloc0(sizeof(Implements));
+  implements = g_new0 (Implements, 1);
 
   /* old defaults */
   implements->font_height = 0.8;
@@ -348,11 +356,11 @@ implements_create(Point *startpoint,
 
 
 static void
-implements_destroy(Implements *implements)
+implements_destroy (Implements *implements)
 {
-  connection_destroy(&implements->connection);
-  dia_font_unref(implements->font);
-  g_free(implements->text);
+  connection_destroy (&implements->connection);
+  g_clear_object (&implements->font);
+  g_clear_pointer (&implements->text, g_free);
 }
 
 static void
@@ -364,7 +372,7 @@ implements_update_data(Implements *implements)
   Point delta;
   Point point;
   real len;
-  Rectangle rect;
+  DiaRectangle rect;
 
   implements->text_width = 0.0;
   if (implements->text)

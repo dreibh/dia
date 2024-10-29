@@ -19,16 +19,17 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 
-#include "intl.h"
 #include "object.h"
 #include "beziershape.h"
 #include "connectionpoint.h"
 #include "diarenderer.h"
+#include "diainteractiverenderer.h"
 #include "attributes.h"
 #include "diamenu.h"
 #include "properties.h"
@@ -46,12 +47,12 @@ typedef struct _Beziergon {
   BezierShape bezier;
 
   Color line_color;
-  LineStyle line_style;
-  LineJoin line_join;
+  DiaLineStyle line_style;
+  DiaLineJoin line_join;
   Color inner_color;
   gboolean show_background;
-  real dashlength;
-  real line_width;
+  double dashlength;
+  double line_width;
   DiaPattern *pattern;
 } Beziergon;
 
@@ -61,10 +62,15 @@ static struct _BeziergonProperties {
   gboolean show_background;
 } default_properties = { TRUE };
 
-static ObjectChange* beziergon_move_handle(Beziergon *beziergon, Handle *handle,
-					   Point *to, ConnectionPoint *cp,
-					   HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* beziergon_move(Beziergon *beziergon, Point *to);
+
+static DiaObjectChange* beziergon_move_handle       (Beziergon        *beziergon,
+                                                     Handle           *handle,
+                                                     Point            *to,
+                                                     ConnectionPoint  *cp,
+                                                     HandleMoveReason  reason,
+                                                     ModifierKeys      modifiers);
+static DiaObjectChange* beziergon_move              (Beziergon        *beziergon,
+                                                     Point            *to);
 static void beziergon_select(Beziergon *beziergon, Point *clicked_point,
 			     DiaRenderer *interactive_renderer);
 static void beziergon_draw(Beziergon *beziergon, DiaRenderer *renderer);
@@ -183,36 +189,39 @@ beziergon_select(Beziergon *beziergon, Point *clicked_point,
   beziershape_update_data(&beziergon->bezier);
 }
 
-static ObjectChange*
-beziergon_move_handle(Beziergon *beziergon, Handle *handle,
-		      Point *to, ConnectionPoint *cp,
-		      HandleMoveReason reason, ModifierKeys modifiers)
-{
-  assert(beziergon!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
 
-  beziershape_move_handle(&beziergon->bezier, handle, to, cp, reason, modifiers);
-  beziergon_update_data(beziergon);
+static DiaObjectChange *
+beziergon_move_handle (Beziergon        *beziergon,
+                       Handle           *handle,
+                       Point            *to,
+                       ConnectionPoint  *cp,
+                       HandleMoveReason  reason,
+                       ModifierKeys      modifiers)
+{
+  g_return_val_if_fail (beziergon != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
+
+  beziershape_move_handle (&beziergon->bezier, handle, to, cp, reason, modifiers);
+  beziergon_update_data (beziergon);
 
   return NULL;
 }
 
 
-static ObjectChange*
-beziergon_move(Beziergon *beziergon, Point *to)
+static DiaObjectChange *
+beziergon_move (Beziergon *beziergon, Point *to)
 {
-  beziershape_move(&beziergon->bezier, to);
-  beziergon_update_data(beziergon);
+  beziershape_move (&beziergon->bezier, to);
+  beziergon_update_data (beziergon);
 
   return NULL;
 }
+
 
 static void
-beziergon_draw(Beziergon *beziergon, DiaRenderer *renderer)
+beziergon_draw (Beziergon *beziergon, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
-
   BezierShape *bez = &beziergon->bezier;
   BezPoint *points;
   int n;
@@ -220,29 +229,31 @@ beziergon_draw(Beziergon *beziergon, DiaRenderer *renderer)
   points = &bez->bezier.points[0];
   n = bez->bezier.num_points;
 
-  renderer_ops->set_linewidth(renderer, beziergon->line_width);
-  renderer_ops->set_linestyle(renderer, beziergon->line_style, beziergon->dashlength);
-  renderer_ops->set_linejoin(renderer, beziergon->line_join);
-  renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
+  dia_renderer_set_linewidth (renderer, beziergon->line_width);
+  dia_renderer_set_linestyle (renderer, beziergon->line_style, beziergon->dashlength);
+  dia_renderer_set_linejoin (renderer, beziergon->line_join);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
 
   if (beziergon->show_background) {
     Color fill = beziergon->inner_color;
     if (beziergon->pattern) {
       dia_pattern_get_fallback_color (beziergon->pattern, &fill);
-      if (renderer_ops->is_capable_to(renderer, RENDER_PATTERN))
-        renderer_ops->set_pattern (renderer, beziergon->pattern);
+      if (dia_renderer_is_capable_of (renderer, RENDER_PATTERN)) {
+        dia_renderer_set_pattern (renderer, beziergon->pattern);
+      }
     }
-    renderer_ops->draw_beziergon(renderer, points, n, &fill, &beziergon->line_color);
-    if (renderer_ops->is_capable_to(renderer, RENDER_PATTERN))
-      renderer_ops->set_pattern (renderer, NULL);
+    dia_renderer_draw_beziergon (renderer, points, n, &fill, &beziergon->line_color);
+    if (dia_renderer_is_capable_of (renderer, RENDER_PATTERN)) {
+      dia_renderer_set_pattern (renderer, NULL);
+    }
   } else { /* still to be closed */
-    renderer_ops->draw_beziergon(renderer, points, n, NULL, &beziergon->line_color);
+    dia_renderer_draw_beziergon (renderer, points, n, NULL, &beziergon->line_color);
   }
   /* these lines should only be displayed when object is selected.
    * Unfortunately the draw function is not aware of the selected
    * state.  This is a compromise until I fix this properly. */
-  if (renderer->is_interactive &&
-      dia_object_is_selected((DiaObject*)beziergon)) {
+  if (DIA_IS_INTERACTIVE_RENDERER (renderer) &&
+      dia_object_is_selected (DIA_OBJECT (beziergon))) {
     bezier_draw_control_lines (beziergon->bezier.bezier.num_points, beziergon->bezier.bezier.points, renderer);
   }
 }
@@ -260,7 +271,7 @@ beziergon_create(Point *startpoint,
   Point defaulty = { 0.0, 1.0 };
 
   beziergon = g_new0(Beziergon, 1);
-  beziergon->bezier.object.enclosing_box = g_new0 (Rectangle, 1);
+  beziergon->bezier.object.enclosing_box = g_new0 (DiaRectangle, 1);
   bez = &beziergon->bezier;
   obj = &bez->object;
 
@@ -294,9 +305,9 @@ beziergon_create(Point *startpoint,
   beziergon->line_width =  attributes_get_default_linewidth();
   beziergon->line_color = attributes_get_foreground();
   beziergon->inner_color = attributes_get_background();
-  attributes_get_default_line_style(&beziergon->line_style,
-				    &beziergon->dashlength);
-  beziergon->line_join = LINEJOIN_MITER;
+  attributes_get_default_line_style (&beziergon->line_style,
+                                     &beziergon->dashlength);
+  beziergon->line_join = DIA_LINE_JOIN_MITER;
   beziergon->show_background = default_properties.show_background;
 
   beziergon_update_data(beziergon);
@@ -306,15 +317,15 @@ beziergon_create(Point *startpoint,
   return &beziergon->bezier.object;
 }
 
+
 static void
 beziergon_destroy(Beziergon *beziergon)
 {
-  if (beziergon->pattern)
-    g_object_unref (beziergon->pattern);
-  g_free (beziergon->bezier.object.enclosing_box);
-  beziergon->bezier.object.enclosing_box = NULL;
-  beziershape_destroy(&beziergon->bezier);
+  g_clear_object (&beziergon->pattern);
+  g_clear_pointer (&beziergon->bezier.object.enclosing_box, g_free);
+  beziershape_destroy (&beziergon->bezier);
 }
+
 
 static DiaObject *
 beziergon_copy(Beziergon *beziergon)
@@ -324,8 +335,8 @@ beziergon_copy(Beziergon *beziergon)
 
   bezier = &beziergon->bezier;
 
-  newbeziergon = g_malloc0(sizeof(Beziergon));
-  newbeziergon->bezier.object.enclosing_box = g_new0 (Rectangle, 1);
+  newbeziergon = g_new0 (Beziergon, 1);
+  newbeziergon->bezier.object.enclosing_box = g_new0 (DiaRectangle, 1);
   newbezier = &newbeziergon->bezier;
 
   beziershape_copy(bezier, newbezier);
@@ -391,18 +402,20 @@ beziergon_save(Beziergon *beziergon, ObjectNode obj_node,
   data_add_boolean(new_attribute(obj_node, "show_background"),
 		   beziergon->show_background, ctx);
 
-  if (beziergon->line_style != LINESTYLE_SOLID)
+  if (beziergon->line_style != DIA_LINE_STYLE_SOLID)
     data_add_enum(new_attribute(obj_node, "line_style"),
 		  beziergon->line_style, ctx);
 
-  if (beziergon->line_style != LINESTYLE_SOLID &&
+  if (beziergon->line_style != DIA_LINE_STYLE_SOLID &&
       beziergon->dashlength != DEFAULT_LINESTYLE_DASHLEN)
     data_add_real(new_attribute(obj_node, "dashlength"),
 		  beziergon->dashlength, ctx);
 
-  if (beziergon->line_join != LINEJOIN_MITER)
-    data_add_enum(new_attribute(obj_node, "line_join"),
-                  beziergon->line_join, ctx);
+  if (beziergon->line_join != DIA_LINE_JOIN_MITER) {
+    data_add_enum (new_attribute (obj_node, "line_join"),
+                   beziergon->line_join,
+                   ctx);
+  }
 
   if (beziergon->pattern)
     data_add_pattern(new_attribute(obj_node, "pattern"),
@@ -417,8 +430,8 @@ beziergon_load(ObjectNode obj_node, int version, DiaContext *ctx)
   DiaObject *obj;
   AttributeNode attr;
 
-  beziergon = g_malloc0(sizeof(Beziergon));
-  beziergon->bezier.object.enclosing_box = g_new0 (Rectangle, 1);
+  beziergon = g_new0 (Beziergon, 1);
+  beziergon->bezier.object.enclosing_box = g_new0 (DiaRectangle, 1);
 
   bez = &beziergon->bezier;
   obj = &bez->object;
@@ -448,15 +461,16 @@ beziergon_load(ObjectNode obj_node, int version, DiaContext *ctx)
   if (attr != NULL)
     beziergon->show_background = data_boolean(attribute_first_data(attr), ctx);
 
-  beziergon->line_style = LINESTYLE_SOLID;
+  beziergon->line_style = DIA_LINE_STYLE_SOLID;
   attr = object_find_attribute(obj_node, "line_style");
   if (attr != NULL)
     beziergon->line_style = data_enum(attribute_first_data(attr), ctx);
 
-  beziergon->line_join = LINEJOIN_MITER;
-  attr = object_find_attribute(obj_node, "line_join");
-  if (attr != NULL)
-    beziergon->line_join = data_enum(attribute_first_data(attr), ctx);
+  beziergon->line_join = DIA_LINE_JOIN_MITER;
+  attr = object_find_attribute (obj_node, "line_join");
+  if (attr != NULL) {
+    beziergon->line_join = data_enum (attribute_first_data (attr), ctx);
+  }
 
   beziergon->dashlength = DEFAULT_LINESTYLE_DASHLEN;
   attr = object_find_attribute(obj_node, "dashlength");
@@ -472,12 +486,13 @@ beziergon_load(ObjectNode obj_node, int version, DiaContext *ctx)
   return &beziergon->bezier.object;
 }
 
-static ObjectChange *
+
+static DiaObjectChange *
 beziergon_add_segment_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
   Beziergon *bezier = (Beziergon*) obj;
   int segment;
-  ObjectChange *change;
+  DiaObjectChange *change;
 
   segment = beziergon_closest_segment(bezier, clicked);
   change = beziershape_add_segment(&bezier->bezier, segment, clicked);
@@ -486,12 +501,13 @@ beziergon_add_segment_callback (DiaObject *obj, Point *clicked, gpointer data)
   return change;
 }
 
-static ObjectChange *
+
+static DiaObjectChange *
 beziergon_delete_segment_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
   int seg_nr;
   Beziergon *bezier = (Beziergon*) obj;
-  ObjectChange *change;
+  DiaObjectChange *change;
 
   seg_nr = beziergon_closest_segment(bezier, clicked);
   change = beziershape_remove_segment(&bezier->bezier, seg_nr+1);
@@ -500,12 +516,13 @@ beziergon_delete_segment_callback (DiaObject *obj, Point *clicked, gpointer data
   return change;
 }
 
-static ObjectChange *
+
+static DiaObjectChange *
 beziergon_set_corner_type_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
   Handle *closest;
   Beziergon *beziergon = (Beziergon *) obj;
-  ObjectChange *change;
+  DiaObjectChange *change;
 
   closest = beziershape_closest_major_handle(&beziergon->bezier, clicked);
   change = beziershape_set_corner_type(&beziergon->bezier, closest,

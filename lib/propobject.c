@@ -27,7 +27,9 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <string.h>
 
@@ -35,32 +37,34 @@
 #include "properties.h"
 #include "propinternals.h"
 #include "object.h"
+#include "dia-object-change-list.h"
+
 
 const PropDescription *
-object_get_prop_descriptions(const DiaObject *obj) {
+object_get_prop_descriptions (const DiaObject *obj)
+{
   const PropDescription *pdesc;
-  if (!obj->ops->describe_props) return NULL;
 
-  pdesc = obj->ops->describe_props((DiaObject *)obj); /* Yes... */
+  pdesc = dia_object_describe_properties (DIA_OBJECT (obj)); /* Yes... */
   if (!pdesc) return NULL;
 
   if (pdesc[0].quark != 0) return pdesc;
 
-  prop_desc_list_calculate_quarks((PropDescription *)pdesc); /* Yes again... */
+  prop_desc_list_calculate_quarks ((PropDescription *) pdesc); /* Yes again... */
   return pdesc;
 }
 
 const PropDescription *
-object_list_get_prop_descriptions(GList *objects, PropMergeOption option)
+object_list_get_prop_descriptions (GList *objects, PropMergeOption option)
 {
   GList *descs = NULL, *tmp;
   const PropDescription *pdesc;
 
   for (tmp = objects; tmp != NULL; tmp = tmp->next) {
     DiaObject *obj = tmp->data;
-    const PropDescription *desc = object_get_prop_descriptions(obj);
+    const PropDescription *desc = object_get_prop_descriptions (obj);
 
-    if (desc) descs = g_list_append(descs, (gpointer)desc);
+    if (desc) descs = g_list_append (descs, (gpointer)desc);
   }
 
   /* use intersection for single object's list because it is more
@@ -102,82 +106,99 @@ object_get_props(DiaObject *obj, GPtrArray *props)
 /* ------------------------------------------------------ */
 /* Change management                                      */
 
-/* an ObjectChange structure for setting of properties */
-typedef struct _ObjectPropChange ObjectPropChange;
-struct _ObjectPropChange {
-  ObjectChange obj_change;
+/* an DiaObjectChange structure for setting of properties */
+struct _DiaPropObjectChange {
+  DiaObjectChange obj_change;
 
   DiaObject *obj;
   GPtrArray *saved_props;
 };
 
+
+DIA_DEFINE_OBJECT_CHANGE (DiaPropObjectChange, dia_prop_object_change)
+
+
 static void
-object_prop_change_apply_revert(ObjectPropChange *change, DiaObject *obj)
+dia_prop_object_change_apply_revert (DiaPropObjectChange *change, DiaObject *obj)
 {
   GPtrArray *old_props;
 
-  old_props = prop_list_copy_empty(change->saved_props);
+  old_props = prop_list_copy_empty (change->saved_props);
 
-  if (change->obj->ops->get_props)
-    change->obj->ops->get_props(change->obj, old_props);
+  dia_object_get_properties (change->obj, old_props);
 
   /* set saved property values */
-  if (change->obj->ops->set_props)
-    change->obj->ops->set_props(change->obj, change->saved_props);
+  dia_object_set_properties (change->obj, change->saved_props);
 
   /* move old props to saved properties */
-  prop_list_free(change->saved_props);
+  prop_list_free (change->saved_props);
   change->saved_props = old_props;
 }
 
+
 static void
-object_prop_change_free(ObjectPropChange *change)
+dia_prop_object_change_apply (DiaObjectChange *self, DiaObject *obj)
 {
-  prop_list_free(change->saved_props);
+  dia_prop_object_change_apply_revert (DIA_PROP_OBJECT_CHANGE (self), obj);
 }
 
-ObjectChange *
-object_apply_props(DiaObject *obj, GPtrArray *props)
+
+static void
+dia_prop_object_change_revert (DiaObjectChange *self, DiaObject *obj)
 {
-  ObjectPropChange *change;
+  dia_prop_object_change_apply_revert (DIA_PROP_OBJECT_CHANGE (self), obj);
+}
+
+
+static void
+dia_prop_object_change_free (DiaObjectChange *self)
+{
+  DiaPropObjectChange *change = DIA_PROP_OBJECT_CHANGE (self);
+
+  prop_list_free (change->saved_props);
+}
+
+
+DiaObjectChange *
+object_apply_props (DiaObject *obj, GPtrArray *props)
+{
+  DiaPropObjectChange *change;
   GPtrArray *old_props;
 
-  change = g_new0(ObjectPropChange, 1);
-
-  change->obj_change.apply =
-    (ObjectChangeApplyFunc) object_prop_change_apply_revert;
-  change->obj_change.revert =
-    (ObjectChangeRevertFunc) object_prop_change_apply_revert;
-  change->obj_change.free =
-    (ObjectChangeFreeFunc) object_prop_change_free;
+  change = dia_object_change_new (DIA_TYPE_PROP_OBJECT_CHANGE);
 
   change->obj = obj;
 
   /* create new properties structure with current values */
-  old_props = prop_list_copy_empty(props);
+  old_props = prop_list_copy_empty (props);
 
-  if (obj->ops->get_props)
-    obj->ops->get_props(obj, old_props);
+  dia_object_get_properties (obj, old_props);
 
   /* set saved property values */
-  if (obj->ops->set_props)
-    obj->ops->set_props(obj, props);
+  dia_object_set_properties (obj, props);
 
   change->saved_props = old_props;
 
-  return (ObjectChange *)change;
+  return DIA_OBJECT_CHANGE (change);
 }
 
-/*!
+
+/**
+ * object_toggle_prop:
+ * @obj: the #DiaObject
+ * @pname: the property name
+ * @val: the new value
+ *
  * Toggle a boolean property including change management
  */
-ObjectChange *
+DiaObjectChange *
 object_toggle_prop (DiaObject *obj, const char *pname, gboolean val)
 {
   Property *prop = make_new_prop (pname, PROP_TYPE_BOOL, 0);
   GPtrArray *plist = prop_list_from_single (prop);
 
   ((BoolProperty *)prop)->bool_data = val;
+
   return object_apply_props (obj, plist);
 }
 
@@ -219,36 +240,30 @@ object_list_create_props_dialog(GList *objects, gboolean is_default)
 }
 
 
-ObjectChange *
-object_apply_props_from_dialog(DiaObject *obj, WIDGET *dialog_widget)
+DiaObjectChange *
+object_apply_props_from_dialog (DiaObject *obj, WIDGET *dialog_widget)
 {
-  ObjectChange *change;
-  PropDialog *dialog = prop_dialog_from_widget(dialog_widget);
+  DiaObjectChange *change;
+  PropDialog *dialog = prop_dialog_from_widget (dialog_widget);
   GPtrArray *props = g_ptr_array_new ();
   guint i;
 
-  prop_get_data_from_widgets(dialog);
+  prop_get_data_from_widgets (dialog);
   /* only stuff which is actually changed */
   for (i = 0; i < dialog->props->len; ++i) {
     Property *p = g_ptr_array_index (dialog->props, i);
-    if (p->descr->flags & PROP_FLAG_WIDGET_ONLY)
+    if (p->descr->flags & PROP_FLAG_WIDGET_ONLY) {
       continue;
-    if ((p->experience & PXP_NOTSET) == 0)
-      g_ptr_array_add(props, p);
+    }
+    if ((p->experience & PXP_NOTSET) == 0) {
+      g_ptr_array_add (props, p);
+    }
   }
-  /* with an empty list there is no change at all but simply
-   * returning NULL is against the contract ...
-   */
-  if (!obj->ops->apply_properties_list) {
-    g_warning("using a fallback function to apply properties;"
-              " undo may not work correctly");
-    change = object_apply_props(obj, props);
-  } else {
-    change = obj->ops->apply_properties_list(obj, props);
-  }
-  g_ptr_array_free(props, TRUE);
+  change = dia_object_apply_properties (obj, props);
+  g_ptr_array_free (props, TRUE);
   return change;
 }
+
 
 gboolean
 objects_comply_with_stdprop(GList *objects)
@@ -267,18 +282,6 @@ objects_comply_with_stdprop(GList *objects)
 gboolean
 object_complies_with_stdprop(const DiaObject *obj)
 {
-  if (obj->ops->set_props == NULL) {
-    g_warning("No set_props !");
-    return FALSE;
-  }
-  if (obj->ops->get_props == NULL) {
-    g_warning("No get_props !");
-    return FALSE;
-  }
-  if (obj->ops->describe_props == NULL) {
-    g_warning("No describe_props !");
-    return FALSE;
-  }
   if (object_get_prop_descriptions(obj) == NULL) {
     g_warning("No properties !");
     return FALSE;
@@ -287,13 +290,13 @@ object_complies_with_stdprop(const DiaObject *obj)
 }
 
 void
-object_list_get_props(GList *objects, GPtrArray *props)
+object_list_get_props (GList *objects, GPtrArray *props)
 {
   GList *tmp = objects;
 
   for (; tmp != NULL; tmp = tmp->next) {
-    DiaObject *obj = (DiaObject*)tmp->data;
-    obj->ops->get_props(obj,props);
+    DiaObject *obj = (DiaObject*) tmp->data;
+    dia_object_get_properties (obj, props);
   }
 }
 
@@ -304,27 +307,24 @@ pdtpp_do_save_no_standard_default (const PropDescription *pdesc)
 }
 
 void
-object_copy_props(DiaObject *dest, const DiaObject *src, gboolean is_default)
+object_copy_props (DiaObject *dest, const DiaObject *src, gboolean is_default)
 {
   GPtrArray *props;
 
-  g_return_if_fail(src != NULL);
-  g_return_if_fail(dest != NULL);
-  g_return_if_fail(strcmp(src->type->name,dest->type->name)==0);
-  g_return_if_fail(src->ops == dest->ops);
-  g_return_if_fail(object_complies_with_stdprop(src));
-  g_return_if_fail(object_complies_with_stdprop(dest));
+  g_return_if_fail (src != NULL);
+  g_return_if_fail (dest != NULL);
+  g_return_if_fail (g_strcmp0 (src->type->name, dest->type->name) == 0);
+  g_return_if_fail (object_complies_with_stdprop (src));
+  g_return_if_fail (object_complies_with_stdprop (dest));
 
-  props = prop_list_from_descs(object_get_prop_descriptions(src),
-                               (is_default?pdtpp_do_save_no_standard_default:
-				pdtpp_do_save));
+  props = prop_list_from_descs (object_get_prop_descriptions (src),
+                                (is_default ? pdtpp_do_save_no_standard_default:
+                                              pdtpp_do_save));
 
-  src->ops->get_props((DiaObject *)src, props); /* FIXME: really should make
-                                                get_props' first argument
-                                                a (const DiaObject *) */
-  dest->ops->set_props(dest, props);
+  dia_object_get_properties ((DiaObject *) src, props);
+  dia_object_set_properties (dest, props);
 
-  prop_list_free(props);
+  prop_list_free (props);
 }
 
 void
@@ -343,8 +343,8 @@ object_load_props(DiaObject *obj, ObjectNode obj_node, DiaContext *ctx)
     /* context already has the message */
   }
 
-  obj->ops->set_props(obj, props);
-  prop_list_free(props);
+  dia_object_set_properties (obj, props);
+  prop_list_free (props);
 }
 
 void
@@ -359,9 +359,9 @@ object_save_props(DiaObject *obj, ObjectNode obj_node, DiaContext *ctx)
   props = prop_list_from_descs(object_get_prop_descriptions(obj),
                                pdtpp_do_save);
 
-  obj->ops->get_props(obj, props);
-  prop_list_save(props,obj_node,ctx);
-  prop_list_free(props);
+  dia_object_get_properties (obj, props);
+  prop_list_save (props, obj_node, ctx);
+  prop_list_free (props);
 }
 
 Property *
@@ -385,132 +385,144 @@ object_prop_by_name_type(DiaObject *obj, const char *name, const char *type)
         plist = g_ptr_array_new();
         g_ptr_array_set_size(plist,1);
       }
-      prop = pdesc->ops->new_prop(pdesc,pdtpp_from_object);
-      g_ptr_array_index(plist,0) = prop;
-      obj->ops->get_props(obj,plist);
+      prop = pdesc->ops->new_prop (pdesc, pdtpp_from_object);
+      g_ptr_array_index (plist, 0) = prop;
+      dia_object_get_properties (obj, plist);
       return prop;
     }
   }
   return NULL;
 }
 
+
 Property *
-object_prop_by_name(DiaObject *obj, const char *name)
+object_prop_by_name (DiaObject *obj, const char *name)
 {
-  return object_prop_by_name_type(obj,name,NULL);
+  return object_prop_by_name_type (obj, name,NULL);
 }
 
-/*!
- * \brief Modification of the objects 'pixbuf' property
+
+/**
+ * dia_object_set_pixbuf:
+ * @object: object to modify
+ * @pixbuf: the pixbuf to set
  *
- * @param object object to modify
- * @param pixbuf the pixbuf to set
- * @return an object change or NULL
+ * Modification of the objects 'pixbuf' property
  *
  * If the object does not have a pixbuf property nothing
  * happens. If there is a pixbuf property and the passed
  * in pixbuf is identical an empty change is returned.
  *
- * \memberof _DiaObject
- * \ingroup StdProps
+ * Returns: #DiaObjectChange or %NULL
  */
-ObjectChange *
+DiaObjectChange *
 dia_object_set_pixbuf (DiaObject *object,
-		       GdkPixbuf *pixbuf)
+                       GdkPixbuf *pixbuf)
 {
-  ObjectChange *change;
+  DiaObjectChange *change;
   GPtrArray *props;
   PixbufProperty *pp;
   Property *prop = object_prop_by_name_type (object, "pixbuf", PROP_TYPE_PIXBUF);
 
-  if (!prop)
+  if (!prop) {
     return NULL;
-  pp = (PixbufProperty *)prop;
-  if (pp->pixbuf == pixbuf)
-    return change_list_create ();
-  if (pp->pixbuf)
-    g_object_unref (pp->pixbuf);
-  pp->pixbuf = g_object_ref (pixbuf);
+  }
+
+  pp = (PixbufProperty *) prop;
+  if (pp->pixbuf == pixbuf) {
+    return dia_object_change_list_new ();
+  }
+
+  g_set_object (&pp->pixbuf, pixbuf);
+
   props = prop_list_from_single (prop);
   change = object_apply_props (object, props);
   prop_list_free (props);
   return change;
 }
 
-/*!
- * \brief Modification of the objects 'pattern' property
+
+/**
+ * dia_object_set_pattern:
+ * @object: object to modify
+ * @pattern: the pattern to set
  *
- * @param object object to modify
- * @param pattern the pattern to set
- * @return an object change or NULL
+ * Modification of the objects 'pattern' property
  *
  * If the object does not have a pattern property nothing
  * happens. If there is a pattern property and the passed
  * in pattern is identical an empty change is returned.
  *
- * \memberof _DiaObject
- * \ingroup StdProps
+ * Returns: #DiaObjectChange or %NULL
  */
-ObjectChange *
+DiaObjectChange *
 dia_object_set_pattern (DiaObject  *object,
-			DiaPattern *pattern)
+                        DiaPattern *pattern)
 {
-  ObjectChange *change;
+  DiaObjectChange *change;
   GPtrArray *props;
   PatternProperty *pp;
   Property *prop = object_prop_by_name_type (object, "pattern", PROP_TYPE_PATTERN);
 
-  if (!prop)
+  if (!prop) {
     return NULL;
-  pp = (PatternProperty *)prop;
-  if (pp->pattern == pattern)
-    return change_list_create ();
-  if (pp->pattern)
-    g_object_unref (pp->pattern);
-  pp->pattern = g_object_ref (pattern);
+  }
+
+  pp = (PatternProperty *) prop;
+  if (pp->pattern == pattern) {
+    return dia_object_change_list_new ();
+  }
+
+  g_set_object (&pp->pattern, pattern);
+
   props = prop_list_from_single (prop);
   change = object_apply_props (object, props);
   prop_list_free (props);
   return change;
 }
 
-/*!
- * \brief Modify the objects string property
- * @param object the object to modify
- * @param name the name of the string property (NULL for any)
- * @param value the value to set, NULL to delete
- * @return object change on sucess, NULL if not found
+
+/**
+ * dia_object_set_string:
+ * @object: the object to modify
+ * @name: the name of the string property (%NULL for any)
+ * @value: the value to set, %NULL to delete
  *
- * Usually you should not pass NULL for the name, the facility
+ * Modify the objects string property
+ *
+ * Usually you should not pass %NULL for the name, the facility
  * was added for convenience of the unit test.
  *
- * \memberof _DiaObject
- * \ingroup StdProps
+ * Returns: #DiaObjectChange on success, %NULL if @name not found
  */
-ObjectChange *
-dia_object_set_string (DiaObject *object,
-		       const char *name,
-		       const char *value)
+DiaObjectChange *
+dia_object_set_string (DiaObject  *object,
+                       const char *name,
+                       const char *value)
 {
-  ObjectChange *change;
+  DiaObjectChange *change;
   GPtrArray *props = NULL;
   Property *prop = object_prop_by_name_type (object, name, PROP_TYPE_STRING);
 
-  if (!prop)
+  if (!prop) {
     prop = object_prop_by_name_type (object, name, PROP_TYPE_FILE);
+  }
+
   if (prop) {
     StringProperty *pp = (StringProperty *)prop;
-    g_free (pp->string_data);
+    g_clear_pointer (&pp->string_data, g_free);
     pp->string_data = g_strdup (value);
     props = prop_list_from_single (prop);
   } else if ((prop = object_prop_by_name_type (object, name, PROP_TYPE_TEXT)) != NULL) {
     TextProperty *pp = (TextProperty *)prop;
-    g_free (pp->text_data);
+    g_clear_pointer (&pp->text_data, g_free);
     pp->text_data = g_strdup (value);
     props = prop_list_from_single (prop);
   }
-  if (!props)
+
+  if (!props) {
     return NULL;
+  }
 
   change = object_apply_props (object, props);
   prop_list_free (props);

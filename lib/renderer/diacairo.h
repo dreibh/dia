@@ -21,6 +21,7 @@
 
 #include <cairo.h>
 #include "diarenderer.h"
+#include "diainteractiverenderer.h"
 
 /*
 #define DEBUG_CAIRO
@@ -41,16 +42,9 @@
 /* --- the renderer base class --- */
 G_BEGIN_DECLS
 
-#define DIA_TYPE_CAIRO_RENDERER           (dia_cairo_renderer_get_type ())
-#define DIA_CAIRO_RENDERER(obj)           (G_TYPE_CHECK_INSTANCE_CAST ((obj), DIA_TYPE_CAIRO_RENDERER, DiaCairoRenderer))
-#define DIA_CAIRO_RENDERER_CLASS(klass)   (G_TYPE_CHECK_CLASS_CAST ((klass), DIA_TYPE_CAIRO_RENDERER, DiaCairoRendererClass))
-#define DIA_IS_CAIRO_RENDERER(obj)        (G_TYPE_CHECK_INSTANCE_TYPE ((obj), DIA_TYPE_CAIRO_RENDERER))
-#define DIA_CAIRO_RENDERER_GET_CLASS(obj) (G_TYPE_INSTANCE_GET_CLASS ((obj), DIA_CAIRO_TYPE_RENDERER, DiaCairoRendererClass))
+#define DIA_CAIRO_TYPE_RENDERER dia_cairo_renderer_get_type ()
 
-GType dia_cairo_renderer_get_type (void) G_GNUC_CONST;
-
-typedef struct _DiaCairoRenderer DiaCairoRenderer;
-typedef struct _DiaCairoRendererClass DiaCairoRendererClass;
+G_DECLARE_FINAL_TYPE (DiaCairoRenderer, dia_cairo_renderer, DIA_CAIRO, RENDERER, DiaRenderer)
 
 /*!
  * \brief Multi format renderer based on cairo API (http://cairographics.org)
@@ -58,7 +52,7 @@ typedef struct _DiaCairoRendererClass DiaCairoRendererClass;
  * The DiaCairoRenderer supports various output formats depending on the build
  * configuration of libcairo. Typically these include SVG, PNG, PDF, PostScript
  * and the display of the windowing system in use.
- * Also - with a recent enough GTK+ version the cairo renderer is interfacing 
+ * Also - with a recent enough GTK+ version the cairo renderer is interfacing
  * the native printing subsystem.
  * Finally - only on Windows - there is usually support for Windows Metafiles
 * (WMF and EMF), the latter used for Clipboard transport of the whole diagram.
@@ -81,18 +75,17 @@ struct _DiaCairoRenderer
   /** caching the font description from set_font */
   PangoLayout *layout;
 
+  DiaFont *font;
+  double font_height;
+
   /*! If set use for fill */
   DiaPattern *pattern;
-};
-
-struct _DiaCairoRendererClass
-{
-  DiaRendererClass parent_class;
 };
 
 typedef enum OutputKind
 {
   OUTPUT_PS = 1,
+  OUTPUT_EPS,
   OUTPUT_PNG,
   OUTPUT_PNGA,
   OUTPUT_PDF,
@@ -103,15 +96,16 @@ typedef enum OutputKind
   OUTPUT_CAIRO_SCRIPT
 } OutputKind;
 
+#define DIA_CAIRO_TYPE_INTERACTIVE_RENDERER dia_cairo_interactive_renderer_get_type ()
+
+G_DECLARE_FINAL_TYPE (DiaCairoInteractiveRenderer, dia_cairo_interactive_renderer, DIA_CAIRO, INTERACTIVE_RENDERER, DiaCairoRenderer)
+
+DiaRenderer *dia_cairo_interactive_renderer_new (void);
+
 gboolean cairo_export_data (DiagramData *data,
                             DiaContext  *ctx,
                             const gchar *filename,
                             const gchar *diafilename,
                             void        *user_data);
-
-/* FIXME: need to think about proper registration */
-GType dia_cairo_interactive_renderer_get_type (void) G_GNUC_CONST;
-
-DiaRenderer *dia_cairo_interactive_renderer_new ();
 
 G_END_DECLS

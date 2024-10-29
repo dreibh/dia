@@ -16,12 +16,12 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "connectionpoint.h"
@@ -31,6 +31,7 @@
 #include "create.h"
 #include "message.h"
 #include "pattern.h"
+
 
 #define DEFAULT_WIDTH 2.0
 #define DEFAULT_HEIGHT 1.0
@@ -56,51 +57,63 @@ struct _Box {
 
   ConnectionPoint connections[NUM_CONNECTIONS];
 
-  real border_width;
+  double border_width;
   Color border_color;
   Color inner_color;
   gboolean show_background;
-  LineStyle line_style;
-  LineJoin line_join;
-  real dashlength;
-  real corner_radius;
+  DiaLineStyle line_style;
+  DiaLineJoin line_join;
+  double dashlength;
+  double corner_radius;
   AspectType aspect;
   DiaPattern *pattern;
-  real angle; /*!< between [-45°-45°] to simplify connection point handling */
+  double angle; /*!< between [-45°-45°] to simplify connection point handling */
 };
 
 static struct _BoxProperties {
   gboolean show_background;
-  real corner_radius;
+  double corner_radius;
   AspectType aspect;
 } default_properties = { TRUE, 0.0 };
 
-static real box_distance_from(Box *box, Point *point);
-static void box_select(Box *box, Point *clicked_point,
-		       DiaRenderer *interactive_renderer);
-static ObjectChange* box_move_handle(Box *box, Handle *handle,
-			    Point *to, ConnectionPoint *cp,
-				     HandleMoveReason reason,
-			    ModifierKeys modifiers);
-static ObjectChange* box_move(Box *box, Point *to);
-static void box_draw(Box *box, DiaRenderer *renderer);
-static void box_update_data(Box *box);
-static DiaObject *box_create(Point *startpoint,
-			  void *user_data,
-			  Handle **handle1,
-			  Handle **handle2);
-static void box_destroy(Box *box);
-static DiaObject *box_copy(Box *box);
 
-static void box_set_props(Box *box, GPtrArray *props);
+static double           box_distance_from    (Box              *box,
+                                              Point            *point);
+static void             box_select           (Box              *box,
+                                              Point            *clicked_point,
+                                              DiaRenderer      *interactive_renderer);
+static DiaObjectChange *box_move_handle      (Box              *box,
+                                              Handle           *handle,
+                                              Point            *to,
+                                              ConnectionPoint  *cp,
+                                              HandleMoveReason  reason,
+                                              ModifierKeys      modifiers);
+static DiaObjectChange *box_move             (Box              *box,
+                                              Point            *to);
+static void             box_draw             (Box              *box,
+                                              DiaRenderer      *renderer);
+static void             box_update_data      (Box              *box);
+static DiaObject       *box_create           (Point            *startpoint,
+                                              void             *user_data,
+                                              Handle          **handle1,
+                                              Handle          **handle2);
+static void             box_destroy          (Box              *box);
+static DiaObject       *box_copy             (Box              *box);
+static void             box_set_props        (Box              *box,
+                                              GPtrArray        *props);
+static void             box_save             (Box              *box,
+                                              ObjectNode        obj_node,
+                                              DiaContext       *ctx);
+static DiaObject       *box_load             (ObjectNode        obj_node,
+                                              int               version,
+                                              DiaContext       *ctx);
+static DiaMenu         *box_get_object_menu  (Box              *box,
+                                              Point            *clickedpoint);
+static gboolean         box_transform        (Box              *box,
+                                              const DiaMatrix  *m);
 
-static void box_save(Box *box, ObjectNode obj_node, DiaContext *ctx);
-static DiaObject *box_load(ObjectNode obj_node, int version, DiaContext *ctx);
-static DiaMenu *box_get_object_menu(Box *box, Point *clickedpoint);
-static gboolean box_transform(Box *box, const DiaMatrix *m);
 
-static ObjectTypeOps box_type_ops =
-{
+static ObjectTypeOps box_type_ops = {
   (CreateFunc) box_create,
   (LoadFunc)   box_load,
   (SaveFunc)   box_save,
@@ -225,7 +238,7 @@ box_distance_from(Box *box, Point *point)
   Element *elem = &box->element;
 
   if (box->angle == 0) {
-    Rectangle rect;
+    DiaRectangle rect;
     rect.left = elem->corner.x - box->border_width/2;
     rect.right = elem->corner.x + elem->width + box->border_width/2;
     rect.top = elem->corner.y - box->border_width/2;
@@ -264,16 +277,20 @@ box_select(Box *box, Point *clicked_point,
   }
 }
 
-static ObjectChange*
-box_move_handle(Box *box, Handle *handle,
-		Point *to, ConnectionPoint *cp,
-		HandleMoveReason reason, ModifierKeys modifiers)
-{
-  assert(box!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
 
-  if (box->aspect != FREE_ASPECT){
+static DiaObjectChange *
+box_move_handle (Box              *box,
+                 Handle           *handle,
+                 Point            *to,
+                 ConnectionPoint  *cp,
+                 HandleMoveReason  reason,
+                 ModifierKeys      modifiers)
+{
+  g_return_val_if_fail (box != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
+
+  if (box->aspect != FREE_ASPECT) {
     double width, height;
     double new_width, new_height;
     double to_width, aspect_width;
@@ -283,107 +300,130 @@ box_move_handle(Box *box, Handle *handle,
     width = box->element.width;
     height = box->element.height;
     switch (handle->id) {
-    case HANDLE_RESIZE_N:
-    case HANDLE_RESIZE_S:
-      new_height = fabs(to->y - corner.y);
-      new_width = new_height / height * width;
-      break;
-    case HANDLE_RESIZE_W:
-    case HANDLE_RESIZE_E:
-      new_width = fabs(to->x - corner.x);
-      new_height = new_width / width * height;
-      break;
-    case HANDLE_RESIZE_NW:
-    case HANDLE_RESIZE_NE:
-    case HANDLE_RESIZE_SW:
-    case HANDLE_RESIZE_SE:
-      to_width = fabs(to->x - corner.x);
-      aspect_width = fabs(to->y - corner.y) / height * width;
-      new_width = to_width > aspect_width ? to_width : aspect_width;
-      new_height = new_width / width * height;
-      break;
-    default:
-      new_width = width;
-      new_height = height;
-      break;
+      case HANDLE_RESIZE_N:
+      case HANDLE_RESIZE_S:
+        new_height = fabs(to->y - corner.y);
+        new_width = new_height / height * width;
+        break;
+      case HANDLE_RESIZE_W:
+      case HANDLE_RESIZE_E:
+        new_width = fabs(to->x - corner.x);
+        new_height = new_width / width * height;
+        break;
+      case HANDLE_RESIZE_NW:
+      case HANDLE_RESIZE_NE:
+      case HANDLE_RESIZE_SW:
+      case HANDLE_RESIZE_SE:
+        to_width = fabs(to->x - corner.x);
+        aspect_width = fabs(to->y - corner.y) / height * width;
+        new_width = to_width > aspect_width ? to_width : aspect_width;
+        new_height = new_width / width * height;
+        break;
+      case HANDLE_MOVE_STARTPOINT:
+      case HANDLE_MOVE_ENDPOINT:
+      case HANDLE_CUSTOM1:
+      case HANDLE_CUSTOM2:
+      case HANDLE_CUSTOM3:
+      case HANDLE_CUSTOM4:
+      case HANDLE_CUSTOM5:
+      case HANDLE_CUSTOM6:
+      case HANDLE_CUSTOM7:
+      case HANDLE_CUSTOM8:
+      case HANDLE_CUSTOM9:
+      default:
+        new_width = width;
+        new_height = height;
+        break;
     }
 
     se_to.x = corner.x + new_width;
     se_to.y = corner.y + new_height;
 
-    element_move_handle(&box->element, HANDLE_RESIZE_SE, &se_to, cp, reason, modifiers);
+    element_move_handle (&box->element, HANDLE_RESIZE_SE, &se_to, cp, reason, modifiers);
   } else {
-    element_move_handle(&box->element, handle->id, to, cp, reason, modifiers);
+    element_move_handle (&box->element, handle->id, to, cp, reason, modifiers);
   }
 
-  box_update_data(box);
+  box_update_data (box);
 
   return NULL;
 }
 
-static ObjectChange*
-box_move(Box *box, Point *to)
+
+static DiaObjectChange *
+box_move (Box *box, Point *to)
 {
   box->element.corner = *to;
 
-  box_update_data(box);
+  box_update_data (box);
 
   return NULL;
 }
 
+
 static void
-box_draw(Box *box, DiaRenderer *renderer)
+box_draw (Box *box, DiaRenderer *renderer)
 {
   Point lr_corner;
   Element *elem;
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
 
-  assert(box != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (box != NULL);
+  g_return_if_fail (renderer != NULL);
 
   elem = &box->element;
 
   lr_corner.x = elem->corner.x + elem->width;
   lr_corner.y = elem->corner.y + elem->height;
 
-  renderer_ops->set_linewidth(renderer, box->border_width);
-  renderer_ops->set_linestyle(renderer, box->line_style, box->dashlength);
-  if (box->corner_radius > 0)
-    renderer_ops->set_linejoin(renderer, LINEJOIN_ROUND);
-  else
-    renderer_ops->set_linejoin(renderer, box->line_join);
-  renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
+  dia_renderer_set_linewidth (renderer, box->border_width);
+  dia_renderer_set_linestyle (renderer, box->line_style, box->dashlength);
+  if (box->corner_radius > 0) {
+    dia_renderer_set_linejoin (renderer, DIA_LINE_JOIN_ROUND);
+  } else {
+    dia_renderer_set_linejoin (renderer, box->line_join);
+  }
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
 
   if (box->show_background) {
     Color fill = box->inner_color;
-    renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
+    dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
     if (box->pattern) {
       dia_pattern_get_fallback_color (box->pattern, &fill);
-      if (renderer_ops->is_capable_to(renderer, RENDER_PATTERN))
-        renderer_ops->set_pattern (renderer, box->pattern);
+      if (dia_renderer_is_capable_of (renderer, RENDER_PATTERN)) {
+        dia_renderer_set_pattern (renderer, box->pattern);
+      }
     }
     if (box->angle == 0) {
-      renderer_ops->draw_rounded_rect (renderer,
-				       &elem->corner, &lr_corner,
-				       &fill, &box->border_color,
-				       box->corner_radius);
+      dia_renderer_draw_rounded_rect (renderer,
+                                      &elem->corner,
+                                      &lr_corner,
+                                      &fill,
+                                      &box->border_color,
+                                      box->corner_radius);
     } else {
       Point poly[4];
       _box_get_poly (box, poly);
-      renderer_ops->draw_polygon (renderer, poly, 4, &fill, &box->border_color);
+      dia_renderer_draw_polygon (renderer, poly, 4, &fill, &box->border_color);
     }
-    if (renderer_ops->is_capable_to(renderer, RENDER_PATTERN))
-      renderer_ops->set_pattern (renderer, NULL);
+    if (dia_renderer_is_capable_of (renderer, RENDER_PATTERN)) {
+      dia_renderer_set_pattern (renderer, NULL);
+    }
   } else {
     if (box->angle == 0) {
-      renderer_ops->draw_rounded_rect (renderer,
-				       &elem->corner, &lr_corner,
-				       NULL, &box->border_color,
-				       box->corner_radius);
+      dia_renderer_draw_rounded_rect (renderer,
+                                      &elem->corner,
+                                      &lr_corner,
+                                      NULL,
+                                      &box->border_color,
+                                      box->corner_radius);
     } else {
       Point poly[4];
       _box_get_poly (box, poly);
-      renderer_ops->draw_polygon (renderer, poly, 4, &box->inner_color, &box->border_color);
+      dia_renderer_draw_polygon (renderer,
+                                 poly,
+                                 4,
+                                 &box->inner_color,
+                                 &box->border_color);
     }
   }
 }
@@ -453,7 +493,7 @@ box_create(Point *startpoint,
   DiaObject *obj;
   int i;
 
-  box = g_malloc0(sizeof(Box));
+  box = g_new0 (Box, 1);
   elem = &box->element;
   obj = &elem->object;
 
@@ -468,8 +508,8 @@ box_create(Point *startpoint,
   box->border_width =  attributes_get_default_linewidth();
   box->border_color = attributes_get_foreground();
   box->inner_color = attributes_get_background();
-  attributes_get_default_line_style(&box->line_style, &box->dashlength);
-  box->line_join = LINEJOIN_MITER;
+  attributes_get_default_line_style (&box->line_style, &box->dashlength);
+  box->line_join = DIA_LINE_JOIN_MITER;
   /* For non-default objects, this is overridden by the default */
   box->show_background = default_properties.show_background;
   box->corner_radius = default_properties.corner_radius;
@@ -492,13 +532,14 @@ box_create(Point *startpoint,
   return &box->element.object;
 }
 
+
 static void
 box_destroy(Box *box)
 {
-  if (box->pattern)
-    g_object_unref (box->pattern);
-  element_destroy(&box->element);
+  g_clear_object (&box->pattern);
+  element_destroy (&box->element);
 }
+
 
 static DiaObject *
 box_copy(Box *box)
@@ -510,7 +551,7 @@ box_copy(Box *box)
 
   elem = &box->element;
 
-  newbox = g_malloc0(sizeof(Box));
+  newbox = g_new0 (Box, 1);
   newelem = &newbox->element;
   newobj = &newelem->object;
 
@@ -560,18 +601,20 @@ box_save(Box *box, ObjectNode obj_node, DiaContext *ctx)
   data_add_boolean(new_attribute(obj_node, "show_background"),
 		   box->show_background, ctx);
 
-  if (box->line_style != LINESTYLE_SOLID)
+  if (box->line_style != DIA_LINE_STYLE_SOLID)
     data_add_enum(new_attribute(obj_node, "line_style"),
 		  box->line_style, ctx);
 
-  if (box->line_style != LINESTYLE_SOLID &&
+  if (box->line_style != DIA_LINE_STYLE_SOLID &&
       box->dashlength != DEFAULT_LINESTYLE_DASHLEN)
     data_add_real(new_attribute(obj_node, "dashlength"),
                   box->dashlength, ctx);
 
-  if (box->line_join != LINEJOIN_MITER)
-    data_add_enum(new_attribute(obj_node, "line_join"),
-		  box->line_join, ctx);
+  if (box->line_join != DIA_LINE_JOIN_MITER) {
+    data_add_enum (new_attribute (obj_node, "line_join"),
+                   box->line_join,
+                   ctx);
+  }
 
   if (box->corner_radius > 0.0)
     data_add_real(new_attribute(obj_node, "corner_radius"),
@@ -600,7 +643,7 @@ box_load(ObjectNode obj_node, int version, DiaContext *ctx)
   int i;
   AttributeNode attr;
 
-  box = g_malloc0(sizeof(Box));
+  box = g_new0 (Box, 1);
   elem = &box->element;
   obj = &elem->object;
 
@@ -629,7 +672,7 @@ box_load(ObjectNode obj_node, int version, DiaContext *ctx)
   if (attr != NULL)
     box->show_background = data_boolean(attribute_first_data(attr), ctx);
 
-  box->line_style = LINESTYLE_SOLID;
+  box->line_style = DIA_LINE_STYLE_SOLID;
   attr = object_find_attribute(obj_node, "line_style");
   if (attr != NULL)
     box->line_style =  data_enum(attribute_first_data(attr), ctx);
@@ -639,10 +682,11 @@ box_load(ObjectNode obj_node, int version, DiaContext *ctx)
   if (attr != NULL)
     box->dashlength = data_real(attribute_first_data(attr), ctx);
 
-  box->line_join = LINEJOIN_MITER;
-  attr = object_find_attribute(obj_node, "line_join");
-  if (attr != NULL)
-    box->line_join =  data_enum(attribute_first_data(attr), ctx);
+  box->line_join = DIA_LINE_JOIN_MITER;
+  attr = object_find_attribute (obj_node, "line_join");
+  if (attr != NULL) {
+    box->line_join = data_enum (attribute_first_data (attr), ctx);
+  }
 
   box->corner_radius = 0.0;
   attr = object_find_attribute(obj_node, "corner_radius");
@@ -678,52 +722,64 @@ box_load(ObjectNode obj_node, int version, DiaContext *ctx)
 }
 
 
-struct AspectChange {
-  ObjectChange obj_change;
+#define DIA_TYPE_BOX_ASPECT_OBJECT_CHANGE dia_box_aspect_object_change_get_type ()
+G_DECLARE_FINAL_TYPE (DiaBoxAspectObjectChange,
+                      dia_box_aspect_object_change,
+                      DIA, BOX_ASPECT_OBJECT_CHANGE,
+                      DiaObjectChange)
+
+
+struct _DiaBoxAspectObjectChange {
+  DiaObjectChange obj_change;
   AspectType old_type, new_type;
   /* The points before this got applied.  Afterwards, all points can be
    * calculated.
    */
   Point topleft;
-  real width, height;
+  double width, height;
 };
 
+
+DIA_DEFINE_OBJECT_CHANGE (DiaBoxAspectObjectChange, dia_box_aspect_object_change)
+
+
 static void
-aspect_change_free(struct AspectChange *change)
+dia_box_aspect_object_change_free (DiaObjectChange *self)
 {
 }
 
+
 static void
-aspect_change_apply(struct AspectChange *change, DiaObject *obj)
+dia_box_aspect_object_change_apply (DiaObjectChange *self, DiaObject *obj)
 {
-  Box *box = (Box*)obj;
+  DiaBoxAspectObjectChange *change = DIA_BOX_ASPECT_OBJECT_CHANGE (self);
+  Box *box = (Box *) obj;
 
   box->aspect = change->new_type;
-  box_update_data(box);
+  box_update_data (box);
 }
 
+
 static void
-aspect_change_revert(struct AspectChange *change, DiaObject *obj)
+dia_box_aspect_object_change_revert (DiaObjectChange *self, DiaObject *obj)
 {
-  Box *box = (Box*)obj;
+  DiaBoxAspectObjectChange *change = DIA_BOX_ASPECT_OBJECT_CHANGE (self);
+  Box *box = (Box *) obj;
 
   box->aspect = change->old_type;
   box->element.corner = change->topleft;
   box->element.width = change->width;
   box->element.height = change->height;
-  box_update_data(box);
+  box_update_data (box);
 }
 
-static ObjectChange *
-aspect_create_change(Box *box, AspectType aspect)
+
+static DiaObjectChange *
+aspect_create_change (Box *box, AspectType aspect)
 {
-  struct AspectChange *change;
+  DiaBoxAspectObjectChange *change;
 
-  change = g_new0(struct AspectChange, 1);
-
-  change->obj_change.apply = (ObjectChangeApplyFunc) aspect_change_apply;
-  change->obj_change.revert = (ObjectChangeRevertFunc) aspect_change_revert;
-  change->obj_change.free = (ObjectChangeFreeFunc) aspect_change_free;
+  change = dia_object_change_new (DIA_TYPE_BOX_ASPECT_OBJECT_CHANGE);
 
   change->old_type = box->aspect;
   change->new_type = aspect;
@@ -731,20 +787,21 @@ aspect_create_change(Box *box, AspectType aspect)
   change->width = box->element.width;
   change->height = box->element.height;
 
-  return (ObjectChange *)change;
+  return DIA_OBJECT_CHANGE (change);
 }
 
 
-static ObjectChange *
+static DiaObjectChange *
 box_set_aspect_callback (DiaObject* obj, Point* clicked, gpointer data)
 {
-  ObjectChange *change;
+  DiaObjectChange *change;
 
-  change = aspect_create_change((Box*)obj, (AspectType)data);
-  change->apply(change, obj);
+  change = aspect_create_change ((Box*) obj, (AspectType) data);
+  dia_object_change_apply (change, obj);
 
   return change;
 }
+
 
 static DiaMenuItem box_menu_items[] = {
   { N_("Free aspect"), box_set_aspect_callback, (void*)FREE_ASPECT,

@@ -18,19 +18,24 @@
 
 /** @file diatypes.h -- All externally visible structures should be defined here */
 
-#ifndef TYPES_H
-#define TYPES_H
-
 /* THIS HEADER MUST NOT INCLUDE ANY OTHER HEADER! */
-/*#include "units.h" */
+
+#pragma once
+
+#include <glib-object.h>
+
+#ifndef __GTK_DOC_IGNORE__
 
 /* from geometry.h - but used more generic */
 typedef double real;
 
 /* In diagramdata.h: */
 typedef struct _DiagramData DiagramData;
-typedef struct _Layer Layer;
 typedef struct _NewDiagramData NewDiagramData;
+
+
+typedef struct _DiaLayer DiaLayer;
+
 
 /* In arrows.h: */
 typedef struct _Arrow Arrow;
@@ -71,9 +76,6 @@ typedef struct _DiaContext DiaContext;
 
 /* In diarenderer.h: */
 typedef struct _BezierApprox BezierApprox;
-typedef struct _DiaRenderer DiaRenderer;
-typedef struct _DiaRendererClass DiaRendererClass;
-typedef struct _DiaInteractiveRendererInterface DiaInteractiveRendererInterface;
 
 /* In diacellrendererproperty.h: */
 typedef struct _DiaCellRendererProperty DiaCellRendererProperty;
@@ -96,14 +98,9 @@ typedef struct _DiaCallbackFilter DiaCallbackFilter;
 /* In focus.h: */
 typedef struct _Focus Focus;
 
-/* In font.h: */
-typedef struct _DiaFont DiaFont;
-typedef struct _DiaFontClass DiaFontClass;
-
 /* In geometry.h: */
 typedef struct _Point Point;
-typedef struct _Rectangle Rectangle;
-typedef struct _IntRectangle IntRectangle;
+typedef struct _DiaRectangle DiaRectangle;
 typedef struct _BezPoint BezPoint;
 typedef struct _DiaMatrix DiaMatrix;
 
@@ -118,7 +115,6 @@ typedef struct _NewOrthConn NewOrthConn;
 
 /* In objchange.h: */
 typedef struct _ObjectState ObjectState;
-typedef struct _ObjectChange ObjectChange;
 
 /* In object.h: */
 typedef struct _DiaObject DiaObject;
@@ -151,7 +147,7 @@ typedef struct _PropEventData PropEventData;
 typedef struct _PropDialog PropDialog;
 typedef struct _PropEventHandlerChain PropEventHandlerChain;
 typedef struct _PropWidgetAssoc PropWidgetAssoc;
-typedef struct _PropertyOps PropertyOps; 
+typedef struct _PropertyOps PropertyOps;
 typedef struct _PropNumData PropNumData;
 typedef struct _PropEnumData PropEnumData;
 typedef struct _PropDescCommonArrayExtra PropDescCommonArrayExtra;
@@ -171,20 +167,6 @@ typedef struct _TextLine TextLine;
 
 /* In textattr.h: */
 typedef struct _TextAttributes TextAttributes;
-
-/* In widgets.h: */
-typedef struct _DiaSizeSelector       DiaSizeSelector;
-typedef struct _DiaSizeSelectorClass  DiaSizeSelectorClass;
-typedef struct _DiaFontSelector       DiaFontSelector;
-typedef struct _DiaFontSelectorClass  DiaFontSelectorClass;
-typedef struct _DiaLineStyleSelector       DiaLineStyleSelector;
-typedef struct _DiaLineStyleSelectorClass  DiaLineStyleSelectorClass;
-typedef struct _DiaColorSelector       DiaColorSelector;
-typedef struct _DiaColorSelectorClass  DiaColorSelectorClass;
-typedef struct _DiaArrowSelector       DiaArrowSelector;
-typedef struct _DiaArrowSelectorClass  DiaArrowSelectorClass;
-typedef struct _DiaFileSelector       DiaFileSelector;
-typedef struct _DiaFileSelectorClass  DiaFileSelectorClass;
 
 /** A standard definition of a function that takes a DiaObject */
 typedef void (*DiaObjectFunc) (const DiaObject *obj);

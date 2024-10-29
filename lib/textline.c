@@ -15,7 +15,10 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <config.h>
+
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,16 +42,14 @@ static void clear_layout_offset (TextLine *text_line);
  * \memberof TextLine
  */
 void
-text_line_set_string(TextLine *text_line, const gchar *string)
+text_line_set_string (TextLine *text_line, const char *string)
 {
   if (text_line->chars == NULL ||
-      strcmp(text_line->chars, string)) {
-    if (text_line->chars != NULL) {
-      g_free(text_line->chars);
-    }
-    
+      strcmp (text_line->chars, string)) {
+    g_clear_pointer (&text_line->chars, g_free);
+
     text_line->chars = g_strdup(string);
-    
+
     text_line_dirty_cache(text_line);
   }
 }
@@ -60,23 +61,21 @@ text_line_set_string(TextLine *text_line, const gchar *string)
  * \memberof TextLine
  */
 void
-text_line_set_font(TextLine *text_line, DiaFont *font)
+text_line_set_font (TextLine *text_line, DiaFont *font)
 {
   if (text_line->font != font) {
     DiaFont *old_font = text_line->font;
-    dia_font_ref(font);
+    g_object_ref (font);
     text_line->font = font;
-    if (old_font != NULL) {
-      dia_font_unref(old_font);
-    }
-    text_line_dirty_cache(text_line);
+    g_clear_object (&old_font);
+    text_line_dirty_cache (text_line);
   }
 }
 
 /*!
  * \brief Sets the font height used by this object.
  * @param text_line The object to change.
- * @param height The font height to use for displaying this object 
+ * @param height The font height to use for displaying this object
  * (in cm, from baseline to baseline)
  * \memberof TextLine
  */
@@ -125,24 +124,20 @@ text_line_copy(const TextLine *text_line)
  * \memberof TextLine
  */
 void
-text_line_destroy(TextLine *text_line)
+text_line_destroy (TextLine *text_line)
 {
-  if (text_line->chars != NULL) {
-    g_free(text_line->chars);
-  }
-  if (text_line->font != NULL) {
-    dia_font_unref(text_line->font);
-  }
+  g_clear_pointer (&text_line->chars, g_free);
+  g_clear_object (&text_line->font);
   clear_layout_offset (text_line);
-  g_free (text_line->offsets);
-  g_free(text_line);
+  g_clear_pointer (&text_line->offsets, g_free);
+  g_free (text_line);
 }
 
 /*!
  * \brief TextLine bounding box caclulation
  *
  * Calculate the bounding box size of this object.  Since a text object has no
- * position or alignment, this collapses to just a size. 
+ * position or alignment, this collapses to just a size.
  * @param text_line
  * @param size A place to store the width and height of the text.
  * \memberof TextLine
@@ -168,7 +163,7 @@ text_line_get_font(const TextLine *text_line)
   return text_line->font;
 }
 
-real 
+real
 text_line_get_height(const TextLine *text_line)
 {
   return text_line->height;
@@ -195,40 +190,55 @@ text_line_get_descent(const TextLine *text_line)
   return text_line->descent;
 }
 
-/*!
- * \brief Calculate TextLine adjustment for Alignment
+
+/**
+ * text_line_get_alignment_adjustment:
+ * @text_line: a line of text
+ * @alignment: how to align it.
+ *
+ * Calculate #TextLine adjustment for #DiaAlignment
  *
  * Return the amount this text line would need to be shifted in order to
  * implement the given alignment.
- * @param text_line a line of text
- * @param alignment how to align it.
- * @return The amount (in diagram lengths) to shift the x positiion of
+ *
+ * Returns: The amount (in diagram lengths) to shift the x positiion of
  * rendering this such that it looks aligned when printed with x at the left.
  * Always a positive number.
+ *
+ * Since: dawn-of-time
  */
-real
-text_line_get_alignment_adjustment(TextLine *text_line, Alignment alignment)
+double
+text_line_get_alignment_adjustment (TextLine *text_line, DiaAlignment alignment)
 {
-  text_line_cache_values(text_line);
+  text_line_cache_values (text_line);
+
   switch (alignment) {
-      case ALIGN_CENTER:
-	return text_line->width / 2;
-      case ALIGN_RIGHT:
-	return text_line->width;
-      default:
-	return 0.0;
-   }  
+    case DIA_ALIGN_CENTRE:
+     return text_line->width / 2;
+    case DIA_ALIGN_RIGHT:
+       return text_line->width;
+    case DIA_ALIGN_LEFT:
+    default:
+     return 0.0;
+  }
 }
 
 /* **** Private functions **** */
-/** Mark this object as needing update before usage. 
- * @param text_line the object that has changed.
+
+/**
+ * text_line_dirty_cache:
+ * @text_line: the object that has changed.
+ *
+ * Mark this object as needing update before usage.
+ *
+ * Since: dawn-of-time
  */
 static void
 text_line_dirty_cache(TextLine *text_line)
 {
   text_line->clean = FALSE;
 }
+
 
 static void
 clear_layout_offset (TextLine *text_line)
@@ -239,12 +249,11 @@ clear_layout_offset (TextLine *text_line)
     for (; runs != NULL; runs = g_slist_next(runs)) {
       PangoGlyphItem *run = (PangoGlyphItem *) runs->data;
 
-      g_free(run->glyphs->glyphs);
-      g_free(run->glyphs);
+      g_clear_pointer (&run->glyphs->glyphs, g_free);
+      g_clear_pointer (&run->glyphs, g_free);
     }
     g_slist_free(runs);
-    g_free(text_line->layout_offsets);
-    text_line->layout_offsets = NULL;
+    g_clear_pointer (&text_line->layout_offsets, g_free);
   }
 }
 
@@ -257,29 +266,26 @@ text_line_cache_values(TextLine *text_line)
       text_line->height != text_line->height_cache) {
     int n_offsets;
 
-    if (text_line->offsets != NULL) {
-      g_free(text_line->offsets);
-      text_line->offsets = NULL;
-    }
+    g_clear_pointer (&text_line->offsets, g_free);
     clear_layout_offset (text_line);
 
     if (text_line->chars == NULL ||
 	text_line->chars[0] == '\0') {
       /* caclculate reasonable ascent/decent even for empty string */
-      text_line->offsets = 
+      text_line->offsets =
         dia_font_get_sizes("XjgM149", text_line->font, text_line->height,
-			   &text_line->width, &text_line->ascent, 
+			   &text_line->width, &text_line->ascent,
 			   &text_line->descent, &n_offsets,
 			   &text_line->layout_offsets);
       clear_layout_offset (text_line);
-      g_free (text_line->offsets);
+      g_clear_pointer (&text_line->offsets, g_free);
       text_line->offsets = g_new (real,0); /* another way to assign NULL;) */
       text_line->width = 0;
     } else {
-      text_line->offsets = 
+      text_line->offsets =
 	dia_font_get_sizes(text_line->chars, text_line->font, text_line->height,
-			   &text_line->width, &text_line->ascent, 
-			   &text_line->descent, &n_offsets, 
+			   &text_line->width, &text_line->ascent,
+			   &text_line->descent, &n_offsets,
 			   &text_line->layout_offsets);
     }
     text_line->clean = TRUE;
@@ -314,17 +320,21 @@ text_line_adjust_glyphs(TextLine *line, PangoGlyphString *glyphs, real scale)
   }
 }
 
-/** Adjust a layout line to match the more fine-grained values stored in the
- * textline.  This circumvents the rounding errors in Pango and ensures a
+
+/**
+ * text_line_adjust_layout_line:
+ * @line: The #TextLine object that corresponds to the glyphs.
+ * @layoutline: The one set of glyphs contained in the #TextLine's layout.
+ * @scale: The relative height of the font in glyphs.
+ *
+ * Adjust a layout line to match the more fine-grained values stored in the
+ * textline. This circumvents the rounding errors in Pango and ensures a
  * linear scaling for zooming and export filters.
- * @param line The TextLine object that corresponds to the glyphs.
- * @param layoutline The one set of glyphs contained in the TextLine's layout.
- * @param scale The relative height of the font in glyphs.
- * @return An adjusted glyphstring, which should be freed by the caller.
  */
 void
-text_line_adjust_layout_line(TextLine *line, PangoLayoutLine *layoutline,
-			     real scale)
+text_line_adjust_layout_line (TextLine        *line,
+                              PangoLayoutLine *layoutline,
+                              double           scale)
 {
   GSList *layoutruns = layoutline->runs;
   GSList *runs;
@@ -336,9 +346,9 @@ text_line_adjust_layout_line(TextLine *line, PangoLayoutLine *layoutline,
   runs = line->layout_offsets->runs;
 
   if (g_slist_length(runs) != g_slist_length(layoutruns)) {
-    printf("Runs length error: %d != %d\n",
-	   g_slist_length(line->layout_offsets->runs),
-	   g_slist_length(layoutline->runs));
+    g_printerr ("Runs length error: %d != %d\n",
+                g_slist_length (line->layout_offsets->runs),
+                g_slist_length (layoutline->runs));
   }
   for (; runs != NULL && layoutruns != NULL; runs = g_slist_next(runs),
 	 layoutruns = g_slist_next(layoutruns)) {
@@ -356,8 +366,9 @@ text_line_adjust_layout_line(TextLine *line, PangoLayoutLine *layoutline,
 	(int)(glyphs->glyphs[i].geometry.y_offset * scale / 20.0);
     }
     if (glyphs->num_glyphs != layoutglyphs->num_glyphs) {
-      printf("Glyph length error: %d != %d\n", 
-	     glyphs->num_glyphs, layoutglyphs->num_glyphs);
+      g_printerr ("Glyph length error: %d != %d\n",
+                  glyphs->num_glyphs,
+                  layoutglyphs->num_glyphs);
     }
   }
 }

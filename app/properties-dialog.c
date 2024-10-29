@@ -16,14 +16,15 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <string.h>
 
 #include <gtk/gtk.h>
 #include <gdk/gdkkeysyms.h>
 
-#include "intl.h"
 #include "properties-dialog.h"
 #include "object_ops.h"
 #include "object.h"
@@ -40,30 +41,36 @@ static Diagram *current_dia = NULL;
 
 static GtkWidget *no_properties_dialog = NULL;
 
-static gint properties_respond(GtkWidget *widget,
-                               gint       response_id,
-                               gpointer   data);
-static gboolean properties_key_event(GtkWidget *widget,
-				     GdkEventKey *event,
-				     gpointer data);
+static int      properties_respond   (GtkWidget   *widget,
+                                      int          response_id,
+                                      gpointer     data);
+static gboolean properties_key_event (GtkWidget   *widget,
+                                      GdkEventKey *event,
+                                      gpointer     data);
 static void properties_dialog_hide(void);
 
 static void
 create_dialog(GtkWidget *parent)
 {
+  GtkWidget *action_area;
 /*   GtkWidget *actionbox; */
 /*   GList *buttons; */
 
-  dialog = gtk_dialog_new_with_buttons(
-             _("Object properties"),
-             parent ? GTK_WINDOW (parent) : NULL,
-             GTK_DIALOG_DESTROY_WITH_PARENT,
-             GTK_STOCK_CLOSE, GTK_RESPONSE_CLOSE,
-             GTK_STOCK_APPLY, GTK_RESPONSE_APPLY,
-             GTK_STOCK_OK, GTK_RESPONSE_OK,
-             NULL);
+  dialog = gtk_dialog_new_with_buttons (_("Object properties"),
+                                        parent ? GTK_WINDOW (parent) : NULL,
+                                        GTK_DIALOG_DESTROY_WITH_PARENT,
+                                        _("_Close"), GTK_RESPONSE_CLOSE,
+                                        _("_Apply"), GTK_RESPONSE_APPLY,
+                                        _("_OK"), GTK_RESPONSE_OK,
+                                        NULL);
 
   gtk_dialog_set_default_response (GTK_DIALOG(dialog), GTK_RESPONSE_OK);
+
+  action_area = gtk_dialog_get_action_area (GTK_DIALOG (dialog));
+  gtk_widget_set_margin_bottom (action_area, 6);
+  gtk_widget_set_margin_top (action_area, 6);
+  gtk_widget_set_margin_start (action_area, 6);
+  gtk_widget_set_margin_end (action_area, 6);
 
   dialog_vbox = gtk_dialog_get_content_area (GTK_DIALOG(dialog));
 
@@ -86,7 +93,7 @@ create_dialog(GtkWidget *parent)
 }
 
 /* when the dialog gets destroyed we need to drop our references */
-static gint
+static int
 properties_part_destroyed(GtkWidget *widget, gpointer data)
 {
   if (widget == object_part) {
@@ -116,12 +123,13 @@ properties_key_event(GtkWidget *widget, GdkEventKey *event, gpointer data)
   return FALSE;
 }
 
-static gint
-properties_respond(GtkWidget *widget,
-                   gint       response_id,
-                   gpointer   data)
+
+static int
+properties_respond (GtkWidget *widget,
+                    int        response_id,
+                    gpointer   data)
 {
-  ObjectChange *obj_change = NULL;
+  DiaObjectChange *obj_change = NULL;
   gboolean set_tp = TRUE;
   GList *tmp;
 
@@ -131,18 +139,19 @@ properties_respond(GtkWidget *widget,
       object_add_updates_list(current_objects, current_dia);
 
       for (tmp = current_objects; tmp != NULL; tmp = tmp->next) {
-	DiaObject *current_obj = (DiaObject*)tmp->data;
-	obj_change = current_obj->ops->apply_properties_from_dialog(current_obj, object_part);
-	object_add_updates(current_obj, current_dia);
-	diagram_update_connections_object(current_dia, current_obj, TRUE);
+        DiaObject *current_obj = (DiaObject*)tmp->data;
+        obj_change = dia_object_apply_editor (current_obj, object_part);
+        object_add_updates(current_obj, current_dia);
+        diagram_update_connections_object(current_dia, current_obj, TRUE);
 
-	if (obj_change != NULL) {
-	  undo_object_change(current_dia, current_obj, obj_change);
-	  set_tp = set_tp && TRUE;
-	} else
-	  set_tp = FALSE;
+        if (obj_change != NULL) {
+          dia_object_change_change_new (current_dia, current_obj, obj_change);
+          set_tp = set_tp && TRUE;
+        } else {
+          set_tp = FALSE;
+        }
 
-	diagram_object_modified(current_dia, current_obj);
+        diagram_object_modified(current_dia, current_obj);
       }
 
       diagram_modified(current_dia);
@@ -173,11 +182,18 @@ properties_respond(GtkWidget *widget,
   return 0;
 }
 
-/** Give focus to the first focusable widget found in `widget'.
- * @param widget Some (possibly composite) widget.
+
+/**
+ * properties_give_focus:
+ * @widget: Some (possibly composite) widget.
+ * @data: user data
+ *
+ * Give focus to the first focusable widget found in `widget'.
+ *
+ * Since: dawn-of-time
  */
 static void
-properties_give_focus(GtkWidget *widget, gpointer data)
+properties_give_focus (GtkWidget *widget, gpointer data)
 {
   if (gtk_widget_get_can_focus(widget)) {
     gtk_widget_grab_focus(widget);
@@ -188,17 +204,19 @@ properties_give_focus(GtkWidget *widget, gpointer data)
   }
 }
 
+
 static void
-clear_dialog_globals()
+clear_dialog_globals (void)
 {
   if (object_part != NULL) {
-    gtk_container_remove(GTK_CONTAINER(dialog_vbox), object_part);
+    gtk_container_remove (GTK_CONTAINER (dialog_vbox), object_part);
     object_part = NULL;
   }
-  g_list_free(current_objects);
+  g_list_free (current_objects);
   current_objects = NULL;
   current_dia = NULL;
 }
+
 
 void
 object_properties_show(Diagram *dia, DiaObject *obj)
@@ -237,13 +255,13 @@ object_list_properties_show(Diagram *dia, GList *objects)
 
   if (one_obj) {
     DiaObjectType *otype = one_obj->type;
-    gchar *buf;
+    char *buf;
 
-    buf = g_strconcat(_("Properties: "), _(otype->name), NULL);
-    gtk_window_set_title(GTK_WINDOW(dialog), buf);
-    g_free(buf);
+    buf = g_strconcat (_("Properties: "), _(otype->name), NULL);
+    gtk_window_set_title (GTK_WINDOW (dialog), buf);
+    g_clear_pointer (&buf, g_free);
   } else {
-    gtk_window_set_title(GTK_WINDOW(dialog), _("Object properties:"));
+    gtk_window_set_title (GTK_WINDOW (dialog), _("Object properties:"));
   }
 
   g_signal_connect (G_OBJECT (properties), "destroy",

@@ -21,7 +21,9 @@
  *          code.
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include "database.h"
 #include "arrows.h"
@@ -37,22 +39,39 @@ static void reference_destroy (TableReference *);
 static void reference_draw (TableReference *, DiaRenderer *);
 static real reference_distance_from (TableReference *, Point *);
 static void reference_select (TableReference *, Point *, DiaRenderer *);
-static ObjectChange * reference_move (TableReference *, Point *);
-static ObjectChange * reference_move_handle (TableReference *, Handle *,
-                                             Point *, ConnectionPoint *,
-                                             HandleMoveReason,
-                                             ModifierKeys);
+static DiaObjectChange *reference_move           (TableReference   *,
+                                                  Point            *);
+static DiaObjectChange *reference_move_handle    (TableReference   *,
+                                                  Handle           *,
+                                                  Point            *,
+                                                  ConnectionPoint  *,
+                                                  HandleMoveReason,
+                                                  ModifierKeys);
 static PropDescription * reference_describe_props (TableReference *);
 static void reference_get_props (TableReference *, GPtrArray *);
 static void reference_set_props (TableReference *, GPtrArray *);
 static void reference_update_data (TableReference *);
 static DiaObject * reference_load (ObjectNode obj_node, int version,DiaContext *ctx);
-static void update_desc_data (Point *, Alignment *,
-                              Point *, Point *, Orientation, real, real);
-static void get_desc_bbox (Rectangle *, gchar *, real, Point *, Alignment,
-                           DiaFont *, real);
-static ObjectChange * reference_add_segment_cb(DiaObject *, Point *, gpointer);
-static ObjectChange * reference_del_segment_cb(DiaObject *, Point *, gpointer);
+static void             update_desc_data         (Point            *,
+                                                  DiaAlignment     *,
+                                                  Point            *,
+                                                  Point            *,
+                                                  Orientation,
+                                                  double,
+                                                  double);
+static void             get_desc_bbox            (DiaRectangle     *,
+                                                  char             *,
+                                                  double,
+                                                  Point            *,
+                                                  DiaAlignment,
+                                                  DiaFont          *,
+                                                  double);
+static DiaObjectChange *reference_add_segment_cb (DiaObject        *,
+                                                  Point            *,
+                                                  gpointer);
+static DiaObjectChange *reference_del_segment_cb (DiaObject        *,
+                                                  Point            *,
+                                                  gpointer);
 static DiaMenu * reference_object_menu(TableReference *, Point *);
 
 /* ------------------------------------------------------------------------ */
@@ -194,122 +213,156 @@ reference_create (Point *startpoint,
   return &ref->orth.object;
 }
 
+
 static void
 reference_destroy (TableReference * ref)
 {
   orthconn_destroy (&ref->orth);
 
-  g_free (ref->start_point_desc);
-  g_free (ref->end_point_desc);
+  g_clear_pointer (&ref->start_point_desc, g_free);
+  g_clear_pointer (&ref->end_point_desc, g_free);
 }
 
+
 static DiaObject *
-reference_load (ObjectNode obj_node, int version,DiaContext *ctx)
+reference_load (ObjectNode obj_node, int version, DiaContext *ctx)
 {
-  DiaObject * obj = object_load_using_properties (&reference_type,
-                                                  obj_node, version,ctx);
+  DiaObject *obj = object_load_using_properties (&reference_type,
+                                                 obj_node,
+                                                 version,
+                                                 ctx);
+
   return obj;
 }
+
 
 static void
 reference_draw (TableReference *ref, DiaRenderer *renderer)
 {
-  DiaRendererClass * renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   OrthConn * orth = &ref->orth;
   Point * points;
-  gint num_points;
+  int num_points;
 
   points = &orth->points[0];
   num_points = orth->numpoints;
 
-  renderer_ops->set_linewidth (renderer, ref->line_width);
-  renderer_ops->set_linestyle (renderer, ref->line_style, ref->dashlength);
-  renderer_ops->set_linejoin (renderer, LINEJOIN_MITER);
-  renderer_ops->set_linecaps (renderer, LINECAPS_BUTT);
+  dia_renderer_set_linewidth (renderer, ref->line_width);
+  dia_renderer_set_linestyle (renderer, ref->line_style, ref->dashlength);
+  dia_renderer_set_linejoin (renderer, DIA_LINE_JOIN_MITER);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
 
-  renderer_ops->draw_rounded_polyline_with_arrows
-    (renderer, points, num_points, ref->line_width,
-     &ref->line_color, NULL, &ref->end_arrow, ref->corner_radius);
+  dia_renderer_draw_rounded_polyline_with_arrows (renderer,
+                                                  points,
+                                                  num_points,
+                                                  ref->line_width,
+                                                  &ref->line_color,
+                                                  NULL,
+                                                  &ref->end_arrow,
+                                                  ref->corner_radius);
 
-  renderer_ops->set_font (renderer, ref->normal_font, ref->normal_font_height);
+  dia_renderer_set_font (renderer, ref->normal_font, ref->normal_font_height);
 
-  if (IS_NOT_EMPTY(ref->start_point_desc))
-    {
-      renderer_ops->draw_string (renderer,
-                                 ref->start_point_desc,
-                                 &ref->sp_desc_pos,
-                                 ref->sp_desc_text_align,
-                                 &ref->text_color);
-    }
-  if (IS_NOT_EMPTY(ref->end_point_desc))
-    {
-      renderer_ops->draw_string (renderer,
-                                 ref->end_point_desc,
-                                 &ref->ep_desc_pos,
-                                 ref->ep_desc_text_align,
-                                 &ref->text_color);
-    }
+  if (IS_NOT_EMPTY (ref->start_point_desc)) {
+    dia_renderer_draw_string (renderer,
+                              ref->start_point_desc,
+                              &ref->sp_desc_pos,
+                              ref->sp_desc_text_align,
+                              &ref->text_color);
+  }
+
+  if (IS_NOT_EMPTY (ref->end_point_desc)) {
+    dia_renderer_draw_string (renderer,
+                              ref->end_point_desc,
+                              &ref->ep_desc_pos,
+                              ref->ep_desc_text_align,
+                              &ref->text_color);
+  }
 }
 
-static real
-reference_distance_from (TableReference * ref, Point *point)
+
+static double
+reference_distance_from (TableReference *ref, Point *point)
 {
-  Rectangle rect;
-  OrthConn * orth;
-  real dist;
+  DiaRectangle rect;
+  OrthConn *orth;
+  double dist;
 
   orth = &ref->orth;
   dist = orthconn_distance_from (orth, point, ref->line_width);
 
-  if (IS_NOT_EMPTY(ref->start_point_desc))
-    {
-      get_desc_bbox (&rect, ref->start_point_desc, ref->sp_desc_width,
-                     &ref->sp_desc_pos, ref->sp_desc_text_align,
-                     ref->normal_font, ref->normal_font_height);
-      dist = MIN(distance_rectangle_point(&rect, point), dist);
-      if (dist < 0.000001)
-        return 0.0;
+  if (IS_NOT_EMPTY (ref->start_point_desc)) {
+    get_desc_bbox (&rect,
+                   ref->start_point_desc,
+                   ref->sp_desc_width,
+                   &ref->sp_desc_pos,
+                   ref->sp_desc_text_align,
+                   ref->normal_font,
+                   ref->normal_font_height);
+
+    dist = MIN (distance_rectangle_point (&rect, point), dist);
+
+    if (dist < 0.000001) {
+      return 0.0;
     }
-  if (IS_NOT_EMPTY(ref->start_point_desc))
-    {
-      get_desc_bbox (&rect, ref->end_point_desc, ref->ep_desc_width,
-                     &ref->ep_desc_pos, ref->ep_desc_text_align,
-                     ref->normal_font, ref->normal_font_height);
-      dist = MIN(distance_rectangle_point (&rect, point), dist);
-    }
+  }
+
+  if (IS_NOT_EMPTY (ref->start_point_desc)) {
+    get_desc_bbox (&rect,
+                   ref->end_point_desc,
+                   ref->ep_desc_width,
+                   &ref->ep_desc_pos,
+                   ref->ep_desc_text_align,
+                   ref->normal_font,
+                   ref->normal_font_height);
+    dist = MIN (distance_rectangle_point (&rect, point), dist);
+  }
 
   return dist;
 }
 
+
 static void
-reference_select (TableReference * ref,
-                  Point * clicked_point,
-                  DiaRenderer * interactive_renderer)
+reference_select (TableReference *ref,
+                  Point          *clicked_point,
+                  DiaRenderer    *interactive_renderer)
 {
-  orthconn_update_data(&ref->orth);
+  orthconn_update_data (&ref->orth);
 }
 
-static ObjectChange *
+
+static DiaObjectChange *
 reference_move (TableReference *ref, Point *to)
 {
-  ObjectChange *change;
+  DiaObjectChange *change;
 
-  change = orthconn_move(&ref->orth, to);
+  change = orthconn_move (&ref->orth, to);
   reference_update_data (ref);
+
   return change;
 }
 
-static ObjectChange *
-reference_move_handle (TableReference *ref, Handle *handle,
-                       Point *to, ConnectionPoint *cp,
-                       HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+reference_move_handle (TableReference   *ref,
+                       Handle           *handle,
+                       Point            *to,
+                       ConnectionPoint  *cp,
+                       HandleMoveReason  reason,
+                       ModifierKeys      modifiers)
 {
-  ObjectChange *change;
+  DiaObjectChange *change;
 
-  change = orthconn_move_handle(&ref->orth, handle, to, cp, reason, modifiers);
+  change = orthconn_move_handle (&ref->orth,
+                                 handle,
+                                 to,
+                                 cp,
+                                 reason,
+                                 modifiers);
   reference_update_data (ref);
+
   return change;
 }
+
 
 static PropDescription *
 reference_describe_props (TableReference *ref)
@@ -340,7 +393,7 @@ static void
 reference_update_data (TableReference * ref)
 {
   OrthConn * orth = &ref->orth;
-  Rectangle rect;
+  DiaRectangle rect;
   PolyBBExtras *extra = &orth->extra_spacing;
 
   orthconn_update_data (orth);
@@ -426,50 +479,59 @@ reference_update_data (TableReference * ref)
   rectangle_union (&orth->object.bounding_box, &rect);
 }
 
+
 static void
-update_desc_data (Point * desc_pos, Alignment * desc_align,
-                  Point * end_point, Point * nearest_point,
-                  Orientation orientation, real line_width,
-                  real font_height)
+update_desc_data (Point        *desc_pos,
+                  DiaAlignment *desc_align,
+                  Point        *end_point,
+                  Point        *nearest_point,
+                  Orientation   orientation,
+                  double        line_width,
+                  double        font_height)
 {
-  real dist = font_height/4.0 + line_width/2.0;
+  double dist = font_height/4.0 + line_width/2.0;
 
   *desc_pos = *end_point;
-  switch (orientation)
-    {
+
+  switch (orientation) {
     case HORIZONTAL:
       /* for horizontal lines the label is above the line */
       desc_pos->y -= dist;
-      if (end_point->x <= nearest_point->x)
-        {
-          desc_pos->x += dist;
-          *desc_align = ALIGN_LEFT;
-        }
-      else
-        {
-          desc_pos->x -= dist;
-          *desc_align = ALIGN_RIGHT;
-        }
+      if (end_point->x <= nearest_point->x) {
+        desc_pos->x += dist;
+        *desc_align = DIA_ALIGN_LEFT;
+      } else {
+        desc_pos->x -= dist;
+        *desc_align = DIA_ALIGN_RIGHT;
+      }
       break;
 
     case VERTICAL:
       /* for vertical lines the label is at the right side of it */
       desc_pos->x += dist;
-      *desc_align = ALIGN_LEFT;
+      *desc_align = DIA_ALIGN_LEFT;
       if (end_point->y <= nearest_point->y)
         desc_pos->y += font_height;
       else
         desc_pos->y -= dist;
       break;
-    }
+
+    default:
+      g_return_if_reached ();
+  }
 }
 
+
 static void
-get_desc_bbox (Rectangle * r, gchar * string, real string_width,
-               Point * pos, Alignment align,
-               DiaFont * font, real font_height)
+get_desc_bbox (DiaRectangle *r,
+               char         *string,
+               double        string_width,
+               Point        *pos,
+               DiaAlignment  align,
+               DiaFont      *font,
+               double        font_height)
 {
-  real width;
+  double width;
 
   g_assert (r != NULL);
   g_assert (string != NULL);
@@ -477,50 +539,56 @@ get_desc_bbox (Rectangle * r, gchar * string, real string_width,
 
   width = string_width;
 
-  g_assert (align == ALIGN_LEFT || align == ALIGN_RIGHT);
-  if (align == ALIGN_LEFT)
-    {
+  g_return_if_fail (align == DIA_ALIGN_LEFT || align == DIA_ALIGN_RIGHT);
+
+  if (align == DIA_ALIGN_LEFT) {
       r->left = pos->x;
       r->right = r->left + width;
-    }
-  else
-    {
-      r->right = pos->x;
-      r->left = r->right - width;
-    }
+  } else {
+    r->right = pos->x;
+    r->left = r->right - width;
+  }
 
   r->top = pos->y;
   r->top -= dia_font_ascent (string, font, font_height);
   r->bottom = r->top + font_height;
 }
 
+
 static DiaMenu *
-reference_object_menu(TableReference *tbl, Point *clicked)
+reference_object_menu (TableReference *tbl, Point *clicked)
 {
   OrthConn *orth;
 
   orth = &tbl->orth;
   /* Set entries sensitive/selected etc here */
-  reference_menu_items[0].active = orthconn_can_add_segment(orth, clicked);
-  reference_menu_items[1].active = orthconn_can_delete_segment(orth, clicked);
-  orthconn_update_object_menu(orth, clicked, &reference_menu_items[2]);
+  reference_menu_items[0].active = orthconn_can_add_segment (orth, clicked);
+  reference_menu_items[1].active = orthconn_can_delete_segment (orth, clicked);
+  orthconn_update_object_menu (orth, clicked, &reference_menu_items[2]);
+
   return &reference_menu;
 }
 
-static ObjectChange *
-reference_add_segment_cb(DiaObject * obj, Point * clicked, gpointer data)
+
+static DiaObjectChange *
+reference_add_segment_cb (DiaObject *obj, Point *clicked, gpointer data)
 {
-  ObjectChange *change;
-  change = orthconn_add_segment((OrthConn *)obj, clicked);
-  reference_update_data((TableReference *)obj);
+  DiaObjectChange *change;
+
+  change = orthconn_add_segment ((OrthConn *)obj, clicked);
+  reference_update_data ((TableReference *) obj);
+
   return change;
 }
 
-static ObjectChange *
-reference_del_segment_cb(DiaObject * obj, Point * clicked, gpointer data)
+
+static DiaObjectChange *
+reference_del_segment_cb (DiaObject *obj, Point *clicked, gpointer data)
 {
-  ObjectChange *change;
-  change = orthconn_delete_segment((OrthConn *)obj, clicked);
-  reference_update_data((TableReference *)obj);
+  DiaObjectChange *change;
+
+  change = orthconn_delete_segment ((OrthConn *) obj, clicked);
+  reference_update_data ((TableReference *) obj);
+
   return change;
 }

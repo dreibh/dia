@@ -1,7 +1,4 @@
-pymod = import('python')
-
-py_inst = pymod.find_installation('python2', required: false)
-py_dep = py_inst.dependency(version: '>= 2.3')
+py3_dep = dependency('python3-embed', version: '>= 3.8')
 
 sources = files(
     'pydia-color.c',
@@ -36,7 +33,7 @@ python_scripts = [
     'diasvg_import.py',
     'dot.py',
     'doxrev.py',
-    'gtkcons.py',  # Will only run if pygtk is present.
+    'gtkcons.py',
     'imgmap.py',
     'otypes.py',
     'pydiadoc.py',
@@ -45,18 +42,23 @@ python_scripts = [
     'select_empty.py',
 ]
 
-if py_dep.found()
+if py3_dep.found()
     # Same as layout plugin.
     shared_module(
         'python_plugin',
-        sources + [config_h],
-        dependencies: [libc_dep, libxml_dep, libgtk_dep, py_dep, libdia_dep],
-        include_directories: [configuration_inc, diaapp_inc],
-        link_with: [diaapp],
+        sources,
+        dependencies: [libc_dep, libxml_dep, libgtk_dep, py3_dep, libdia_dep] + [config_dep],
+        link_with: [diaapp], # Naughty
         install: true,
-        install_dir: dialibdir
+        install_dir: dialibdir,
+        include_directories: diaapp_inc,
+        name_suffix: g_module_suffix,
+        # Python headers trigger this warning. Let's not obscure the others.
+        c_args: [
+          '-Wno-declaration-after-statement',
+        ]
     )
 
-    install_data(python_scripts, install_dir: join_paths(pkgdatadir, 'python'))
+    install_data(python_scripts, install_dir: pkgdatadir / 'python')
     install_data('python-startup.py', install_dir: pkgdatadir)
 endif

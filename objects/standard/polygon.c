@@ -16,12 +16,12 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 
-#include "intl.h"
 #include "object.h"
 #include "polyshape.h"
 #include "connectionpoint.h"
@@ -51,12 +51,12 @@ typedef struct _Polygon {
   PolyShape poly;
 
   Color line_color;
-  LineStyle line_style;
-  LineJoin line_join;
+  DiaLineStyle line_style;
+  DiaLineJoin line_join;
   Color inner_color;
   gboolean show_background;
-  real dashlength;
-  real line_width;
+  double dashlength;
+  double line_width;
   DiaPattern *pattern;
 } Polygon;
 
@@ -64,10 +64,14 @@ static struct _PolygonProperties {
   gboolean show_background;
 } default_properties = { TRUE };
 
-static ObjectChange* polygon_move_handle(Polygon *polygon, Handle *handle,
-					 Point *to, ConnectionPoint *cp,
-					 HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* polygon_move(Polygon *polygon, Point *to);
+static DiaObjectChange* polygon_move_handle    (Polygon          *polygon,
+                                                Handle           *handle,
+                                                Point            *to,
+                                                ConnectionPoint  *cp,
+                                                HandleMoveReason  reason,
+                                                ModifierKeys      modifiers);
+static DiaObjectChange* polygon_move           (Polygon          *polygon,
+                                                Point            *to);
 static void polygon_select(Polygon *polygon, Point *clicked_point,
 			      DiaRenderer *interactive_renderer);
 static void polygon_draw(Polygon *polygon, DiaRenderer *renderer);
@@ -185,35 +189,38 @@ polygon_select(Polygon *polygon, Point *clicked_point,
   polyshape_update_data(&polygon->poly);
 }
 
-static ObjectChange*
-polygon_move_handle(Polygon *polygon, Handle *handle,
-		    Point *to, ConnectionPoint *cp,
-		    HandleMoveReason reason, ModifierKeys modifiers)
-{
-  assert(polygon!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
 
-  polyshape_move_handle(&polygon->poly, handle, to, cp, reason, modifiers);
-  polygon_update_data(polygon);
+static DiaObjectChange *
+polygon_move_handle (Polygon          *polygon,
+                     Handle           *handle,
+                     Point            *to,
+                     ConnectionPoint  *cp,
+                     HandleMoveReason  reason,
+                     ModifierKeys      modifiers)
+{
+  g_return_val_if_fail (polygon != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
+
+  polyshape_move_handle (&polygon->poly, handle, to, cp, reason, modifiers);
+  polygon_update_data (polygon);
 
   return NULL;
 }
 
 
-static ObjectChange*
-polygon_move(Polygon *polygon, Point *to)
+static DiaObjectChange *
+polygon_move (Polygon *polygon, Point *to)
 {
-  polyshape_move(&polygon->poly, to);
-  polygon_update_data(polygon);
+  polyshape_move (&polygon->poly, to);
+  polygon_update_data (polygon);
 
   return NULL;
 }
 
 static void
-polygon_draw(Polygon *polygon, DiaRenderer *renderer)
+polygon_draw (Polygon *polygon, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   PolyShape *poly = &polygon->poly;
   Point *points;
   int n;
@@ -222,25 +229,29 @@ polygon_draw(Polygon *polygon, DiaRenderer *renderer)
   points = &poly->points[0];
   n = poly->numpoints;
 
-  renderer_ops->set_linewidth(renderer, polygon->line_width);
-  renderer_ops->set_linestyle(renderer, polygon->line_style, polygon->dashlength);
-  renderer_ops->set_linejoin(renderer, polygon->line_join);
-  renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
+  dia_renderer_set_linewidth (renderer, polygon->line_width);
+  dia_renderer_set_linestyle (renderer, polygon->line_style, polygon->dashlength);
+  dia_renderer_set_linejoin (renderer, polygon->line_join);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
 
   if (polygon->show_background) {
     fill = polygon->inner_color;
     if (polygon->pattern) {
       dia_pattern_get_fallback_color (polygon->pattern, &fill);
-      if (renderer_ops->is_capable_to(renderer, RENDER_PATTERN))
-        renderer_ops->set_pattern (renderer, polygon->pattern);
+      if (dia_renderer_is_capable_of (renderer, RENDER_PATTERN)) {
+        dia_renderer_set_pattern (renderer, polygon->pattern);
+      }
     }
   }
-  renderer_ops->draw_polygon (renderer, points, n,
-			      (polygon->show_background) ? &fill : NULL,
-			      &polygon->line_color);
+  dia_renderer_draw_polygon (renderer,
+                             points,
+                             n,
+                             (polygon->show_background) ? &fill : NULL,
+                             &polygon->line_color);
   if (polygon->show_background && polygon->pattern &&
-      renderer_ops->is_capable_to(renderer, RENDER_PATTERN))
-    renderer_ops->set_pattern (renderer, NULL); /* reset*/
+      dia_renderer_is_capable_of (renderer, RENDER_PATTERN)) {
+    dia_renderer_set_pattern (renderer, NULL); /* reset*/
+  }
 }
 
 static DiaObject *
@@ -280,9 +291,9 @@ polygon_create(Point *startpoint,
   polygon->line_width =  attributes_get_default_linewidth();
   polygon->line_color = attributes_get_foreground();
   polygon->inner_color = attributes_get_background();
-  attributes_get_default_line_style(&polygon->line_style,
-				    &polygon->dashlength);
-  polygon->line_join = LINEJOIN_MITER;
+  attributes_get_default_line_style (&polygon->line_style,
+                                     &polygon->dashlength);
+  polygon->line_join = DIA_LINE_JOIN_MITER;
   polygon->show_background = default_properties.show_background;
 
   polygon_update_data(polygon);
@@ -292,13 +303,14 @@ polygon_create(Point *startpoint,
   return &polygon->poly.object;
 }
 
+
 static void
 polygon_destroy(Polygon *polygon)
 {
-  if (polygon->pattern)
-    g_object_unref (polygon->pattern);
-  polyshape_destroy(&polygon->poly);
+  g_clear_object (&polygon->pattern);
+  polyshape_destroy (&polygon->poly);
 }
+
 
 static DiaObject *
 polygon_copy(Polygon *polygon)
@@ -308,7 +320,7 @@ polygon_copy(Polygon *polygon)
 
   poly = &polygon->poly;
 
-  newpolygon = g_malloc0(sizeof(Polygon));
+  newpolygon = g_new0 (Polygon, 1);
   newpoly = &newpolygon->poly;
 
   polyshape_copy(poly, newpoly);
@@ -362,18 +374,20 @@ polygon_save(Polygon *polygon, ObjectNode obj_node,
   data_add_boolean(new_attribute(obj_node, "show_background"),
 		   polygon->show_background, ctx);
 
-  if (polygon->line_style != LINESTYLE_SOLID)
+  if (polygon->line_style != DIA_LINE_STYLE_SOLID)
     data_add_enum(new_attribute(obj_node, "line_style"),
 		  polygon->line_style, ctx);
 
-  if (polygon->line_style != LINESTYLE_SOLID &&
+  if (polygon->line_style != DIA_LINE_STYLE_SOLID &&
       polygon->dashlength != DEFAULT_LINESTYLE_DASHLEN)
     data_add_real(new_attribute(obj_node, "dashlength"),
 		  polygon->dashlength, ctx);
 
-  if (polygon->line_join != LINEJOIN_MITER)
-    data_add_enum(new_attribute(obj_node, "line_join"),
-                  polygon->line_join, ctx);
+  if (polygon->line_join != DIA_LINE_JOIN_MITER) {
+    data_add_enum (new_attribute (obj_node, "line_join"),
+                   polygon->line_join,
+                   ctx);
+  }
 
   if (polygon->pattern)
     data_add_pattern(new_attribute(obj_node, "pattern"),
@@ -388,7 +402,7 @@ polygon_load(ObjectNode obj_node, int version, DiaContext *ctx)
   DiaObject *obj;
   AttributeNode attr;
 
-  polygon = g_malloc0(sizeof(Polygon));
+  polygon = g_new0 (Polygon, 1);
 
   poly = &polygon->poly;
   obj = &poly->object;
@@ -418,15 +432,16 @@ polygon_load(ObjectNode obj_node, int version, DiaContext *ctx)
   if (attr != NULL)
     polygon->show_background = data_boolean(attribute_first_data(attr), ctx);
 
-  polygon->line_style = LINESTYLE_SOLID;
+  polygon->line_style = DIA_LINE_STYLE_SOLID;
   attr = object_find_attribute(obj_node, "line_style");
   if (attr != NULL)
     polygon->line_style = data_enum(attribute_first_data(attr), ctx);
 
-  polygon->line_join = LINEJOIN_MITER;
-  attr = object_find_attribute(obj_node, "line_join");
-  if (attr != NULL)
-    polygon->line_join = data_enum(attribute_first_data(attr), ctx);
+  polygon->line_join = DIA_LINE_JOIN_MITER;
+  attr = object_find_attribute (obj_node, "line_join");
+  if (attr != NULL) {
+    polygon->line_join = data_enum (attribute_first_data (attr), ctx);
+  }
 
   polygon->dashlength = DEFAULT_LINESTYLE_DASHLEN;
   attr = object_find_attribute(obj_node, "dashlength");
@@ -442,27 +457,30 @@ polygon_load(ObjectNode obj_node, int version, DiaContext *ctx)
   return &polygon->poly.object;
 }
 
-static ObjectChange *
+
+static DiaObjectChange *
 polygon_add_corner_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
   Polygon *poly = (Polygon*) obj;
   int segment;
-  ObjectChange *change;
+  DiaObjectChange *change;
 
-  segment = polygon_closest_segment(poly, clicked);
-  change = polyshape_add_point(&poly->poly, segment, clicked);
+  segment = polygon_closest_segment (poly, clicked);
+  change = polyshape_add_point (&poly->poly, segment, clicked);
 
-  polygon_update_data(poly);
+  polygon_update_data (poly);
+
   return change;
 }
 
-static ObjectChange *
+
+static DiaObjectChange *
 polygon_delete_corner_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
   Handle *handle;
   int handle_nr, i;
   Polygon *poly = (Polygon*) obj;
-  ObjectChange *change;
+  DiaObjectChange *change;
 
   handle = polygon_closest_handle(poly, clicked);
 

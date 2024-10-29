@@ -16,12 +16,12 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 
-#include "intl.h"
 #include "object.h"
 #include "poly_conn.h"
 #include "connectionpoint.h"
@@ -42,21 +42,25 @@ typedef struct _Polyline {
   PolyConn poly;
 
   Color line_color;
-  LineStyle line_style;
-  LineJoin line_join;
-  LineCaps line_caps;
-  real dashlength;
-  real line_width;
-  real corner_radius;
+  DiaLineStyle line_style;
+  DiaLineJoin line_join;
+  DiaLineCaps line_caps;
+  double dashlength;
+  double line_width;
+  double corner_radius;
   Arrow start_arrow, end_arrow;
-  real absolute_start_gap, absolute_end_gap;
+  double absolute_start_gap, absolute_end_gap;
 } Polyline;
 
 
-static ObjectChange* polyline_move_handle(Polyline *polyline, Handle *handle,
-					  Point *to, ConnectionPoint *cp,
-					  HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* polyline_move(Polyline *polyline, Point *to);
+static DiaObjectChange *polyline_move_handle     (Polyline         *polyline,
+                                                  Handle           *handle,
+                                                  Point            *to,
+                                                  ConnectionPoint  *cp,
+                                                  HandleMoveReason  reason,
+                                                  ModifierKeys      modifiers);
+static DiaObjectChange *polyline_move            (Polyline         *polyline,
+                                                  Point            *to);
 static void polyline_select(Polyline *polyline, Point *clicked_point,
 			      DiaRenderer *interactive_renderer);
 static void polyline_draw(Polyline *polyline, DiaRenderer *renderer);
@@ -200,14 +204,18 @@ polyline_select(Polyline *polyline, Point *clicked_point,
   polyconn_update_data(&polyline->poly);
 }
 
-static ObjectChange*
-polyline_move_handle(Polyline *polyline, Handle *handle,
-		     Point *to, ConnectionPoint *cp,
-		     HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+polyline_move_handle (Polyline         *polyline,
+                      Handle           *handle,
+                      Point            *to,
+                      ConnectionPoint  *cp,
+                      HandleMoveReason  reason,
+                      ModifierKeys      modifiers)
 {
-  assert(polyline!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+  g_return_val_if_fail (polyline != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
   polyconn_move_handle(&polyline->poly, handle, to, cp, reason, modifiers);
   polyline_update_data(polyline);
@@ -216,11 +224,11 @@ polyline_move_handle(Polyline *polyline, Handle *handle,
 }
 
 
-static ObjectChange*
-polyline_move(Polyline *polyline, Point *to)
+static DiaObjectChange *
+polyline_move (Polyline *polyline, Point *to)
 {
-  polyconn_move(&polyline->poly, to);
-  polyline_update_data(polyline);
+  polyconn_move (&polyline->poly, to);
+  polyline_update_data (polyline);
 
   return NULL;
 }
@@ -279,28 +287,28 @@ static void
 polyline_draw(Polyline *polyline, DiaRenderer *renderer)
 {
   Point gap_endpoints[2];
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   PolyConn *poly = &polyline->poly;
   Point *points;
   int n;
 
   points = &poly->points[0];
   n = poly->numpoints;
-  renderer_ops->set_linewidth(renderer, polyline->line_width);
-  renderer_ops->set_linestyle(renderer, polyline->line_style, polyline->dashlength);
-  renderer_ops->set_linejoin(renderer, polyline->line_join);
-  renderer_ops->set_linecaps(renderer, polyline->line_caps);
+  dia_renderer_set_linewidth (renderer, polyline->line_width);
+  dia_renderer_set_linestyle (renderer, polyline->line_style, polyline->dashlength);
+  dia_renderer_set_linejoin (renderer, polyline->line_join);
+  dia_renderer_set_linecaps (renderer, polyline->line_caps);
 
-  polyline_calculate_gap_endpoints(polyline, gap_endpoints);
-  polyline_exchange_gap_points(polyline, gap_endpoints);
-  renderer_ops->draw_rounded_polyline_with_arrows(renderer,
-						  points, n,
-						  polyline->line_width,
-						  &polyline->line_color,
-						  &polyline->start_arrow,
-						  &polyline->end_arrow,
-						  polyline->corner_radius);
-  polyline_exchange_gap_points(polyline, gap_endpoints);
+  polyline_calculate_gap_endpoints (polyline, gap_endpoints);
+  polyline_exchange_gap_points (polyline, gap_endpoints);
+  dia_renderer_draw_rounded_polyline_with_arrows (renderer,
+                                                  points,
+                                                  n,
+                                                  polyline->line_width,
+                                                  &polyline->line_color,
+                                                  &polyline->start_arrow,
+                                                  &polyline->end_arrow,
+                                                  polyline->corner_radius);
+  polyline_exchange_gap_points (polyline, gap_endpoints);
 }
 
 /** user_data is a struct polyline_create_data, containing an array of
@@ -320,7 +328,7 @@ polyline_create(Point *startpoint,
   Point defaultlen = { 1.0, 1.0 };
 
   /*polyline_init_defaults();*/
-  polyline = g_malloc0(sizeof(Polyline));
+  polyline = g_new0 (Polyline, 1);
   poly = &polyline->poly;
   obj = &poly->object;
 
@@ -352,10 +360,10 @@ polyline_create(Point *startpoint,
 
   polyline->line_width =  attributes_get_default_linewidth();
   polyline->line_color = attributes_get_foreground();
-  attributes_get_default_line_style(&polyline->line_style,
-				    &polyline->dashlength);
-  polyline->line_join = LINEJOIN_MITER;
-  polyline->line_caps = LINECAPS_BUTT;
+  attributes_get_default_line_style (&polyline->line_style,
+                                     &polyline->dashlength);
+  polyline->line_join = DIA_LINE_JOIN_MITER;
+  polyline->line_caps = DIA_LINE_CAPS_BUTT;
   polyline->start_arrow = attributes_get_default_start_arrow();
   polyline->end_arrow = attributes_get_default_end_arrow();
   polyline->corner_radius = 0.0;
@@ -379,7 +387,7 @@ polyline_copy(Polyline *polyline)
 
   poly = &polyline->poly;
 
-  newpolyline = g_malloc0(sizeof(Polyline));
+  newpolyline = g_new0 (Polyline, 1);
   newpoly = &newpolyline->poly;
 
   polyconn_copy(poly, newpoly);
@@ -423,7 +431,7 @@ polyline_update_data(Polyline *polyline)
   polyconn_update_boundingbox(poly);
 
   if (polyline->start_arrow.type != ARROW_NONE) {
-    Rectangle bbox;
+    DiaRectangle bbox;
     Point move_arrow, move_line;
     Point to = gap_endpoints[0];
     Point from = poly->points[1];
@@ -437,7 +445,7 @@ polyline_update_data(Polyline *polyline)
     rectangle_union (&obj->bounding_box, &bbox);
   }
   if (polyline->end_arrow.type != ARROW_NONE) {
-    Rectangle bbox;
+    DiaRectangle bbox;
     int n = polyline->poly.numpoints;
     Point move_arrow, move_line;
     Point to = gap_endpoints[1];
@@ -471,30 +479,41 @@ polyline_save(Polyline *polyline, ObjectNode obj_node,
     data_add_real(new_attribute(obj_node, PROP_STDNAME_LINE_WIDTH),
 		  polyline->line_width, ctx);
 
-  if (polyline->line_style != LINESTYLE_SOLID)
+  if (polyline->line_style != DIA_LINE_STYLE_SOLID)
     data_add_enum(new_attribute(obj_node, "line_style"),
 		  polyline->line_style, ctx);
 
-  if (polyline->line_style != LINESTYLE_SOLID &&
+  if (polyline->line_style != DIA_LINE_STYLE_SOLID &&
       polyline->dashlength != DEFAULT_LINESTYLE_DASHLEN)
     data_add_real(new_attribute(obj_node, "dashlength"),
 		  polyline->dashlength, ctx);
 
-  if (polyline->line_join != LINEJOIN_MITER)
-    data_add_enum(new_attribute(obj_node, "line_join"),
-                  polyline->line_join, ctx);
-  if (polyline->line_caps != LINECAPS_BUTT)
+  if (polyline->line_join != DIA_LINE_JOIN_MITER) {
+    data_add_enum (new_attribute (obj_node, "line_join"),
+                   polyline->line_join,
+                   ctx);
+  }
+
+  if (polyline->line_caps != DIA_LINE_CAPS_BUTT)
     data_add_enum(new_attribute(obj_node, "line_caps"),
                   polyline->line_caps, ctx);
 
   if (polyline->start_arrow.type != ARROW_NONE) {
-    save_arrow(obj_node, &polyline->start_arrow, "start_arrow",
-	     "start_arrow_length", "start_arrow_width", ctx);
+    dia_arrow_save (&polyline->start_arrow,
+                    obj_node,
+                    "start_arrow",
+                    "start_arrow_length",
+                    "start_arrow_width",
+                    ctx);
   }
 
   if (polyline->end_arrow.type != ARROW_NONE) {
-    save_arrow(obj_node, &polyline->end_arrow, "end_arrow",
-	     "end_arrow_length", "end_arrow_width", ctx);
+    dia_arrow_save (&polyline->end_arrow,
+                    obj_node,
+                    "end_arrow",
+                    "end_arrow_length",
+                    "end_arrow_width",
+                    ctx);
   }
 
   if (polyline->absolute_start_gap)
@@ -517,7 +536,7 @@ polyline_load(ObjectNode obj_node, int version, DiaContext *ctx)
   DiaObject *obj;
   AttributeNode attr;
 
-  polyline = g_malloc0(sizeof(Polyline));
+  polyline = g_new0 (Polyline, 1);
 
   poly = &polyline->poly;
   obj = &poly->object;
@@ -537,17 +556,18 @@ polyline_load(ObjectNode obj_node, int version, DiaContext *ctx)
   if (attr != NULL)
     polyline->line_width = data_real(attribute_first_data(attr), ctx);
 
-  polyline->line_style = LINESTYLE_SOLID;
+  polyline->line_style = DIA_LINE_STYLE_SOLID;
   attr = object_find_attribute(obj_node, "line_style");
   if (attr != NULL)
     polyline->line_style = data_enum(attribute_first_data(attr), ctx);
 
-  polyline->line_join = LINEJOIN_MITER;
-  attr = object_find_attribute(obj_node, "line_join");
-  if (attr != NULL)
-    polyline->line_join = data_enum(attribute_first_data(attr), ctx);
+  polyline->line_join = DIA_LINE_JOIN_MITER;
+  attr = object_find_attribute (obj_node, "line_join");
+  if (attr != NULL) {
+    polyline->line_join = data_enum (attribute_first_data (attr), ctx);
+  }
 
-  polyline->line_caps = LINECAPS_BUTT;
+  polyline->line_caps = DIA_LINE_CAPS_BUTT;
   attr = object_find_attribute(obj_node, "line_caps");
   if (attr != NULL)
     polyline->line_caps = data_enum(attribute_first_data(attr), ctx);
@@ -557,11 +577,19 @@ polyline_load(ObjectNode obj_node, int version, DiaContext *ctx)
   if (attr != NULL)
     polyline->dashlength = data_real(attribute_first_data(attr), ctx);
 
-  load_arrow(obj_node, &polyline->start_arrow, "start_arrow",
-	     "start_arrow_length", "start_arrow_width", ctx);
+  dia_arrow_load (&polyline->start_arrow,
+                  obj_node,
+                  "start_arrow",
+                  "start_arrow_length",
+                  "start_arrow_width",
+                  ctx);
 
-  load_arrow(obj_node, &polyline->end_arrow, "end_arrow",
-	     "end_arrow_length", "end_arrow_width", ctx);
+  dia_arrow_load (&polyline->end_arrow,
+                  obj_node,
+                  "end_arrow",
+                  "end_arrow_length",
+                  "end_arrow_width",
+                  ctx);
 
   polyline->absolute_start_gap = 0.0;
   attr = object_find_attribute(obj_node, "absolute_start_gap");
@@ -582,26 +610,29 @@ polyline_load(ObjectNode obj_node, int version, DiaContext *ctx)
   return &polyline->poly.object;
 }
 
-static ObjectChange *
+
+static DiaObjectChange *
 polyline_add_corner_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
   Polyline *poly = (Polyline*) obj;
   int segment;
-  ObjectChange *change;
+  DiaObjectChange *change;
 
-  segment = polyline_closest_segment(poly, clicked);
-  change = polyconn_add_point(&poly->poly, segment, clicked);
-  polyline_update_data(poly);
+  segment = polyline_closest_segment (poly, clicked);
+  change = polyconn_add_point (&poly->poly, segment, clicked);
+  polyline_update_data (poly);
+
   return change;
 }
 
-static ObjectChange *
+
+static DiaObjectChange *
 polyline_delete_corner_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
   Handle *handle;
   int handle_nr, i;
   Polyline *poly = (Polyline*) obj;
-  ObjectChange *change;
+  DiaObjectChange *change;
 
   handle = polyline_closest_handle(poly, clicked);
 

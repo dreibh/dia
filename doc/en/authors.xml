@@ -5,14 +5,10 @@
    currently maintained by Hans Breuer and other dedicated volunteers.  
    To find more information about <application>Dia</application>, 
    please visit the official web page, <ulink
-   url="http://live.gnome.org/Dia" type="http">
-   live.gnome.org/Dia</ulink>.  Please send all comments,
-   suggestions, and bug reports to the <ulink url="http://bugs.gnome.org"
+   url="https://wiki.gnome.org/Apps/Dia" type="http">
+   wiki.gnome.org/Apps/Dia</ulink>.  Please send all comments,
+   suggestions, and bug reports to the <ulink url="https://gitlab.gnome.org/GNOME/dia/-/issues/"
    type="http">GNOME bug tracking database</ulink>. 
-   You can also sign up to the 
-   <application>Dia</application> 
-   <ulink url="http://mail.gnome.org/mailman/listinfo/dia-list">mailing 
-   list</ulink>.    
   </para>
  
   <para>

@@ -18,7 +18,10 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <config.h>
+
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -39,13 +42,14 @@
 #include "geometry.h"
 #include "diasvgrenderer.h"
 #include "filter.h"
-#include "intl.h"
 #include "diagramdata.h"
 #include "dia_xml_libxml.h"
 #include "object.h"
 #include "group.h"
 #include "textline.h"
 #include "dia_svg.h"
+#include "dia-layer.h"
+#include "dia-graphene.h"
 
 G_BEGIN_DECLS
 
@@ -82,7 +86,7 @@ typedef struct _SvgRendererClass SvgRendererClass;
 struct _SvgRenderer
 {
   DiaSvgRenderer parent_instance;
-  
+
   /*! track the parents while grouping in draw_object() */
   GQueue *parents;
 };
@@ -99,19 +103,23 @@ GType svg_renderer_get_type (void) G_GNUC_CONST;
 
 static DiaSvgRenderer *new_svg_renderer(DiagramData *data, const char *filename);
 
-static void draw_layer (DiaRenderer *self,
-			Layer       *layer,
-			gboolean     active,
-			Rectangle   *update);
+static void draw_layer (DiaRenderer  *self,
+                        DiaLayer     *layer,
+                        gboolean      active,
+                        DiaRectangle *update);
 static void draw_object       (DiaRenderer *renderer,
                                DiaObject   *object,
 			       DiaMatrix   *matrix);
-static void draw_string       (DiaRenderer *self,
-	                       const char *text,
-			       Point *pos, Alignment alignment,
-			       Color *colour);
-static void draw_text_line    (DiaRenderer *self, TextLine *text_line,
-	                       Point *pos, Alignment alignment, Color *colour);
+static void draw_string        (DiaRenderer  *self,
+                                const char   *text,
+                                Point        *pos,
+                                DiaAlignment  alignment,
+                                Color        *colour);
+static void draw_text_line     (DiaRenderer  *self,
+                                TextLine     *text_line,
+                                Point        *pos,
+                                DiaAlignment  alignment,
+                                Color        *colour);
 static void draw_text         (DiaRenderer *self, Text *text);
 static void draw_rotated_text (DiaRenderer *self, Text *text, Point *center, real angle);
 static void draw_rotated_image (DiaRenderer *self, Point *point,
@@ -155,12 +163,12 @@ svg_renderer_get_type (void)
                                             "SvgRenderer",
                                             &object_info, 0);
     }
-  
+
   return object_type;
 }
 
 static void
-begin_render (DiaRenderer *self, const Rectangle *update)
+begin_render (DiaRenderer *self, const DiaRectangle *update)
 {
   SvgRenderer *renderer = SVG_RENDERER (self);
   g_assert (g_queue_is_empty (renderer->parents));
@@ -185,7 +193,7 @@ end_render (DiaRenderer *self)
  *
  * \memberof _SvgRenderer
  */
-static gboolean 
+static gboolean
 is_capable_to (DiaRenderer *renderer, RenderCapability cap)
 {
   if (RENDER_HOLES == cap)
@@ -207,7 +215,7 @@ svg_renderer_finalize (GObject *object)
 
   g_queue_free (svg_renderer->parents);
 
-  G_OBJECT_CLASS (parent_class)->finalize (object);  
+  G_OBJECT_CLASS (parent_class)->finalize (object);
 }
 
 static void
@@ -246,9 +254,9 @@ new_svg_renderer(DiagramData *data, const char *filename)
 {
   DiaSvgRenderer *renderer;
   gchar buf[512];
-  Rectangle *extent;
+  DiaRectangle *extent;
   xmlDtdPtr dtd;
- 
+
   /* we need access to our base object */
   renderer = DIA_SVG_RENDERER (g_object_new(SVG_TYPE_RENDERER, NULL));
 
@@ -262,8 +270,8 @@ new_svg_renderer(DiagramData *data, const char *filename)
   renderer->doc->encoding = xmlStrdup((const xmlChar *)"UTF-8");
   renderer->doc->standalone = FALSE;
   dtd = xmlCreateIntSubset(renderer->doc, (const xmlChar *)"svg",
-		     (const xmlChar *)"-//W3C//DTD SVG 1.0//EN",
-		     (const xmlChar *)"http://www.w3.org/TR/2001/PR-SVG-20010719/DTD/svg10.dtd");
+		     (const xmlChar *)"-//W3C//DTD SVG 1.1//EN",
+		     (const xmlChar *)"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd");
   xmlAddChild((xmlNodePtr) renderer->doc, (xmlNodePtr) dtd);
   renderer->root = xmlNewDocNode(renderer->doc, NULL, (const xmlChar *)"svg", NULL);
   xmlAddSibling(renderer->doc->children, (xmlNodePtr) renderer->root);
@@ -295,10 +303,10 @@ new_svg_renderer(DiagramData *data, const char *filename)
  * \memberof _SvgRenderer
  */
 static void
-draw_layer (DiaRenderer *self,
-	    Layer       *layer,
-	    gboolean     active,
-	    Rectangle   *update)
+draw_layer (DiaRenderer  *self,
+            DiaLayer     *layer,
+            gboolean      active,
+            DiaRectangle *update)
 {
   DiaSvgRenderer *renderer = DIA_SVG_RENDERER (self);
   SvgRenderer *svg_renderer = SVG_RENDERER (self);
@@ -309,8 +317,11 @@ draw_layer (DiaRenderer *self,
   /* modifying the root pointer so everything below us gets into the new node */
   renderer->root = layer_group = xmlNewNode (renderer->svg_name_space, (const xmlChar *)"g");
 
-  if (layer->name)
-    xmlSetProp(renderer->root, (const xmlChar *)"id", (xmlChar *) layer->name);
+  if (dia_layer_get_name (layer)) {
+    xmlSetProp (renderer->root,
+                (const xmlChar *) "id",
+                (xmlChar *) dia_layer_get_name (layer));
+  }
 
   DIA_RENDERER_CLASS (parent_class)->draw_layer (self, layer, active, update);
 
@@ -325,7 +336,7 @@ draw_layer (DiaRenderer *self,
  *
  * \memberof _SvgRenderer
  */
-static void 
+static void
 draw_object(DiaRenderer *self,
             DiaObject   *object,
 	    DiaMatrix   *matrix)
@@ -348,27 +359,42 @@ draw_object(DiaRenderer *self,
     GList *objs = group_objects (object);
 
     if (gm) {
-      gchar *s = dia_svg_from_matrix (gm, renderer->scale);
-      xmlSetProp(renderer->root, (const xmlChar *)"transform", (xmlChar *) s);
-      g_free (s);
+      char *s;
+      graphene_matrix_t graphene_matrix;
+
+      dia_graphene_from_matrix (&graphene_matrix, gm);
+
+      s = dia_svg_from_matrix (&graphene_matrix, renderer->scale);
+
+      xmlSetProp (renderer->root, (const xmlChar *) "transform", (xmlChar *) s);
+
+      g_clear_pointer (&s, g_free);
     }
+
     while (objs) {
       DiaObject *obj = (DiaObject *)objs->data;
 
-      obj->ops->draw(obj, DIA_RENDERER (renderer));
+      dia_object_draw (obj, DIA_RENDERER (renderer));
       objs = objs->next;
     }
     renderer->root = g_queue_pop_tail (svg_renderer->parents);
     xmlAddChild (renderer->root, group);
   } else {
     if (matrix) {
-      gchar *s = dia_svg_from_matrix (matrix, renderer->scale);
+      char *s;
+      graphene_matrix_t graphene_matrix;
+
+      dia_graphene_from_matrix (&graphene_matrix, matrix);
+
+      s = dia_svg_from_matrix (&graphene_matrix, renderer->scale);
+
       xmlSetProp(renderer->root, (const xmlChar *)"transform", (xmlChar *) s);
-      g_free (s);
+
+      g_clear_pointer (&s, g_free);
     }
 
     object->ops->draw(object, DIA_RENDERER (renderer));
-  
+
     /* no easy way to count? */
     child = renderer->root->children;
     while (child != NULL) {
@@ -390,25 +416,26 @@ draw_object(DiaRenderer *self,
 #define dia_svg_dtostr(buf,d) \
   g_ascii_formatd(buf,sizeof(buf),"%g",(d)*renderer->scale)
 
+
 static void
 node_set_text_style (xmlNodePtr      node,
-		     DiaSvgRenderer *renderer,
-		     const DiaFont  *font,
-		     real            font_height,
-		     Alignment       alignment,
-		     Color          *colour)
+                     DiaSvgRenderer *renderer,
+                     DiaFont        *font,
+                     double          font_height,
+                     DiaAlignment    alignment,
+                     Color          *colour)
 {
-  real saved_width;
-  gchar d_buf[G_ASCII_DTOSTR_BUF_SIZE];
+  double saved_width;
+  char d_buf[G_ASCII_DTOSTR_BUF_SIZE];
   DiaSvgRendererClass *svg_renderer_class = DIA_SVG_RENDERER_GET_CLASS (renderer);
   GString *style;
   /* SVG font-size is the (line-) height, from SVG Spec:
    * ... property refers to the size of the font from baseline to baseline when multiple lines of text are set ...
   so we should be able to use font_height directly instead of:
    */
-  real font_size = dia_font_get_size (font) * (font_height / dia_font_get_height (font));
+  double font_size = dia_font_get_size (font) * (font_height / dia_font_get_height (font));
   /* ... but at least Inkscape and Firefox would produce the wrong font-size */
-  const gchar *family = dia_font_get_family(font);
+  const char *family = dia_font_get_family (font);
 
   saved_width = renderer->linewidth;
   renderer->linewidth = 0.001;
@@ -419,36 +446,40 @@ node_set_text_style (xmlNodePtr      node,
    * 'right' for those.
    */
   switch (alignment) {
-  case ALIGN_LEFT:
-    g_string_append (style, ";text-anchor:start");
-    break;
-  case ALIGN_CENTER:
-    g_string_append (style, ";text-anchor:middle");
-    break;
-  case ALIGN_RIGHT:
-    g_string_append (style, ";text-anchor:end");
-    break;
+    case DIA_ALIGN_LEFT:
+      g_string_append (style, ";text-anchor:start");
+      break;
+    case DIA_ALIGN_CENTRE:
+      g_string_append (style, ";text-anchor:middle");
+      break;
+    case DIA_ALIGN_RIGHT:
+      g_string_append (style, ";text-anchor:end");
+      break;
+    default:
+      g_return_if_reached ();
   }
 #if 0 /* would need a unit according to https://bugzilla.mozilla.org/show_bug.cgi?id=707071#c4 */
   tmp = g_strdup_printf("%s;font-size:%s", style,
 			dia_svg_dtostr(d_buf, font_size) );
-  g_free (style);
+  g_clear_pointer (&style, g_free);
   style = tmp;
 #else
   /* font-size as attribute can work like the other length w/o unit */
-  dia_svg_dtostr(d_buf, font_size);
-  xmlSetProp(node, (const xmlChar *)"font-size", (xmlChar *) d_buf);
+  dia_svg_dtostr (d_buf, font_size);
+  xmlSetProp (node, (const xmlChar *) "font-size", (xmlChar *) d_buf);
 #endif
 
   if (font) {
-     g_string_append_printf (style, ";font-family:%s;font-style:%s;font-weight:%s",
-			     strcmp(family, "sans") == 0 ? "sans-serif" : family,
-			     dia_font_get_slant_string(font),
-			     dia_font_get_weight_string(font));
+     g_string_append_printf (style,
+                             ";font-family:%s;font-style:%s;font-weight:%s",
+                             strcmp (family, "sans") == 0 ? "sans-serif" : family,
+                             dia_font_get_slant_string (font),
+                             dia_font_get_weight_string (font));
   }
-  xmlSetProp(node, (xmlChar *)"style", (xmlChar *)style->str);
+  xmlSetProp (node, (xmlChar *) "style", (xmlChar *) style->str);
   g_string_free (style, TRUE);
 }
+
 
 /*!
  * To minimize impact of this deprecated attribute we set it as locally as
@@ -465,6 +496,8 @@ _adjust_space_preserve (xmlNodePtr node,
   if (g_unichar_isspace (uc))
     xmlSetProp (node, (const xmlChar *)"xml:space", (const xmlChar *)"preserve");
 }
+
+
 /*!
  * \brief Support rendering of raw text
  *
@@ -474,41 +507,52 @@ _adjust_space_preserve (xmlNodePtr node,
  * \memberof _SvgRenderer
  */
 static void
-draw_string(DiaRenderer *self,
-	    const char *text,
-	    Point *pos, Alignment alignment,
-	    Color *colour)
-{    
-  DiaSvgRenderer *renderer = DIA_SVG_RENDERER (self);
-  xmlNodePtr node;
-  gchar d_buf[G_ASCII_DTOSTR_BUF_SIZE];
-
-  node = xmlNewChild(renderer->root, renderer->svg_name_space, (xmlChar *)"text", (xmlChar *)text);
-  _adjust_space_preserve (node, text);
-
-  node_set_text_style(node, renderer, self->font, self->font_height, alignment, colour);
-  
-  dia_svg_dtostr(d_buf, pos->x);
-  xmlSetProp(node, (xmlChar *)"x", (xmlChar *)d_buf);
-  dia_svg_dtostr(d_buf, pos->y);
-  xmlSetProp(node, (xmlChar *)"y", (xmlChar *)d_buf);
-}
-
-/*!
- * \brief Support rendering of the _TextLine object
- * \memberof _SvgRenderer
- */
-static void
-draw_text_line(DiaRenderer *self, TextLine *text_line,
-	       Point *pos, Alignment alignment, Color *colour)
+draw_string (DiaRenderer  *self,
+             const char   *text,
+             Point        *pos,
+             DiaAlignment  alignment,
+             Color        *colour)
 {
   DiaSvgRenderer *renderer = DIA_SVG_RENDERER (self);
   xmlNodePtr node;
-  DiaFont *font = text_line_get_font(text_line); /* no reference? */
-  real font_height = text_line_get_height(text_line);
-  gchar d_buf[G_ASCII_DTOSTR_BUF_SIZE];
-  
-  node = xmlNewChild(renderer->root, renderer->svg_name_space, (const xmlChar *)"text", 
+  char d_buf[G_ASCII_DTOSTR_BUF_SIZE];
+  DiaFont *font;
+  double font_height;
+
+  font = dia_renderer_get_font (self, &font_height);
+
+  node = xmlNewChild (renderer->root,
+                      renderer->svg_name_space,
+                      (xmlChar *) "text",
+                      (xmlChar *) text);
+  _adjust_space_preserve (node, text);
+
+  node_set_text_style (node, renderer, font, font_height, alignment, colour);
+
+  dia_svg_dtostr (d_buf, pos->x);
+  xmlSetProp (node, (xmlChar *) "x", (xmlChar *)d_buf);
+  dia_svg_dtostr (d_buf, pos->y);
+  xmlSetProp (node, (xmlChar *) "y", (xmlChar *)d_buf);
+}
+
+
+/*
+ * Support rendering of the #TextLine object
+ */
+static void
+draw_text_line (DiaRenderer  *self,
+                TextLine     *text_line,
+                Point        *pos,
+                DiaAlignment  alignment,
+                Color        *colour)
+{
+  DiaSvgRenderer *renderer = DIA_SVG_RENDERER (self);
+  xmlNodePtr node;
+  DiaFont *font = text_line_get_font (text_line); /* no reference? */
+  double font_height = text_line_get_height (text_line);
+  char d_buf[G_ASCII_DTOSTR_BUF_SIZE];
+
+  node = xmlNewChild(renderer->root, renderer->svg_name_space, (const xmlChar *)"text",
 		     (xmlChar *) text_line_get_string(text_line));
   _adjust_space_preserve (node, text_line_get_string(text_line));
 
@@ -545,17 +589,18 @@ draw_rotated_text (DiaRenderer *self, Text *text, Point *center, real angle)
   Point pos = text->position;
   int i;
   xmlNodePtr node_text, node_tspan;
-  gchar d_buf[G_ASCII_DTOSTR_BUF_SIZE];
+  char d_buf[G_ASCII_DTOSTR_BUF_SIZE];
 
   node_text = xmlNewChild(renderer->root, renderer->svg_name_space, (const xmlChar *)"text", NULL);
   /* text 'global' properties  */
   node_set_text_style(node_text, renderer, text->font, text->height, text->alignment, &text->color);
+
   if (angle != 0) {
-     gchar x_buf0[G_ASCII_DTOSTR_BUF_SIZE];
-     gchar y_buf0[G_ASCII_DTOSTR_BUF_SIZE];
-     gchar x_buf1[G_ASCII_DTOSTR_BUF_SIZE];
-     gchar y_buf1[G_ASCII_DTOSTR_BUF_SIZE];
-     gchar *trans;
+    char x_buf0[G_ASCII_DTOSTR_BUF_SIZE];
+    char y_buf0[G_ASCII_DTOSTR_BUF_SIZE];
+    char x_buf1[G_ASCII_DTOSTR_BUF_SIZE];
+    char y_buf1[G_ASCII_DTOSTR_BUF_SIZE];
+    char *trans;
      if (center)
        pos = *center;
      g_ascii_formatd (d_buf, sizeof(d_buf), "%g", angle);
@@ -566,7 +611,7 @@ draw_rotated_text (DiaRenderer *self, Text *text, Point *center, real angle)
      trans = g_strdup_printf ("translate(%s,%s) rotate(%s) translate(%s,%s)",
 			      x_buf0, y_buf0, d_buf, x_buf1, y_buf1);
      xmlSetProp(node_text, (const xmlChar *)"transform", (xmlChar *) trans);
-     g_free (trans);
+     g_clear_pointer (&trans, g_free);
   } else {
     dia_svg_dtostr(d_buf, pos.x);
     xmlSetProp(node_text, (const xmlChar *)"x", (xmlChar *) d_buf);
@@ -584,7 +629,7 @@ draw_rotated_text (DiaRenderer *self, Text *text, Point *center, real angle)
     xmlSetProp(node_tspan, (const xmlChar *)"x", (xmlChar *) d_buf);
     dia_svg_dtostr(d_buf, pos.y);
     xmlSetProp(node_tspan, (const xmlChar *)"y", (xmlChar *) d_buf);
-    
+
     pos.y += text->height;
   }
 }
@@ -619,30 +664,37 @@ draw_rotated_image (DiaRenderer *self,
     dia_svg_dtostr(x_buf1, -pos.x);
     dia_svg_dtostr(y_buf1, -pos.y);
     trans = g_strdup_printf ("translate(%s,%s) rotate(%s) translate(%s,%s)",
-			     x_buf0, y_buf0, d_buf, x_buf1, y_buf1);
-    xmlSetProp(node, (const xmlChar *)"transform", (xmlChar *) trans);
-    g_free (trans);
+                             x_buf0, y_buf0, d_buf, x_buf1, y_buf1);
+    xmlSetProp (node, (const xmlChar *)"transform", (xmlChar *) trans);
+    g_clear_pointer (&trans, g_free);
   }
 }
+
 
 /*!
  * \brief Callback function registered for export
  * \ingroup SvgExport
  */
 static gboolean
-export_svg(DiagramData *data, DiaContext *ctx,
-	   const gchar *filename, const gchar *diafilename,
-	   void* user_data)
+export_svg (DiagramData *data,
+            DiaContext  *ctx,
+            const char  *filename,
+            const char  *diafilename,
+            void        *user_data)
 {
   DiaSvgRenderer *renderer;
 
-  if ((renderer = new_svg_renderer(data, filename))) {
-    data_render(data, DIA_RENDERER(renderer), NULL, NULL, NULL);
-    g_object_unref(renderer);
+  if ((renderer = new_svg_renderer (data, filename))) {
+    data_render (data, DIA_RENDERER (renderer), NULL, NULL, NULL);
+
+    g_clear_object (&renderer);
+
     return TRUE;
   }
+
   return FALSE;
 }
+
 
 static const gchar *extensions[] = { "svg", NULL };
 DiaExportFilter svg_export_filter = {

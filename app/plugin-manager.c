@@ -21,22 +21,24 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <string.h>
 
 #include <gtk/gtk.h>
 
 #include "plugin-manager.h"
-#include "intl.h"
 #include "plug-ins.h"
 #include "message.h"
 
-static gint
-pm_respond(GtkWidget *widget, gint response_id, gpointer data)
+
+static int
+pm_respond (GtkWidget *widget, int response_id, gpointer data)
 {
   if (response_id != GTK_RESPONSE_APPLY)
-    gtk_widget_hide(widget);
+    gtk_widget_hide (widget);
   return 0;
 }
 
@@ -202,13 +204,12 @@ get_plugin_manager(void)
     return dialog;
 
   /* build up the user interface */
-  dialog = gtk_dialog_new_with_buttons(
-		_("Plugins"),
-		NULL, 0,
-		GTK_STOCK_CLOSE, GTK_RESPONSE_CLOSE,
-		NULL);
+  dialog = gtk_dialog_new_with_buttons (_("Plugins"),
+                                        NULL, 0,
+                                        _("_Close"), GTK_RESPONSE_CLOSE,
+                                        NULL);
 
-  gtk_dialog_set_default_response (GTK_DIALOG(dialog), GTK_RESPONSE_CLOSE);
+  gtk_dialog_set_default_response (GTK_DIALOG (dialog), GTK_RESPONSE_CLOSE);
 
   vbox = gtk_dialog_get_content_area (GTK_DIALOG (dialog));
 

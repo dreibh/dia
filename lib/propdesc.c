@@ -24,7 +24,9 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <glib.h>
 
@@ -74,21 +76,23 @@ prop_desc_find_real_handler(const PropDescription *pdesc)
   return ret;
 }
 
+
 /* free a handler indirection list */
 void
-prop_desc_free_handler_chain(PropDescription *pdesc)
+prop_desc_free_handler_chain (PropDescription *pdesc)
 {
   if (pdesc) {
     PropEventHandlerChain *chain = pdesc->chain_handler.chain;
     while (chain) {
       PropEventHandlerChain *next = chain->chain;
-      g_free(chain);
+      g_clear_pointer (&chain, g_free);
       chain = next;
     }
     pdesc->chain_handler.chain = NULL;
     pdesc->chain_handler.handler = NULL;
   }
 }
+
 
 /* free a handler indirection list in a list of descriptors */
 void

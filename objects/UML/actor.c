@@ -15,13 +15,14 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <config.h>
 
-#include <assert.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "diarenderer.h"
@@ -57,10 +58,14 @@ struct _Actor {
 static real actor_distance_from(Actor *actor, Point *point);
 static void actor_select(Actor *actor, Point *clicked_point,
 			DiaRenderer *interactive_renderer);
-static ObjectChange* actor_move_handle(Actor *actor, Handle *handle,
-				       Point *to, ConnectionPoint *cp,
-				       HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* actor_move(Actor *actor, Point *to);
+static DiaObjectChange *actor_move_handle (Actor            *actor,
+                                           Handle           *handle,
+                                           Point            *to,
+                                           ConnectionPoint  *cp,
+                                           HandleMoveReason  reason,
+                                           ModifierKeys      modifiers);
+static DiaObjectChange *actor_move        (Actor            *actor,
+                                           Point            *to);
 static void actor_draw(Actor *actor, DiaRenderer *renderer);
 static DiaObject *actor_create(Point *startpoint,
 			   void *user_data,
@@ -174,26 +179,37 @@ actor_select(Actor *actor, Point *clicked_point,
   element_update_handles(&actor->element);
 }
 
-static ObjectChange*
-actor_move_handle(Actor *actor, Handle *handle,
-		  Point *to, ConnectionPoint *cp,
-		  HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+actor_move_handle (Actor            *actor,
+                   Handle           *handle,
+                   Point            *to,
+                   ConnectionPoint  *cp,
+                   HandleMoveReason  reason,
+                   ModifierKeys      modifiers)
 {
-  ObjectChange* oc;
+  DiaObjectChange *oc;
 
-  assert(actor!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+  g_return_val_if_fail (actor != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
-  assert(handle->id < 8);
+  g_return_val_if_fail (handle->id < 8, NULL);
 
-  oc = element_move_handle (&(actor->element), handle->id, to, cp, reason, modifiers);
+  oc = element_move_handle (&actor->element,
+                            handle->id,
+                            to,
+                            cp,
+                            reason,
+                            modifiers);
   actor_update_data (actor);
+
   return oc;
 }
 
-static ObjectChange*
-actor_move(Actor *actor, Point *to)
+
+static DiaObjectChange *
+actor_move (Actor *actor, Point *to)
 {
   Element *elem = &actor->element;
 
@@ -206,18 +222,18 @@ actor_move(Actor *actor, Point *to)
   return NULL;
 }
 
-static void
-actor_draw(Actor *actor, DiaRenderer *renderer)
-{
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
-  Element *elem;
-  real x, y, w;
-  real r, r1;
-  Point ch, cb, p1, p2;
-  real actor_height;
 
-  assert(actor != NULL);
-  assert(renderer != NULL);
+static void
+actor_draw (Actor *actor, DiaRenderer *renderer)
+{
+  Element *elem;
+  double x, y, w;
+  double r, r1;
+  Point ch, cb, p1, p2;
+  double actor_height;
+
+  g_return_if_fail (actor != NULL);
+  g_return_if_fail (renderer != NULL);
 
   elem = &actor->element;
 
@@ -226,11 +242,11 @@ actor_draw(Actor *actor, DiaRenderer *renderer)
   w = elem->width;
   actor_height = elem->height - actor->text->height;
 
-  renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
-  renderer_ops->set_linewidth(renderer, actor->line_width);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
+  dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+  dia_renderer_set_linewidth (renderer, actor->line_width);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
 
-  r = ACTOR_HEAD(actor_height);
+  r = ACTOR_HEAD (actor_height);
   r1 = 2*r;
   ch.x = x + w*0.5;
   ch.y = y + r + ACTOR_MARGIN_Y;
@@ -238,38 +254,44 @@ actor_draw(Actor *actor, DiaRenderer *renderer)
   cb.y = ch.y + r1 + r;
 
   /* head */
-  renderer_ops->draw_ellipse(renderer,
-			     &ch,
-			     r, r,
-			     &actor->fill_color, &actor->line_color);
+  dia_renderer_draw_ellipse (renderer,
+                             &ch,
+                             r,
+                             r,
+                             &actor->fill_color,
+                             &actor->line_color);
 
   /* Arms */
   p1.x = ch.x - r1;
   p2.x = ch.x + r1;
   p1.y = p2.y = ch.y + r;
-  renderer_ops->draw_line(renderer,
-			   &p1, &p2,
-			   &actor->line_color);
+  dia_renderer_draw_line (renderer,
+                          &p1,
+                          &p2,
+                          &actor->line_color);
 
   p1.x = ch.x;
   p1.y = ch.y + r*0.5;
   /* body & legs  */
-  renderer_ops->draw_line(renderer,
-			   &p1, &cb,
-			   &actor->line_color);
+  dia_renderer_draw_line (renderer,
+                          &p1,
+                          &cb,
+                          &actor->line_color);
 
   p2.x = ch.x - r1;
-  p2.y = y + ACTOR_BODY(actor_height);
-  renderer_ops->draw_line(renderer,
-			   &cb, &p2,
-			   &actor->line_color);
+  p2.y = y + ACTOR_BODY (actor_height);
+  dia_renderer_draw_line (renderer,
+                          &cb,
+                          &p2,
+                          &actor->line_color);
 
   p2.x =  ch.x + r1;
-  renderer_ops->draw_line(renderer,
-			   &cb, &p2,
-			   &actor->line_color);
+  dia_renderer_draw_line (renderer,
+                          &cb,
+                          &p2,
+                          &actor->line_color);
 
-  text_draw(actor->text, renderer);
+  text_draw (actor->text, renderer);
 }
 
 static void
@@ -277,7 +299,7 @@ actor_update_data(Actor *actor)
 {
   Element *elem = &actor->element;
   DiaObject *obj = &elem->object;
-  Rectangle text_box;
+  DiaRectangle text_box;
   Point p;
   real actor_height;
 
@@ -325,7 +347,7 @@ actor_create(Point *startpoint,
   DiaFont *font;
   int i;
 
-  actor = g_malloc0(sizeof(Actor));
+  actor = g_new0 (Actor, 1);
   elem = &actor->element;
   obj = &elem->object;
 
@@ -344,9 +366,13 @@ actor_create(Point *startpoint,
   p.x += ACTOR_MARGIN_X;
   p.y += ACTOR_HEIGHT - dia_font_descent(_("Actor"),font, 0.8);
 
-  actor->text = new_text(_("Actor"),
-                         font, 0.8, &p, &color_black, ALIGN_CENTER);
-  dia_font_unref(font);
+  actor->text = new_text (_("Actor"),
+                          font,
+                          0.8,
+                          &p,
+                          &color_black,
+                          DIA_ALIGN_CENTRE);
+  g_clear_object (&font);
 
   element_init(elem, 8, NUM_CONNECTIONS);
 

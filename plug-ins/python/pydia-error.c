@@ -17,17 +17,19 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include "pydia-object.h"
 #include "pydia-error.h"
 #include "message.h"
 
 /*
- * A little helper to dump pythons last error info either to file only or 
+ * A little helper to dump pythons last error info either to file only or
  * additional popup a message_error
  */
-void 
+void
 _pyerror_report_last (gboolean popup, const char* fn, const char* file, int line)
 {
   PyObject *exc, *v, *tb, *ef;
@@ -45,9 +47,9 @@ _pyerror_report_last (gboolean popup, const char* fn, const char* file, int line
   PyFile_WriteObject (exc, ef, 0);
   PyFile_WriteObject (v, ef, 0);
   PyTraceBack_Print(tb, ef);
-  if (((PyDiaError*)ef)->str && popup) 
+  if (((PyDiaError*)ef)->str && popup)
     message_error ("%s", ((PyDiaError*)ef)->str->str);
-  g_free (sLoc);
+  g_clear_pointer (&sLoc, g_free);
   Py_DECREF (ef);
   Py_XDECREF(exc);
   Py_XDECREF(v);
@@ -60,7 +62,7 @@ _pyerror_report_last (gboolean popup, const char* fn, const char* file, int line
 PyObject* PyDiaError_New (const char* s, gboolean unbuffered)
 {
   PyDiaError *self;
-  
+
   self = PyObject_NEW(PyDiaError, &PyDiaError_Type);
   if (!self) return NULL;
   if (unbuffered) {
@@ -76,119 +78,119 @@ PyObject* PyDiaError_New (const char* s, gboolean unbuffered)
   return (PyObject *)self;
 }
 
+
 /*
  * Dealloc
  */
 static void
-PyDiaError_Dealloc(PyDiaError *self)
+PyDiaError_Dealloc (PyObject *self)
 {
-  if (self->str)
-    g_string_free (self->str, TRUE);
-  PyObject_DEL(self);
+  if (((PyDiaError *) self)->str) {
+    g_string_free (((PyDiaError *) self)->str, TRUE);
+  }
+
+  PyObject_DEL (self);
 }
+
 
 /*
  * Compare
  */
-static int
-PyDiaError_Compare(PyDiaError *self,
-                  PyDiaError *other)
+static PyObject *
+PyDiaError_RichCompare (PyObject *a,
+                        PyObject *b,
+                        int       op)
 {
-  int len = 0;
+  PyDiaError *self = (PyDiaError *) a;
+  PyDiaError *other = (PyDiaError *) b;
+  PyObject *left_str;
+  PyObject *right_str;
+  PyObject *result;
 
-  if (self->str == other->str) return 0;
-  if (NULL == self->str) return -1;
-  if (NULL == other->str) return -1;
+  if (self->str) {
+    left_str = PyUnicode_FromStringAndSize (self->str->str, self->str->len);
+  } else {
+    left_str = Py_None;
+    Py_INCREF (left_str);
+  }
 
-  len = (self->str->len > other->str->len ? other->str->len : self->str->len);
-  return memcmp(self->str->str, other->str->str, len);
+  if (other->str) {
+    right_str = PyUnicode_FromStringAndSize (other->str->str, other->str->len);
+  } else {
+    right_str = Py_None;
+    Py_INCREF (right_str);
+  }
+
+  result = PyUnicode_RichCompare (left_str, right_str, op);
+
+  Py_DECREF (left_str);
+  Py_DECREF (right_str);
+
+  return result;
 }
+
 
 /*
  * Hash
  */
-static long
-PyDiaError_Hash(PyObject *self)
+static Py_hash_t
+PyDiaError_Hash (PyObject *self)
 {
-  return (long)self;
+  return (long) self;
 }
+
 
 static PyObject *
-PyDiaError_Write(PyDiaError *self, PyObject *args)
+PyDiaError_Write (PyDiaError *self, PyObject *args)
 {
-  PyObject* obj;
-  gchar* s;
+  PyObject *obj;
+  const char *s;
 
-  if (!PyArg_ParseTuple(args, "O", &obj))
+  if (!PyArg_ParseTuple (args, "O", &obj)) {
     return NULL;
+  }
 
-  s = PyString_AsString (obj);
+  s = PyUnicode_AsUTF8 (obj);
 
-  if (self->str)
+  if (self->str) {
     g_string_append (self->str, s);
+  }
 
-  g_print ("%s", s);
+  g_printerr ("%s", s);
 
-  Py_INCREF(Py_None);
-  return Py_None;
+  Py_RETURN_NONE;
 }
+
 
 static PyMethodDef PyDiaError_Methods [] = {
     { "write", (PyCFunction)PyDiaError_Write, METH_VARARGS },
     { NULL, 0, 0, NULL }
 };
 
-/*
- * GetAttr
- */
-static PyObject *
-PyDiaError_GetAttr(PyDiaError *self, gchar *attr)
-{
-  return Py_FindMethod(PyDiaError_Methods, (PyObject *)self, attr);
-}
 
 /*
  * Repr / _Str
  */
 static PyObject *
-PyDiaError_Str(PyDiaError *self)
+PyDiaError_Str (PyObject *self)
 {
-  return PyString_FromString(self->str->str);
+  return PyUnicode_FromString (((PyDiaError *) self)->str->str);
 }
+
 
 /*
  * Python objetcs
  */
 PyTypeObject PyDiaError_Type = {
-    PyObject_HEAD_INIT(NULL)
-    0,
-    "DiaError",
-    sizeof(PyDiaError),
-    0,
-    (destructor)PyDiaError_Dealloc,
-    (printfunc)0,
-    (getattrfunc)PyDiaError_GetAttr,
-    (setattrfunc)0,
-    (cmpfunc)PyDiaError_Compare,
-    (reprfunc)0,
-    0,
-    0,
-    0,
-    (hashfunc)PyDiaError_Hash,
-    (ternaryfunc)0,
-    (reprfunc)PyDiaError_Str,
-    (getattrofunc)0L,
-    (setattrofunc)0L,
-    (PyBufferProcs *)0L,
-    0L, /* Flags */
-    "The error object is just a helper to redirect errors to messages",
-    (traverseproc)0,
-    (inquiry)0,
-    (richcmpfunc)0,
-    0, /* tp_weakliszoffset */
-    (getiterfunc)0,
-    (iternextfunc)0,
-    PyDiaError_Methods, /* tp_methods */
-    NULL, /* tp_members */
-    0
+  PyVarObject_HEAD_INIT (NULL, 0)
+  .tp_name = "DiaError",
+  .tp_basicsize = sizeof (PyDiaError),
+  .tp_dealloc = PyDiaError_Dealloc,
+  .tp_getattro = PyObject_GenericGetAttr,
+  .tp_richcompare = PyDiaError_RichCompare,
+  .tp_hash = PyDiaError_Hash,
+  .tp_str = PyDiaError_Str,
+  .tp_doc = "The error object is just a helper to redirect errors to "
+            "messages",
+  .tp_methods = PyDiaError_Methods,
 };

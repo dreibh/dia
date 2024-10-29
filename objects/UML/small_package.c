@@ -16,13 +16,13 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "diarenderer.h"
@@ -64,10 +64,10 @@ struct _SmallPackage {
 static real smallpackage_distance_from(SmallPackage *pkg, Point *point);
 static void smallpackage_select(SmallPackage *pkg, Point *clicked_point,
 				DiaRenderer *interactive_renderer);
-static ObjectChange* smallpackage_move_handle(SmallPackage *pkg, Handle *handle,
+static DiaObjectChange* smallpackage_move_handle(SmallPackage *pkg, Handle *handle,
 					      Point *to, ConnectionPoint *cp,
 					      HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* smallpackage_move(SmallPackage *pkg, Point *to);
+static DiaObjectChange* smallpackage_move(SmallPackage *pkg, Point *to);
 static void smallpackage_draw(SmallPackage *pkg, DiaRenderer *renderer);
 static DiaObject *smallpackage_create(Point *startpoint,
 				   void *user_data,
@@ -161,19 +161,21 @@ smallpackage_get_props(SmallPackage * smallpackage,
                                 smallpackage_offsets,props);
 }
 
+
 static void
-smallpackage_set_props(SmallPackage *smallpackage,
-                       GPtrArray *props)
+smallpackage_set_props (SmallPackage *smallpackage,
+                        GPtrArray    *props)
 {
-  object_set_props_from_offsets(&smallpackage->element.object,
-                                smallpackage_offsets, props);
-  g_free(smallpackage->st_stereotype);
-  smallpackage->st_stereotype = NULL;
+  object_set_props_from_offsets (&smallpackage->element.object,
+                                 smallpackage_offsets,
+                                 props);
+  g_clear_pointer (&smallpackage->st_stereotype, g_free);
   smallpackage_update_data(smallpackage);
 }
 
-static real
-smallpackage_distance_from(SmallPackage *pkg, Point *point)
+
+static double
+smallpackage_distance_from (SmallPackage *pkg, Point *point)
 {
   /* need to calculate the distance from both rects to make the autogap
    * use the right boundaries
@@ -181,8 +183,8 @@ smallpackage_distance_from(SmallPackage *pkg, Point *point)
   Element *elem = &pkg->element;
   real x = elem->corner.x;
   real y = elem->corner.y;
-  Rectangle r1 = { x, y, x + elem->width, y + elem->height };
-  Rectangle r2 = { x, y - SMALLPACKAGE_TOPHEIGHT, x + SMALLPACKAGE_TOPWIDTH, y };
+  DiaRectangle r1 = { x, y, x + elem->width, y + elem->height };
+  DiaRectangle r2 = { x, y - SMALLPACKAGE_TOPHEIGHT, x + SMALLPACKAGE_TOPWIDTH, y };
   real d1 = distance_rectangle_point(&r1, point);
   real d2 = distance_rectangle_point(&r2, point);
 
@@ -199,21 +201,26 @@ smallpackage_select(SmallPackage *pkg, Point *clicked_point,
   element_update_handles(&pkg->element);
 }
 
-static ObjectChange*
-smallpackage_move_handle(SmallPackage *pkg, Handle *handle,
-			 Point *to, ConnectionPoint *cp,
-			 HandleMoveReason reason, ModifierKeys modifiers)
-{
-  assert(pkg!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
 
-  assert(handle->id < 8);
+static DiaObjectChange *
+smallpackage_move_handle (SmallPackage     *pkg,
+                          Handle           *handle,
+                          Point            *to,
+                          ConnectionPoint  *cp,
+                          HandleMoveReason  reason,
+                          ModifierKeys      modifiers)
+{
+  g_return_val_if_fail (pkg != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
+
+  g_return_val_if_fail (handle->id < 8, NULL);
 
   return NULL;
 }
 
-static ObjectChange*
+
+static DiaObjectChange*
 smallpackage_move(SmallPackage *pkg, Point *to)
 {
   Point p;
@@ -231,15 +238,14 @@ smallpackage_move(SmallPackage *pkg, Point *to)
 }
 
 static void
-smallpackage_draw(SmallPackage *pkg, DiaRenderer *renderer)
+smallpackage_draw (SmallPackage *pkg, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Element *elem;
-  real x, y, w, h;
+  double x, y, w, h;
   Point p1, p2;
 
-  assert(pkg != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (pkg != NULL);
+  g_return_if_fail (renderer != NULL);
 
   elem = &pkg->element;
 
@@ -248,35 +254,40 @@ smallpackage_draw(SmallPackage *pkg, DiaRenderer *renderer)
   w = elem->width;
   h = elem->height;
 
-  renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
-  renderer_ops->set_linewidth(renderer, pkg->line_width);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
+  dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+  dia_renderer_set_linewidth (renderer, pkg->line_width);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
 
   p1.x = x; p1.y = y;
   p2.x = x+w; p2.y = y+h;
 
-  renderer_ops->draw_rect(renderer,
-			   &p1, &p2,
-			   &pkg->fill_color,
-			   &pkg->line_color);
+  dia_renderer_draw_rect (renderer,
+                          &p1,
+                          &p2,
+                          &pkg->fill_color,
+                          &pkg->line_color);
 
   p1.x= x; p1.y = y-SMALLPACKAGE_TOPHEIGHT;
   p2.x = x+SMALLPACKAGE_TOPWIDTH; p2.y = y;
 
-  renderer_ops->draw_rect(renderer,
-			   &p1, &p2,
-			   &pkg->fill_color,
-			   &pkg->line_color);
+  dia_renderer_draw_rect (renderer,
+                          &p1,
+                          &p2,
+                          &pkg->fill_color,
+                          &pkg->line_color);
 
   text_draw(pkg->text, renderer);
 
   if ((pkg->st_stereotype != NULL) && (pkg->st_stereotype[0] != '\0')) {
-    renderer_ops->set_font(renderer, pkg->text->font, pkg->text->height);
+    dia_renderer_set_font (renderer, pkg->text->font, pkg->text->height);
 
     p1 = pkg->text->position;
     p1.y -= pkg->text->height;
-    renderer_ops->draw_string(renderer, pkg->st_stereotype, &p1,
-			       ALIGN_LEFT, &pkg->text->color);
+    dia_renderer_draw_string (renderer,
+                              pkg->st_stereotype,
+                              &p1,
+                              DIA_ALIGN_LEFT,
+                              &pkg->text->color);
   }
 }
 
@@ -340,7 +351,7 @@ smallpackage_create(Point *startpoint,
   DiaFont *font;
   int i;
 
-  pkg = g_malloc0(sizeof(SmallPackage));
+  pkg = g_new0 (SmallPackage, 1);
   elem = &pkg->element;
   obj = &elem->object;
 
@@ -355,10 +366,10 @@ smallpackage_create(Point *startpoint,
   p.x += SMALLPACKAGE_MARGIN_X;
   p.y += SMALLPACKAGE_MARGIN_Y+ dia_font_ascent("A",font, 0.8);
 
-  pkg->text = new_text("", font, 0.8, &p, &color_black, ALIGN_LEFT);
-  dia_font_unref(font);
+  pkg->text = new_text ("", font, 0.8, &p, &color_black, DIA_ALIGN_LEFT);
+  g_clear_object (&font);
 
-  element_init(elem, 8, NUM_CONNECTIONS);
+  element_init (elem, 8, NUM_CONNECTIONS);
 
   for (i=0;i<NUM_CONNECTIONS;i++) {
     obj->connections[i] = &pkg->connections[i];
@@ -386,16 +397,18 @@ smallpackage_create(Point *startpoint,
   return &pkg->element.object;
 }
 
+
 static void
-smallpackage_destroy(SmallPackage *pkg)
+smallpackage_destroy (SmallPackage *pkg)
 {
-  text_destroy(pkg->text);
+  text_destroy (pkg->text);
 
-  g_free(pkg->stereotype);
-  g_free(pkg->st_stereotype);
+  g_clear_pointer (&pkg->stereotype, g_free);
+  g_clear_pointer (&pkg->st_stereotype, g_free);
 
-  element_destroy(&pkg->element);
+  element_destroy (&pkg->element);
 }
+
 
 static DiaObject *
 smallpackage_load(ObjectNode obj_node, int version,DiaContext *ctx)

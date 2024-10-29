@@ -16,11 +16,11 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <string.h>
-
 
 #include "orth_conn.h"
 #include "diarenderer.h"
@@ -41,11 +41,11 @@ struct _Transition {
 
   Handle trigger_text_handle;
   Point trigger_text_pos;
-  gchar *trigger_text;
-  gchar *action_text;
+  char *trigger_text;
+  char *action_text;
   Handle guard_text_handle;
   Point guard_text_pos;
-  gchar *guard_text;
+  char *guard_text;
   gboolean direction_inverted;
 };
 
@@ -74,23 +74,24 @@ static DiaMenu* transition_get_object_menu(Transition* transition,
 static void transition_select(Transition* obj,
                               Point* clicked_point,
                               DiaRenderer* interactive_renderer);
-static ObjectChange* transition_move(Transition* transition, Point* pos);
-static ObjectChange* transition_move_handle(Transition*      transition,
-                                            Handle*          handle,
-                                            Point*           pos,
-                                            ConnectionPoint* cp,
-                                            HandleMoveReason reason,
-                                            ModifierKeys     modifiers);
+static DiaObjectChange *transition_move           (Transition       *transition,
+                                                   Point            *pos);
+static DiaObjectChange *transition_move_handle    (Transition       *transition,
+                                                   Handle           *handle,
+                                                   Point            *pos,
+                                                   ConnectionPoint  *cp,
+                                                   HandleMoveReason  reason,
+                                                   ModifierKeys      modifiers);
 static void transition_set_props(Transition *transition, GPtrArray *props);
 static void transition_get_props(Transition *transition, GPtrArray *props);
 static PropDescription *transition_describe_props(Transition *transition);
 static void uml_transition_update_data(Transition *transition);
-static ObjectChange* transition_add_segment_cb(DiaObject *obj,
-                                               Point *clicked_point,
-                                               gpointer data);
-static ObjectChange* transition_del_segment_cb(DiaObject *obj,
-                                               Point *clicked_point,
-                                               gpointer data);
+static DiaObjectChange* transition_add_segment_cb (DiaObject        *obj,
+                                                   Point            *clicked_point,
+                                                   gpointer          data);
+static DiaObjectChange* transition_del_segment_cb (DiaObject        *obj,
+                                                   Point            *clicked_point,
+                                                   gpointer          data);
 
 static ObjectTypeOps uml_transition_type_ops = {
   (CreateFunc)transition_create,
@@ -166,6 +167,8 @@ static PropOffset transition_offsets[] = {
 #define TRANSITION_MENU_ADD_SEGMENT_OFFSET 0
 #define TRANSITION_MENU_DEL_SEGMENT_OFFSET 1
 #define TRANSITION_MENU_OFFSET_TO_ORTH_COMMON 2
+
+
 static DiaMenuItem transition_menu_items[] = {
   { N_("Add segment"), transition_add_segment_cb, NULL, 0 } ,
   { N_("Delete segment"), transition_del_segment_cb, NULL, 0 } ,
@@ -175,17 +178,17 @@ static DiaMenuItem transition_menu_items[] = {
 
 static DiaMenu transition_menu = {
   "Transition",
-  sizeof(transition_menu_items)/sizeof(DiaMenuItem),
+  sizeof (transition_menu_items) / sizeof(DiaMenuItem),
   transition_menu_items,
   NULL
 };
 
 
 static DiaObject *
-transition_create(Point *startpoint,
-                  void *user_data,
-                  Handle **handle1,
-                  Handle **handle2)
+transition_create (Point   *startpoint,
+                   void    *user_data,
+                   Handle **handle1,
+                   Handle **handle2)
 {
   Transition *transition;
   OrthConn *orth;
@@ -197,17 +200,17 @@ transition_create(Point *startpoint,
       dia_font_new_from_style (DIA_FONT_SANS, TRANSITION_FONTHEIGHT);
   }
 
-  transition = g_malloc0(sizeof(Transition));
+  transition = g_new0 (Transition, 1);
 
   orth = &transition->orth;
   obj = &orth->object;
   obj->type = &uml_transition_type;
   obj->ops = &uml_transition_ops;
 
-  orthconn_init(orth, startpoint);
+  orthconn_init (orth, startpoint);
 
   transition->text_color = color_black;
-  transition->line_color = attributes_get_foreground();
+  transition->line_color = attributes_get_foreground ();
   /* Prepare the handles for trigger and guard text */
   transition->trigger_text_handle.id = HANDLE_MOVE_TRIGGER_TEXT;
   transition->trigger_text_handle.type = HANDLE_MINOR_CONTROL;
@@ -217,7 +220,7 @@ transition_create(Point *startpoint,
   temp_point.y -= TEXT_HANDLE_DISTANCE_FROM_STARTPOINT;
   transition->trigger_text_pos = temp_point;
   transition->trigger_text_handle.pos = temp_point;
-  object_add_handle(obj, &transition->trigger_text_handle);
+  object_add_handle (obj, &transition->trigger_text_handle);
 
   transition->guard_text_handle.id = HANDLE_MOVE_GUARD_TEXT;
   transition->guard_text_handle.type = HANDLE_MINOR_CONTROL;
@@ -226,112 +229,122 @@ transition_create(Point *startpoint,
   temp_point = *startpoint;
   temp_point.y += TEXT_HANDLE_DISTANCE_FROM_STARTPOINT;
   transition->guard_text_pos = transition->guard_text_handle.pos = temp_point;
-  object_add_handle(obj, &transition->guard_text_handle);
+  object_add_handle (obj, &transition->guard_text_handle);
 
   transition->guard_text = NULL;
   transition->trigger_text = NULL;
   transition->action_text = NULL;
 
-  uml_transition_update_data(transition);
+  uml_transition_update_data (transition);
 
   *handle1 = obj->handles[0];
   *handle2 = obj->handles[1];
   return obj;
 }
 
-static DiaObject *transition_load(ObjectNode obj_node, int version,DiaContext *ctx)
+
+static DiaObject *
+transition_load (ObjectNode obj_node, int version, DiaContext *ctx)
 {
-  DiaObject *obj = object_load_using_properties(&uml_transition_type,
-                                                obj_node,version,ctx);
+  DiaObject *obj = object_load_using_properties (&uml_transition_type,
+                                                 obj_node,version,ctx);
   if (version == 0) {
     AttributeNode attr;
     /* In old objects with no autorouting, set it to false. */
-    attr = object_find_attribute(obj_node, "autorouting");
-    if (attr == NULL)
-      ((OrthConn*)obj)->autorouting = FALSE;
+    attr = object_find_attribute (obj_node, "autorouting");
+    if (attr == NULL) {
+      ((OrthConn*) obj)->autorouting = FALSE;
+    }
   }
   if (version < 2) {
       /* Versions prior to 2 have the arrowheads inverted */
-      ((Transition*)obj)->direction_inverted = TRUE;
+      ((Transition*) obj)->direction_inverted = TRUE;
   }
   return obj;
 }
 
+
 static void
-transition_set_props(Transition *transition, GPtrArray *props)
+transition_set_props (Transition *transition, GPtrArray *props)
 {
-  object_set_props_from_offsets(&transition->orth.object,
-                                transition_offsets, props);
-  uml_transition_update_data(transition);
+  object_set_props_from_offsets (&transition->orth.object,
+                                 transition_offsets, props);
+  uml_transition_update_data (transition);
 }
 
 
 static void
-transition_get_props(Transition *transition, GPtrArray *props)
+transition_get_props (Transition *transition, GPtrArray *props)
 {
-  object_get_props_from_offsets(&transition->orth.object,
-                                transition_offsets, props);
+  object_get_props_from_offsets (&transition->orth.object,
+                                 transition_offsets, props);
 }
+
 
 static PropDescription *
-transition_describe_props(Transition *transition)
+transition_describe_props (Transition *transition)
 {
   if (transition_props[0].quark == 0)
-    prop_desc_list_calculate_quarks(transition_props);
+    prop_desc_list_calculate_quarks (transition_props);
   return transition_props;
 
 }
 
+
 static void
-transition_destroy(Transition* transition)
+transition_destroy (Transition* transition)
 {
-  g_free (transition->trigger_text);
-  g_free (transition->action_text);
-  g_free (transition->guard_text);
-  orthconn_destroy(&transition->orth);
+  g_clear_pointer (&transition->trigger_text, g_free);
+  g_clear_pointer (&transition->action_text, g_free);
+  g_clear_pointer (&transition->guard_text, g_free);
+  orthconn_destroy (&transition->orth);
 }
 
+
 static DiaMenu*
-transition_get_object_menu(Transition* transition, Point* clickedpoint)
+transition_get_object_menu (Transition *transition, Point *clickedpoint)
 {
   OrthConn *orth = &transition->orth;
   /* Set/clear the active flag of the add/remove segment according to the
      placement of mouse pointer and placement of the transition and its handles */
   transition_menu_items[TRANSITION_MENU_ADD_SEGMENT_OFFSET].active =
-      orthconn_can_add_segment(orth, clickedpoint);
+      orthconn_can_add_segment (orth, clickedpoint);
   transition_menu_items[TRANSITION_MENU_DEL_SEGMENT_OFFSET].active =
-      orthconn_can_delete_segment(orth, clickedpoint);
+      orthconn_can_delete_segment (orth, clickedpoint);
 
-  orthconn_update_object_menu(orth, clickedpoint,
-             &transition_menu_items[TRANSITION_MENU_OFFSET_TO_ORTH_COMMON]);
+  orthconn_update_object_menu (orth, clickedpoint,
+                               &transition_menu_items[TRANSITION_MENU_OFFSET_TO_ORTH_COMMON]);
   return &transition_menu;
 }
 
-static gchar* create_event_action_text(Transition* transition)
+
+static char *
+create_event_action_text (Transition* transition)
 {
-  gchar *temp_text;
-  if (transition->action_text && strlen(transition->action_text) != 0)
-  {
-    temp_text = g_strdup_printf("%s/%s", transition->trigger_text,
-                                         transition->action_text);
+  char *temp_text;
+
+  if (transition->action_text && strlen (transition->action_text) != 0) {
+    temp_text = g_strdup_printf ("%s/%s", transition->trigger_text,
+                                          transition->action_text);
+  } else {
+    temp_text = g_strdup_printf ("%s",
+                                 transition->trigger_text ? transition->trigger_text : "");
   }
-  else
-  {
-	  temp_text = g_strdup_printf("%s", transition->trigger_text ? transition->trigger_text : "");
-  }
+
   return temp_text;
 }
 
-static gchar* create_guard_text(Transition* transition)
+
+static char *
+create_guard_text (Transition* transition)
 {
-  gchar *temp_text;
-  temp_text = g_strdup_printf("[%s]", transition->guard_text);
-  return temp_text;
+  return g_strdup_printf ("[%s]", transition->guard_text);
 }
 
-static void transition_draw(Transition* transition, DiaRenderer* renderer)
+
+static void
+transition_draw (Transition *transition, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS(renderer);
   Arrow arrow;
   Arrow *start_arrow;
   Arrow *end_arrow;
@@ -339,8 +352,8 @@ static void transition_draw(Transition* transition, DiaRenderer* renderer)
   OrthConn *orth = &transition->orth;
   int num_points;
 
-  assert(transition != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (transition != NULL);
+  g_return_if_fail (renderer != NULL);
 
 
   /* Draw the arrow / line */
@@ -354,106 +367,107 @@ static void transition_draw(Transition* transition, DiaRenderer* renderer)
 
   /* Is it necessary to call set_linewidth? The draw_line_with_arrows() method
      got a linewidth parameter... */
-  renderer_ops->set_linewidth(renderer, TRANSITION_WIDTH);
+  dia_renderer_set_linewidth (renderer, TRANSITION_WIDTH);
   /* TODO, find out about the meaning of this... */
-  renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
 
   if (transition->direction_inverted) {
-      start_arrow = &arrow;
-      end_arrow = NULL;
+    start_arrow = &arrow;
+    end_arrow = NULL;
+  } else {
+    start_arrow = NULL;
+    end_arrow = & arrow;
   }
-  else {
-      start_arrow = NULL;
-      end_arrow = & arrow;
-  }
-  renderer_ops->draw_polyline_with_arrows(renderer, points, num_points,
+  dia_renderer_draw_polyline_with_arrows (renderer,
+                                          points,
+                                          num_points,
                                           TRANSITION_WIDTH,
                                           &transition->line_color,
                                           start_arrow, end_arrow);
 
 
-  renderer_ops->set_font(renderer, transition_font,
+  dia_renderer_set_font (renderer,
+                         transition_font,
                          TRANSITION_FONTHEIGHT);
 
   /* Draw the guard text */
-  if (transition->guard_text && strlen(transition->guard_text) != 0)
-  {
-    gchar *text = create_guard_text(transition);
-    renderer_ops->draw_string(renderer,
+  if (transition->guard_text && strlen (transition->guard_text) != 0) {
+    char *text = create_guard_text (transition);
+    dia_renderer_draw_string (renderer,
                               text,
                               &transition->guard_text_pos,
-                              ALIGN_CENTER,
+                              DIA_ALIGN_CENTRE,
                               &transition->text_color);
-    g_free(text);
+    g_clear_pointer (&text, g_free);
   }
 
   /* Draw the trigger text */
-  if (transition->trigger_text && strlen(transition->trigger_text) != 0)
-  {
-    gchar *text = create_event_action_text(transition);
-    renderer_ops->draw_string(renderer,
+  if (transition->trigger_text && strlen (transition->trigger_text) != 0) {
+    char *text = create_event_action_text (transition);
+    dia_renderer_draw_string (renderer,
                               text,
                               &transition->trigger_text_pos,
-                              ALIGN_CENTER,
+                              DIA_ALIGN_CENTRE,
                               &transition->text_color);
-    g_free(text);
+    g_clear_pointer (&text, g_free);
   }
-
 }
 
-static real
-transition_distance(Transition* transition, Point* point)
+
+static double
+transition_distance (Transition *transition, Point *point)
 {
-  return orthconn_distance_from(&transition->orth, point, TRANSITION_WIDTH);
+  return orthconn_distance_from (&transition->orth, point, TRANSITION_WIDTH);
 }
+
 
 static void
-transition_select(Transition* transition,
-                  Point* clicked_point,
-                  DiaRenderer* interactive_renderer)
+transition_select (Transition *transition,
+                   Point       *clicked_point,
+                   DiaRenderer *interactive_renderer)
 {
   uml_transition_update_data(transition);
 }
 
-static ObjectChange*
-transition_move(Transition* transition, Point* newpos)
+
+static DiaObjectChange *
+transition_move (Transition* transition, Point* newpos)
 {
   Point delta;
-  ObjectChange *change;
-
+  DiaObjectChange *change;
 
   /* Find a delta in order to move the text handles along with the transition */
   delta = *newpos;
-  point_sub(&delta, &transition->orth.points[0]);
+  point_sub (&delta, &transition->orth.points[0]);
 
-  change = orthconn_move(&transition->orth, newpos);
+  change = orthconn_move (&transition->orth, newpos);
 
   /* Move the text handles */
-  point_add(&transition->trigger_text_pos, &delta);
-  point_add(&transition->guard_text_pos, &delta);
+  point_add (&transition->trigger_text_pos, &delta);
+  point_add (&transition->guard_text_pos, &delta);
 
-  uml_transition_update_data(transition);
+  uml_transition_update_data (transition);
 
   return change;
 }
 
-static ObjectChange*
-transition_move_handle(Transition*      transition,
-                       Handle*          handle,
-                       Point*           newpos,
-                       ConnectionPoint* cp,
-                       HandleMoveReason reason,
-                       ModifierKeys     modifiers)
+
+static DiaObjectChange *
+transition_move_handle (Transition       *transition,
+                        Handle           *handle,
+                        Point            *newpos,
+                        ConnectionPoint  *cp,
+                        HandleMoveReason  reason,
+                        ModifierKeys      modifiers)
 {
-  ObjectChange *change = NULL;
+  DiaObjectChange *change = NULL;
 
-  assert(transition != NULL);
-  assert(handle != NULL);
-  assert(newpos != NULL);
+  g_return_val_if_fail (transition != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (newpos != NULL, NULL);
 
-  switch (handle->id)
-  {
+  switch (handle->id) {
     case HANDLE_MOVE_TRIGGER_TEXT:
       /* The trigger text is being moved */
       transition->trigger_text_pos = *newpos;
@@ -464,78 +478,108 @@ transition_move_handle(Transition*      transition,
       transition->guard_text_pos = *newpos;
       break;
 
+    case HANDLE_RESIZE_NW:
+    case HANDLE_RESIZE_N:
+    case HANDLE_RESIZE_NE:
+    case HANDLE_RESIZE_W:
+    case HANDLE_RESIZE_E:
+    case HANDLE_RESIZE_SW:
+    case HANDLE_RESIZE_S:
+    case HANDLE_RESIZE_SE:
+    case HANDLE_MOVE_STARTPOINT:
+    case HANDLE_MOVE_ENDPOINT:
+    case HANDLE_CUSTOM1:
+    case HANDLE_CUSTOM4:
+    case HANDLE_CUSTOM5:
+    case HANDLE_CUSTOM6:
+    case HANDLE_CUSTOM7:
+    case HANDLE_CUSTOM8:
+    case HANDLE_CUSTOM9:
     default:
       {
-        int n = transition->orth.numpoints/2;
+        int n = transition->orth.numpoints / 2;
         Point p1, p2;
-	p1.x = 0.5 * (transition->orth.points[n-1].x + transition->orth.points[n].x);
-	p1.y = 0.5 * (transition->orth.points[n-1].y + transition->orth.points[n].y);
+
+        p1.x = 0.5 * (transition->orth.points[n-1].x + transition->orth.points[n].x);
+        p1.y = 0.5 * (transition->orth.points[n-1].y + transition->orth.points[n].y);
 
         /* Tell the connection that one of its handles is being moved */
-        change = orthconn_move_handle(&transition->orth, handle, newpos, cp, reason, modifiers);
-	/* with auto-routing the number of points may have changed */
-	n = transition->orth.numpoints/2;
-	p2.x = 0.5 * (transition->orth.points[n-1].x + transition->orth.points[n].x);
-	p2.y = 0.5 * (transition->orth.points[n-1].y + transition->orth.points[n].y);
-        point_sub(&p2, &p1);
+        change = orthconn_move_handle (&transition->orth,
+                                       handle,
+                                       newpos,
+                                       cp,
+                                       reason,
+                                       modifiers);
+        /* with auto-routing the number of points may have changed */
+        n = transition->orth.numpoints/2;
+        p2.x = 0.5 * (transition->orth.points[n-1].x + transition->orth.points[n].x);
+        p2.y = 0.5 * (transition->orth.points[n-1].y + transition->orth.points[n].y);
+        point_sub (&p2, &p1);
 
-        point_add(&transition->trigger_text_pos, &p2);
-        point_add(&transition->guard_text_pos, &p2);
+        point_add (&transition->trigger_text_pos, &p2);
+        point_add (&transition->guard_text_pos, &p2);
       }
       break;
   }
 
   /* Update ourselves to reflect the new handle position */
-  uml_transition_update_data(transition);
+  uml_transition_update_data (transition);
 
   return change;
 }
 
-static ObjectChange* transition_add_segment_cb(DiaObject *obj,
-                                               Point *clickedpoint,
-                                               gpointer data)
+
+static DiaObjectChange *
+transition_add_segment_cb (DiaObject *obj,
+                           Point     *clickedpoint,
+                           gpointer   data)
 {
-  ObjectChange *change;
-  change = orthconn_add_segment((OrthConn*)obj, clickedpoint);
-  uml_transition_update_data((Transition*)obj);
+  DiaObjectChange *change;
+
+  change = orthconn_add_segment ((OrthConn *) obj, clickedpoint);
+  uml_transition_update_data ((Transition *) obj);
+
   return change;
 }
 
 
-static ObjectChange* transition_del_segment_cb(DiaObject *obj,
-                                               Point *clickedpoint,
-                                               gpointer data)
+static DiaObjectChange *
+transition_del_segment_cb (DiaObject *obj,
+                           Point     *clickedpoint,
+                           gpointer   data)
 {
-  ObjectChange *change;
-  change = orthconn_delete_segment((OrthConn*)obj, clickedpoint);
-  uml_transition_update_data((Transition*)obj);
+  DiaObjectChange *change;
+
+  change = orthconn_delete_segment ((OrthConn *) obj, clickedpoint);
+  uml_transition_update_data ((Transition *) obj);
+
   return change;
 }
 
-
-
-static void expand_bbox_for_text(Rectangle* bbox,
-                                 Point* text_pos,
-                                 gchar* text)
-{
-  Rectangle text_box;
-  real text_width;
-
-  text_width = dia_font_string_width(text, transition_font,
-                                     TRANSITION_FONTHEIGHT);
-  text_box.left = text_pos->x - text_width/2;
-  text_box.right = text_box.left + text_width;
-  text_box.top = text_pos->y - dia_font_ascent(text, transition_font,
-                                              TRANSITION_FONTHEIGHT);
-  text_box.bottom = text_box.top + TRANSITION_FONTHEIGHT;
-  rectangle_union(bbox, &text_box);
-
-}
 
 static void
-uml_transition_update_data(Transition *transition)
+expand_bbox_for_text (DiaRectangle *bbox,
+                      Point        *text_pos,
+                      char         *text)
 {
-  gchar *temp_text;
+  DiaRectangle text_box;
+  double text_width;
+
+  text_width = dia_font_string_width (text, transition_font,
+                                      TRANSITION_FONTHEIGHT);
+  text_box.left = text_pos->x - text_width/2;
+  text_box.right = text_box.left + text_width;
+  text_box.top = text_pos->y - dia_font_ascent (text, transition_font,
+                                                TRANSITION_FONTHEIGHT);
+  text_box.bottom = text_box.top + TRANSITION_FONTHEIGHT;
+  rectangle_union (bbox, &text_box);
+}
+
+
+static void
+uml_transition_update_data (Transition *transition)
+{
+  char *temp_text;
   Point *points;
 
   /* Setup helpful pointers as shortcuts */
@@ -550,26 +594,24 @@ uml_transition_update_data(Transition *transition)
   transition->guard_text_handle.pos = transition->guard_text_pos;
 
   /* Update the orthogonal connection to match the new data */
-  orthconn_update_data(orth);
+  orthconn_update_data (orth);
 
   extra->start_long = extra->end_long
                     = extra->middle_trans
                     = TRANSITION_WIDTH/2.0;
   extra->start_trans = extra->end_trans
-                     = MAX(TRANSITION_ARROWLEN, TRANSITION_WIDTH/2.0);
+                     = MAX (TRANSITION_ARROWLEN, TRANSITION_WIDTH/2.0);
 
   /* Update the bounding box to match the new connection data */
-  orthconn_update_boundingbox(orth);
+  orthconn_update_boundingbox (orth);
   /* Update the bounding box to match the new trigger text size and position */
-  temp_text = create_event_action_text(transition);
-  expand_bbox_for_text(&obj->bounding_box, &transition->trigger_text_pos,
-                       temp_text);
-  g_free(temp_text);
+  temp_text = create_event_action_text (transition);
+  expand_bbox_for_text (&obj->bounding_box, &transition->trigger_text_pos,
+                        temp_text);
+  g_clear_pointer (&temp_text, g_free);
   /* Update the bounding box to match the new guard text size and position */
-  temp_text = g_strdup_printf("[%s]", transition->guard_text ? transition->guard_text : "");
-  expand_bbox_for_text(&obj->bounding_box, &transition->guard_text_pos,
-                       temp_text);
-  g_free(temp_text);
+  temp_text = g_strdup_printf ("[%s]", transition->guard_text ? transition->guard_text : "");
+  expand_bbox_for_text (&obj->bounding_box, &transition->guard_text_pos,
+                        temp_text);
+  g_clear_pointer (&temp_text, g_free);
 }
-
-

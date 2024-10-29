@@ -18,7 +18,10 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <config.h>
+
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <time.h>
 #include <glib.h>
@@ -38,7 +41,6 @@
 #include "element.h"
 #include "diagramdata.h"
 #include "filter.h"
-#include "intl.h"
 
 #include "filter.h"
 #include "dia_image.h"
@@ -59,13 +61,13 @@ typedef struct _DiagramAsElement {
   Color inner_color;
   gboolean show_background;
 
-  gchar *filename;
+  char *filename;
   time_t mtime;
   DiagramData *data;
 
   /* for indirect rendering*/
   DiaImage *image;
-  
+
   real scale;
 } DiagramAsElement;
 
@@ -100,7 +102,7 @@ DiaObjectType diagram_as_element_type =
 
 static void _dae_update_data (DiagramAsElement *dae);
 
-static const gchar *_extensions[] = { "dia", NULL };
+static const char *_extensions[] = { "dia", NULL };
 
 static PropDescription _dae_props[] = {
   ELEMENT_COMMON_PROPERTIES,
@@ -130,7 +132,7 @@ static PropOffset _dae_offsets[] = {
 };
 static void
 _dae_get_props(DiagramAsElement *dae, GPtrArray *props)
-{  
+{
   object_get_props_from_offsets(&dae->element.object, _dae_offsets, props);
 }
 static void
@@ -150,9 +152,9 @@ _dae_select(DiagramAsElement *dae, Point *clicked_point, DiaRenderer *interactiv
 {
   element_update_handles(&dae->element);
 }
-static ObjectChange*
+static DiaObjectChange*
 _dae_move_handle(DiagramAsElement *dae, Handle *handle,
-		 Point *to, ConnectionPoint *cp, 
+		 Point *to, ConnectionPoint *cp,
 		 HandleMoveReason reason, ModifierKeys modifiers)
 {
   Element *elem = &dae->element;
@@ -166,7 +168,7 @@ _dae_move_handle(DiagramAsElement *dae, Handle *handle,
 
   return NULL;
 }
-static ObjectChange*
+static DiaObjectChange*
 _dae_move(DiagramAsElement *dae, Point *to)
 {
   dae->element.corner = *to;
@@ -174,21 +176,24 @@ _dae_move(DiagramAsElement *dae, Point *to)
 
   return NULL;
 }
+
 static void
-_dae_draw(DiagramAsElement *dae, DiaRenderer *renderer)
+_dae_draw (DiagramAsElement *dae, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Element *elem = &dae->element;
 
   if (!dae->data) {
     /* just draw the box */
     Point lower_right = {
       elem->corner.x + elem->width,
-      elem->corner.y + elem->height 
+      elem->corner.y + elem->height
     };
 
-    renderer_ops->draw_rect(renderer,&elem->corner, &lower_right, 
-                            NULL, &dae->border_color);
+    dia_renderer_draw_rect (renderer,
+                            &elem->corner,
+                            &lower_right,
+                            NULL,
+                            &dae->border_color);
 
   } else {
     if (FALSE) {
@@ -200,57 +205,64 @@ _dae_draw(DiagramAsElement *dae, DiaRenderer *renderer)
     } else {
       /* we have to render to an image and draw that */
       if (!dae->image) { /* lazy creation */
-	gchar *imgfname = NULL;
-	gint fd = g_file_open_tmp ("diagram-as-elementXXXXXX.png", &imgfname, NULL);
-	if (fd != -1) {
+        char *imgfname = NULL;
+        int fd = g_file_open_tmp ("diagram-as-elementXXXXXX.png", &imgfname, NULL);
+        if (fd != -1) {
           DiaExportFilter *ef = filter_export_get_by_name ("cairo-alpha-png");
-	  if (!ef) /* prefer cairo with alpha, but don't require it */
-	    ef = filter_guess_export_filter (imgfname);
-	  close(fd);
-	  if (ef) {
-	    DiaContext *ctx = dia_context_new ("Diagram as Object");
+          if (!ef) { /* prefer cairo with alpha, but don't require it */
+            ef = filter_guess_export_filter (imgfname);
+          }
+          close(fd);
+          if (ef) {
+            DiaContext *ctx = dia_context_new ("Diagram as Object");
 
-	    dia_context_set_filename (ctx, imgfname);
-	    if (ef->export_func (dae->data, ctx, imgfname, dae->filename, ef->user_data)) {
-	      DiaImage *tmp_image = dia_image_load (imgfname);
+            dia_context_set_filename (ctx, imgfname);
+            if (ef->export_func (dae->data, ctx, imgfname, dae->filename, ef->user_data)) {
+              DiaImage *tmp_image = dia_image_load (imgfname);
 
-	      /* some extra gymnastics to create an image w/o filename */
-	      if (tmp_image) {
-	        dae->image = dia_image_new_from_pixbuf ((GdkPixbuf *)dia_image_pixbuf (tmp_image));
-	        g_object_unref (tmp_image);
-	      }
-	      /* FIXME: where to put the message in case of an error? */
-	      dia_context_release (ctx);
-	    }
-	  } /* found a filter */
-	  g_unlink (imgfname);
-	  g_free (imgfname);
-	} /* temporary file created*/
+              /* some extra gymnastics to create an image w/o filename */
+              if (tmp_image) {
+                dae->image = dia_image_new_from_pixbuf ((GdkPixbuf *) dia_image_pixbuf (tmp_image));
+                g_clear_object (&tmp_image);
+              }
+              /* FIXME: where to put the message in case of an error? */
+              dia_context_release (ctx);
+            }
+          } /* found a filter */
+          g_unlink (imgfname);
+          g_clear_pointer (&imgfname, g_free);
+        } /* temporary file created*/
       } /* only if we have no image yet */
-      if (dae->image)
-	renderer_ops->draw_image (renderer, &elem->corner, elem->width, elem->height, dae->image);
+      if (dae->image) {
+        dia_renderer_draw_image (renderer,
+                                 &elem->corner,
+                                 elem->width,
+                                 elem->height,
+                                 dae->image);
+      }
     }
   }
 }
+
+
 static void
-_dae_update_data(DiagramAsElement *dae)
+_dae_update_data (DiagramAsElement *dae)
 {
-  struct stat statbuf;
+  GStatBuf statbuf;
   Element *elem = &dae->element;
   DiaObject *obj = &elem->object;
   static int working = 0;
-  
+
   if (working > 2)
     return; /* protect against infinite recursion */
   ++working;
 
-  if (   strlen(dae->filename)
-      && g_stat(dae->filename, &statbuf) == 0
+  if (   strlen (dae->filename)
+      && g_stat (dae->filename, &statbuf) == 0
       && dae->mtime != statbuf.st_mtime) {
     DiaImportFilter *inf;
 
-    if (dae->data)
-      g_object_unref(dae->data);
+    g_clear_object (&dae->data);
     dae->data = g_object_new (DIA_TYPE_DIAGRAM_DATA, NULL);
 
     inf = filter_guess_import_filter(dae->filename);
@@ -268,10 +280,7 @@ _dae_update_data(DiagramAsElement *dae)
       dia_context_release (ctx);
     }
     /* invalidate possibly cached image */
-    if (dae->image) {
-      g_object_unref (dae->image);
-      dae->image = NULL;
-    }
+    g_clear_object (&dae->image);
   }
   /* fixme - fit the scale to draw the diagram in elements size ?*/
   if (dae->scale)
@@ -287,19 +296,20 @@ _dae_update_data(DiagramAsElement *dae)
 
   --working;
 }
-static void 
-_dae_destroy(DiagramAsElement *dae) 
-{
-  if (dae->data)
-    g_object_unref(dae->data);
 
-  g_free(dae->filename);
-  
-  if (dae->image)
-    g_object_unref (dae->image);
+
+static void
+_dae_destroy(DiagramAsElement *dae)
+{
+  g_clear_object (&dae->data);
+
+  g_clear_pointer (&dae->filename, g_free);
+
+  g_clear_object (&dae->image);
 
   element_destroy(&dae->element);
 }
+
 
 static ObjectOps _dae_ops = {
   (DestroyFunc)         _dae_destroy,
@@ -341,7 +351,7 @@ _dae_create (Point *startpoint,
   elem->corner = *startpoint;
   elem->width = DEFAULT_WIDTH;
   elem->height = DEFAULT_HEIGHT;
-  
+
   element_init(elem, 8, NUM_CONNECTIONS);
 
   for (i=0; i<NUM_CONNECTIONS; i++) {
@@ -356,7 +366,7 @@ _dae_create (Point *startpoint,
   _dae_update_data(dae);
 
   *handle1 = NULL;
-  *handle2 = obj->handles[7];  
+  *handle2 = obj->handles[7];
   return &dae->element.object;
 }
 
@@ -365,17 +375,17 @@ _dae_load (ObjectNode obj_node, int version, DiaContext *ctx)
 {
   DiaObject *obj;
   DiagramAsElement *dae;
- 
+
   obj = object_load_using_properties (&diagram_as_element_type,
                                        obj_node, version, ctx);
   /* filename de-normalization */
   dae = (DiagramAsElement*)obj;
   if (strlen(dae->filename) && !g_path_is_absolute (dae->filename)) {
-    gchar *dirname = g_path_get_dirname (dia_context_get_filename(ctx));
-    gchar *fname = g_build_filename (dirname, dae->filename, NULL);
-    g_free (dae->filename);
+    char *dirname = g_path_get_dirname (dia_context_get_filename(ctx));
+    char *fname = g_build_filename (dirname, dae->filename, NULL);
+    g_clear_pointer (&dae->filename, g_free);
     dae->filename = fname;
-    g_free (dirname);
+    g_clear_pointer (&dirname, g_free);
 
     /* need to update again with new filenames */
     _dae_update_data(dae);
@@ -383,21 +393,22 @@ _dae_load (ObjectNode obj_node, int version, DiaContext *ctx)
   return obj;
 }
 
+
 static void
 _dae_save (DiaObject *obj, ObjectNode obj_node, DiaContext *ctx)
 {
   DiagramAsElement *dae;
   /* filename normalization */
-  gchar *saved_path = NULL;
+  char *saved_path = NULL;
 
   dae = (DiagramAsElement*)obj;
   if (strlen(dae->filename) && g_path_is_absolute (dae->filename)) {
-    gchar *dirname = g_path_get_dirname (dia_context_get_filename (ctx));
+    char *dirname = g_path_get_dirname (dia_context_get_filename (ctx));
     if (strstr (dae->filename, dirname) == dae->filename) {
       saved_path = dae->filename;
       dae->filename += (strlen (dirname) + g_str_has_suffix (dirname, G_DIR_SEPARATOR_S) ? 0 : 1);
     }
-    g_free (dirname);
+    g_clear_pointer (&dirname, g_free);
   }
   object_save_using_properties (obj, obj_node, ctx);
 

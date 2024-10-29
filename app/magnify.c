@@ -21,6 +21,7 @@
 
 #include "magnify.h"
 #include "cursor.h"
+#include "diainteractiverenderer.h"
 
 struct _MagnifyTool {
   Tool tool;
@@ -40,16 +41,21 @@ magnify_button_press(MagnifyTool *tool, GdkEventButton *event,
   tool->y = tool->oldy = event->y;
   tool->box_active = TRUE;
   tool->moved = FALSE;
-  gdk_pointer_grab (gtk_widget_get_window(ddisp->canvas), FALSE,
-		    GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON1_MOTION_MASK | GDK_BUTTON_RELEASE_MASK,
-		    NULL, NULL, event->time);
+
+  gdk_device_grab (gdk_event_get_device ((GdkEvent*)event),
+                   gtk_widget_get_window(ddisp->canvas),
+                   GDK_OWNERSHIP_APPLICATION,
+                   FALSE,
+                   GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON1_MOTION_MASK | GDK_BUTTON_RELEASE_MASK,
+                   NULL, event->time);
 }
 
 static void
-magnify_button_release(MagnifyTool *tool, GdkEventButton *event,
-		       DDisplay *ddisp)
+magnify_button_release (MagnifyTool    *tool,
+                        GdkEventButton *event,
+                        DDisplay       *ddisp)
 {
-  Rectangle *visible;
+  DiaRectangle *visible;
   Point p1, p2, tl;
   real diff;
   int idiff;
@@ -57,7 +63,7 @@ magnify_button_release(MagnifyTool *tool, GdkEventButton *event,
 
   tool->box_active = FALSE;
 
-  dia_interactive_renderer_set_selection (ddisp->renderer,
+  dia_interactive_renderer_set_selection (DIA_INTERACTIVE_RENDERER (ddisp->renderer),
                                           FALSE, 0, 0, 0, 0);
   ddisplay_flush (ddisp);
 
@@ -98,7 +104,7 @@ magnify_button_release(MagnifyTool *tool, GdkEventButton *event,
       ddisplay_zoom(ddisp, &tl, 2.0);
   }
 
-  gdk_pointer_ungrab (event->time);
+  gdk_device_ungrab (gdk_event_get_device((GdkEvent*)event), event->time);
 }
 
 typedef struct intPoint { int x,y; } intPoint;
@@ -115,7 +121,7 @@ magnify_motion(MagnifyTool *tool, GdkEventMotion *event,
     tl.x = MIN (tool->x, event->x); tl.y = MIN (tool->y, event->y);
     br.x = MAX (tool->x, event->x); br.y = MAX (tool->y, event->y);
 
-    dia_interactive_renderer_set_selection (ddisp->renderer,
+    dia_interactive_renderer_set_selection (DIA_INTERACTIVE_RENDERER (ddisp->renderer),
                                             TRUE,
                                             tl.x, tl.y, br.x - tl.x, br.y - tl.y);
     ddisplay_flush (ddisp);
@@ -156,9 +162,10 @@ create_magnify_tool(void)
   return (Tool *) tool;
 }
 
+
 void
-free_magnify_tool(Tool *tool)
+free_magnify_tool (Tool *tool)
 {
-  g_free(tool);
-  ddisplay_set_all_cursor(default_cursor);
+  g_clear_pointer (&tool, g_free);
+  ddisplay_set_all_cursor (default_cursor);
 }

@@ -18,7 +18,10 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <config.h>
+
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include "object.h"
 #include "diarenderer.h"
@@ -28,7 +31,6 @@
 #include "boundingbox.h"
 #include "element.h"
 #include "pattern.h"
-#include "intl.h"
 
 #include "pixmaps/n_gon.xpm"
 
@@ -59,10 +61,10 @@ struct _Ngon {
   int        density;
   int        last_density; /*!< last value to decide direction */
 
-  LineStyle  line_style;
-  LineJoin   line_join;
-  real       dashlength;
-  real       line_width;
+  DiaLineStyle line_style;
+  DiaLineJoin  line_join;
+  double     dashlength;
+  double     line_width;
   Color      stroke;
   Color      fill;
   gboolean   show_background;
@@ -183,13 +185,18 @@ _ngon_select(Ngon *ng, Point *clicked_point, DiaRenderer *interactive_renderer)
 {
   element_update_handles(&ng->element);
 }
-static ObjectChange*
-_ngon_move_handle (Ngon *ng, Handle *handle,
-		   Point *to, ConnectionPoint *cp, 
-		   HandleMoveReason reason, ModifierKeys modifiers)
+
+
+static DiaObjectChange *
+_ngon_move_handle (Ngon             *ng,
+                   Handle           *handle,
+                   Point            *to,
+                   ConnectionPoint  *cp,
+                   HandleMoveReason  reason,
+                   ModifierKeys      modifiers)
 {
   Element *elem = &ng->element;
-  ObjectChange *change = NULL; /* stays NULL for fully reversible move handle */
+  DiaObjectChange *change = NULL; /* stays NULL for fully reversible move handle */
 
   g_return_val_if_fail (handle!=NULL, NULL);
   g_return_val_if_fail (to!=NULL, NULL);
@@ -203,52 +210,58 @@ _ngon_move_handle (Ngon *ng, Handle *handle,
     real d1 = distance_point_point (to, &ng->center);
     ng->ray_len *= (d1 / d0);
     /* not sure if this is useful at all, but we must not do it with our center_handle */
-    change = element_move_handle(elem, handle->id, to, cp, reason, modifiers);
+    change = element_move_handle (elem, handle->id, to, cp, reason, modifiers);
   }
 
-  _ngon_update_data(ng);
+  _ngon_update_data (ng);
 
   return change;
 }
+
+
 /*!
  * \brief Move the object, to is relative to former object position
  */
-static ObjectChange*
-_ngon_move(Ngon *ng, Point *to)
+static DiaObjectChange *
+_ngon_move (Ngon *ng, Point *to)
 {
   ng->center = *to;
-  _ngon_update_data(ng);
+  _ngon_update_data (ng);
 
   return NULL;
 }
+
+
 static void
-_ngon_draw(Ngon *ng, DiaRenderer *renderer)
+_ngon_draw (Ngon *ng, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
-  gboolean pattern_fill =   ng->show_background
-			 && ng->pattern != NULL
-			 && renderer_ops->is_capable_to(renderer, RENDER_PATTERN);
+  gboolean pattern_fill = ng->show_background
+              && ng->pattern != NULL
+              && dia_renderer_is_capable_of (renderer, RENDER_PATTERN);
   Color fill;
 
   g_return_if_fail (ng->points->len);
 
-  renderer_ops->set_linewidth(renderer, ng->line_width);
-  renderer_ops->set_linestyle(renderer, ng->line_style, ng->dashlength);
-  renderer_ops->set_linejoin(renderer, ng->line_join);
-  renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
-  if (ng->pattern)
+  dia_renderer_set_linewidth (renderer, ng->line_width);
+  dia_renderer_set_linestyle (renderer, ng->line_style, ng->dashlength);
+  dia_renderer_set_linejoin (renderer, ng->line_join);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
+  if (ng->pattern) {
     dia_pattern_get_fallback_color (ng->pattern, &fill);
-  else
+  } else {
     fill = ng->fill;
-  if (pattern_fill)
-    renderer_ops->set_pattern (renderer, ng->pattern);
-  renderer_ops->draw_polygon(renderer,
-			     &g_array_index (ng->points, Point, 0),
-			     ng->points->len,
-			     ng->show_background ? &fill : NULL,
-			     &ng->stroke);
-  if (pattern_fill)
-    renderer_ops->set_pattern (renderer, NULL);
+  }
+  if (pattern_fill) {
+    dia_renderer_set_pattern (renderer, ng->pattern);
+  }
+  dia_renderer_draw_polygon (renderer,
+                             &g_array_index (ng->points, Point, 0),
+                             ng->points->len,
+                             ng->show_background ? &fill : NULL,
+                             &ng->stroke);
+  if (pattern_fill) {
+    dia_renderer_set_pattern (renderer, NULL);
+  }
 }
 
 /* greatest common divider */
@@ -287,7 +300,7 @@ _calc_step_up (int a, int b)
  *
  * This function gets called between Ngon::set_props() and
  * Ngon::get_props(). It does need to do anything cause Ngon::update_data()
- * already ensured data consistency. The pure existance of this of this
+ * already ensured data consistency. The pure existence of this of this
  * property handler leads to bidirectional communication between property
  * dialog and object's property change.
  */
@@ -336,7 +349,7 @@ _ngon_make_name (Ngon *ng)
   const char *name = NULL;
   int i = 0;
 
-  g_free (ng->name);
+  g_clear_pointer (&ng->name, g_free);
   for (i = 0; i < G_N_ELEMENTS(_keys); ++i) {
     if (_keys[i].v == ng->num_rays) {
       if (ng->kind == NGON_CONVEX)
@@ -484,17 +497,20 @@ _ngon_update_data (Ngon *ng)
   elem->corner.y = ng->center.y - ng->ray_len;
   elem->width = elem->height = 2 * ng->ray_len;
   element_update_handles(elem);
-  
+
 }
-static void 
-_ngon_destroy(Ngon *ng) 
+
+
+static void
+_ngon_destroy(Ngon *ng)
 {
   g_array_free (ng->points, TRUE);
-  if (ng->pattern)
-    g_object_unref (ng->pattern);
-  g_free (ng->name);
+  g_clear_object (&ng->pattern);
+  g_clear_pointer (&ng->name, g_free);
   element_destroy(&ng->element);
 }
+
+
 static DiaObject *
 _ngon_copy(Ngon *from)
 {
@@ -600,7 +616,7 @@ _ngon_load (ObjectNode obj_node, int version, DiaContext *ctx)
 {
   DiaObject *obj;
   Ngon *ng;
- 
+
   obj = object_load_using_properties (&_ngon_type, obj_node, version, ctx);
   ng = (Ngon *)obj;
   if (version == 0) { /* default to maximum */

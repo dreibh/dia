@@ -22,13 +22,13 @@
  * 2003-08-13, 2003-08-15: W. Borgert <debacle@debian.org>
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 
-#include "intl.h"
 #include "object.h"
 #include "orth_conn.h"
 #include "connectionpoint.h"
@@ -79,13 +79,14 @@ struct _Compfeat {
 #define COMPPROP_TEXTOFFSET 1.0
 #define HANDLE_MOVE_TEXT (HANDLE_CUSTOM2)
 
-static ObjectChange* compfeat_move_handle(Compfeat *compfeat,
-					  Handle *handle,
-					  Point *to,
-					  ConnectionPoint *cp,
-					  HandleMoveReason reason,
-					  ModifierKeys modifiers);
-static ObjectChange* compfeat_move(Compfeat *compfeat, Point *to);
+static DiaObjectChange *compfeat_move_handle     (Compfeat         *compfeat,
+                                                  Handle           *handle,
+                                                  Point            *to,
+                                                  ConnectionPoint  *cp,
+                                                  HandleMoveReason  reason,
+                                                  ModifierKeys      modifiers);
+static DiaObjectChange *compfeat_move            (Compfeat         *compfeat,
+                                                  Point            *to);
 static void compfeat_select(Compfeat *compfeat, Point *clicked_point,
 			    DiaRenderer *interactive_renderer);
 static void compfeat_draw(Compfeat *compfeat, DiaRenderer *renderer);
@@ -121,7 +122,10 @@ DiaObjectType compfeat_type =
   facet_xpm,		     /* pixmap */
   &compfeat_type_ops,        /* ops */
   NULL,	                     /* pixmap file */
-  0                          /* default user data */
+  0,                         /* default user data */
+  NULL, /* prop_descs */
+  NULL, /* prop_offsets */
+  DIA_OBJECT_HAS_VARIANTS /* flags */
 };
 
 static ObjectOps compfeat_ops = {
@@ -164,24 +168,32 @@ static PropDescription compfeat_props[] = {
   PROP_DESC_END
 };
 
-static ObjectChange *
+
+static DiaObjectChange *
 compfeat_add_segment_callback(DiaObject *obj, Point *clicked, gpointer data)
 {
-  ObjectChange *change;
-  change = orthconn_add_segment((OrthConn *)obj, clicked);
-  compfeat_update_data((Compfeat *)obj);
+  DiaObjectChange *change;
+
+  change = orthconn_add_segment ((OrthConn *) obj, clicked);
+  compfeat_update_data ((Compfeat *) obj);
+
   return change;
 }
 
-static ObjectChange *
-compfeat_delete_segment_callback(DiaObject *obj, Point *clicked, gpointer data)
+
+static DiaObjectChange *
+compfeat_delete_segment_callback (DiaObject *obj,
+                                  Point     *clicked,
+                                  gpointer   data)
 {
-  ObjectChange *change;
+  DiaObjectChange *change;
 
-  change = orthconn_delete_segment((OrthConn *)obj, clicked);
-  compfeat_update_data((Compfeat *)obj);
+  change = orthconn_delete_segment ((OrthConn *) obj, clicked);
+  compfeat_update_data ((Compfeat *) obj);
+
   return change;
 }
+
 
 static DiaMenuItem object_menu_items[] = {
   { N_("Add segment"), compfeat_add_segment_callback, NULL, 1 },
@@ -269,17 +281,20 @@ compfeat_select(Compfeat *compfeat, Point *clicked_point,
   orthconn_update_data(&compfeat->orth);
 }
 
-static ObjectChange *
-compfeat_move_handle(Compfeat *compfeat, Handle *handle,
-		     Point *to, ConnectionPoint *cp,
-		     HandleMoveReason reason,
-		     ModifierKeys modifiers)
-{
-  ObjectChange *change;
 
-  assert(compfeat!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+static DiaObjectChange *
+compfeat_move_handle (Compfeat         *compfeat,
+                      Handle           *handle,
+                      Point            *to,
+                      ConnectionPoint  *cp,
+                      HandleMoveReason  reason,
+                      ModifierKeys      modifiers)
+{
+  DiaObjectChange *change;
+
+  g_return_val_if_fail (compfeat != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
   if (handle->id == HANDLE_MOVE_TEXT) {
     text_set_position(compfeat->text, to);
@@ -293,10 +308,11 @@ compfeat_move_handle(Compfeat *compfeat, Handle *handle,
   return change;
 }
 
-static ObjectChange *
-compfeat_move(Compfeat *compfeat, Point *to)
+
+static DiaObjectChange *
+compfeat_move (Compfeat *compfeat, Point *to)
 {
-  ObjectChange *change;
+  DiaObjectChange *change;
   Point delta = *to;
 
   delta = *to;
@@ -312,25 +328,25 @@ compfeat_move(Compfeat *compfeat, Point *to)
   return change;
 }
 
+
 static void
-compfeat_draw(Compfeat *compfeat, DiaRenderer *renderer)
+compfeat_draw (Compfeat *compfeat, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point *points;
   OrthConn *orth = &compfeat->orth;
   int n;
-  gchar directions;
+  char directions;
   Arrow startarrow, endarrow;
 
-  assert(compfeat != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (compfeat != NULL);
+  g_return_if_fail (renderer != NULL);
 
   points = &orth->points[0];
   n = orth->numpoints;
 
-  renderer_ops->set_linewidth(renderer, compfeat->line_width);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
-  renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
+  dia_renderer_set_linewidth (renderer, compfeat->line_width);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
 
   if (compfeat->orth.orientation[orth->numorient - 1] == HORIZONTAL) {
     directions = (points[n - 1].x > points[n - 2].x)? DIR_EAST: DIR_WEST;
@@ -348,12 +364,12 @@ compfeat_draw(Compfeat *compfeat, DiaRenderer *renderer)
   endarrow.length = COMPPROP_DIAMETER;
   endarrow.width = COMPPROP_DIAMETER;
   endarrow.type = compprop_arrow[compfeat->role];
-  renderer_ops->draw_polyline_with_arrows(renderer, points, n,
- 					  compfeat->line_width,
- 					  &compfeat->line_color,
- 					  &startarrow, &endarrow);
+  dia_renderer_draw_polyline_with_arrows (renderer, points, n,
+                                          compfeat->line_width,
+                                          &compfeat->line_color,
+                                          &startarrow, &endarrow);
 
-  text_draw(compfeat->text, renderer);
+  text_draw (compfeat->text, renderer);
 }
 
 static DiaObject *
@@ -386,10 +402,12 @@ compfeat_create(Point *startpoint,
   p.y -= COMPPROP_TEXTOFFSET;
 
   compfeat->line_color = attributes_get_foreground();
-  compfeat->text = new_text("", font,
-			    COMPPROP_FONTHEIGHT, &p, &compfeat->line_color,
-			    ALIGN_CENTER);
-  dia_font_unref(font);
+  compfeat->text = new_text ("", font,
+                             COMPPROP_FONTHEIGHT,
+                             &p,
+                             &compfeat->line_color,
+                             DIA_ALIGN_CENTRE);
+  g_clear_object (&font);
 
   compfeat->text_handle.id = HANDLE_MOVE_TEXT;
   compfeat->text_handle.type = HANDLE_MINOR_CONTROL;
@@ -436,7 +454,7 @@ compfeat_update_data(Compfeat *compfeat)
   PolyBBExtras *extra = &orth->extra_spacing;
   int n;
   DiaObject *obj = &orth->object;
-  Rectangle rect;
+  DiaRectangle rect;
   Point *points;
 
   points = &orth->points[0];

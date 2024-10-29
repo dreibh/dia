@@ -15,7 +15,10 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <config.h>
+
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <stdio.h>
 
@@ -52,7 +55,7 @@ cnp_get_stored_objects(int* generation)
   return copied_list;
 }
 
-gint
+gboolean
 cnp_exist_stored_objects(void)
 {
   return (stored_list != NULL);

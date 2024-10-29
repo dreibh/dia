@@ -21,11 +21,11 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <gtk/gtk.h>
-
-#include "intl.h"
 
 #include "diagram.h"
 #include "display.h"
@@ -75,14 +75,16 @@ _match_text_prop (DiaObject *obj, const SearchData *sd, const gchar *replacement
 
   /* search part */
   if (sd->flags & MATCH_CASE) {
-    const gchar *p = strstr (*value_to_match, sd->key);
+    const char *p = strstr (*value_to_match, sd->key);
     is_match = p != NULL;
     if (p && replacement) {
-      gchar *a = g_strndup (*value_to_match, p - *value_to_match);
-      gchar *b = g_strdup (p + strlen(sd->key));
+      char *a = g_strndup (*value_to_match, p - *value_to_match);
+      char *b = g_strdup (p + strlen (sd->key));
+
       repl = g_strdup_printf ("%s%s%s", a, replacement, b);
-      g_free (a);
-      g_free (b);
+
+      g_clear_pointer (&a, g_free);
+      g_clear_pointer (&b, g_free);
     }
   } else {
     gchar *s1 = g_utf8_casefold (*value_to_match, -1);
@@ -90,14 +92,17 @@ _match_text_prop (DiaObject *obj, const SearchData *sd, const gchar *replacement
     const gchar *p = strstr (s1, s2);
     is_match = p != NULL;
     if (p && replacement) {
-      gchar *a = g_strndup (*value_to_match, p - s1);
-      gchar *b = g_strdup (*value_to_match + strlen(a) + strlen(sd->key));
+      char *a = g_strndup (*value_to_match, p - s1);
+      char *b = g_strdup (*value_to_match + strlen(a) + strlen(sd->key));
+
       repl = g_strdup_printf ("%s%s%s", a, replacement, b);
-      g_free (a);
-      g_free (b);
+
+      g_clear_pointer (&a, g_free);
+      g_clear_pointer (&b, g_free);
     }
-    g_free (s1);
-    g_free (s2);
+
+    g_clear_pointer (&s1, g_free);
+    g_clear_pointer (&s2, g_free);
   }
 
   if (sd->flags & MATCH_WORD)
@@ -105,12 +110,12 @@ _match_text_prop (DiaObject *obj, const SearchData *sd, const gchar *replacement
 
   /* replace part */
   if (is_match && replacement) {
-    g_free (*value_to_match);
+    g_clear_pointer (&*value_to_match, g_free);
     *value_to_match = repl;
   } else {
-    g_free (repl);
+    g_clear_pointer (&repl, g_free);
   }
-  
+
   return is_match;
 }
 
@@ -157,8 +162,8 @@ _match_value (gpointer  key,
     gchar *s1 = g_utf8_casefold ((char *)value, -1);
     gchar *s2 = g_utf8_casefold (sd->key, -1);
     gboolean matched = strstr (s1, s2) != NULL;
-    g_free (s1);
-    g_free (s2);
+    g_clear_pointer (&s1, g_free);
+    g_clear_pointer (&s2, g_free);
     return matched;
   }
 }
@@ -282,7 +287,7 @@ _match_all_props (DiaObject *obj, const SearchData *sd, const gchar *replacement
       /* First time. */
       matched_plist = prop_list_from_single (prop);
     } else {
-      /* FIXME: do we realy want a replace all here? */
+      /* FIXME: do we really want a replace all here? */
       /* Subsequent finds. */
       GPtrArray *append_plist;
       append_plist = prop_list_from_single (prop);
@@ -333,7 +338,7 @@ find_func (gpointer data, gpointer user_data)
 {
   DiaObject *obj = data;
   SearchData *sd = (SearchData *)user_data;
-  
+
   if (!sd->found) {
     if (_matches (obj, sd)) {
       if (!sd->first)
@@ -347,11 +352,12 @@ find_func (gpointer data, gpointer user_data)
   }
 }
 
+
 /* Match and replace property values. */
 static gboolean
 _replace (DiaObject *obj, const SearchData *sd, const char *replacement)
 {
-  ObjectChange *obj_change;
+  DiaObjectChange *obj_change;
   GPtrArray *plist = NULL;
 
   plist = _match_props (obj, sd, replacement);
@@ -363,33 +369,34 @@ _replace (DiaObject *obj, const SearchData *sd, const char *replacement)
   prop_list_free (plist);
 
   if (obj_change)
-    undo_object_change(sd->diagram, obj, obj_change);
-    
+    dia_object_change_change_new (sd->diagram, obj, obj_change);
+
   object_add_updates(obj, sd->diagram);
   diagram_update_connections_object(sd->diagram, obj, TRUE);
   diagram_modified(sd->diagram);
   diagram_object_modified(sd->diagram, obj);
   diagram_update_extents(sd->diagram);
   diagram_flush(sd->diagram);
-  
+
   return TRUE;
 }
 
-static gint
-fnr_respond (GtkWidget *widget, gint response_id, gpointer data)
+
+static int
+fnr_respond (GtkWidget *widget, int response_id, gpointer data)
 {
-  const gchar *search = gtk_entry_get_text (g_object_get_data (G_OBJECT (widget), "search-entry")); 
+  const gchar *search = gtk_entry_get_text (g_object_get_data (G_OBJECT (widget), "search-entry"));
   const gchar *replace;
   DDisplay *ddisp = (DDisplay*)data;
   SearchData sd = { 0, };
   sd.diagram = ddisp->diagram;
-  sd.flags =  gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON ( 
+  sd.flags =  gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON (
                   g_object_get_data (G_OBJECT (widget), "match-case"))) ? MATCH_CASE : 0;
-  sd.flags |= gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON ( 
+  sd.flags |= gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON (
                   g_object_get_data (G_OBJECT (widget), "match-word"))) ? MATCH_WORD : 0;
-  sd.flags |= gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON ( 
+  sd.flags |= gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON (
 		  g_object_get_data (G_OBJECT (widget), "match-all-properties"))) ? MATCH_ALL_PROPERTIES : 0;
-  
+
 
   switch (response_id) {
   case RESPONSE_FIND :
@@ -403,7 +410,7 @@ fnr_respond (GtkWidget *widget, gint response_id, gpointer data)
     sd.last = sd.found ? sd.found : sd.first;
     g_object_set_data (G_OBJECT (widget), "last-found", sd.last);
     if (sd.last) {
-      if (dia_object_get_parent_layer(sd.last) != ddisp->diagram->data->active_layer) {
+      if (dia_object_get_parent_layer(sd.last) != dia_diagram_data_get_active_layer (DIA_DIAGRAM_DATA (ddisp->diagram))) {
         /* can only select objects in the active layer */
         data_set_active_layer(ddisp->diagram->data, dia_object_get_parent_layer(sd.last));
         diagram_add_update_all(ddisp->diagram);
@@ -476,7 +483,7 @@ fnr_dialog_setup_common (GtkWidget *dialog, gboolean is_replace, DDisplay *ddisp
 
   vbox = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
 
-  hbox = gtk_hbox_new (FALSE, 12);
+  hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
   label = gtk_label_new_with_mnemonic (_("_Search for:"));
   gtk_box_pack_start (GTK_BOX (hbox), label, FALSE, FALSE, 0);
   search_entry = gtk_entry_new ();
@@ -485,11 +492,11 @@ fnr_dialog_setup_common (GtkWidget *dialog, gboolean is_replace, DDisplay *ddisp
   gtk_entry_set_width_chars (GTK_ENTRY (search_entry), 30);
   gtk_box_pack_start (GTK_BOX (hbox), search_entry, TRUE, TRUE, 0);
   gtk_box_pack_start (GTK_BOX (vbox), hbox, FALSE, FALSE, 6);
-  
+
   if (is_replace) {
     GtkWidget *replace_entry;
 
-    hbox = gtk_hbox_new (FALSE, 12);
+    hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
     label = gtk_label_new_with_mnemonic (_("Replace _with:"));
     gtk_box_pack_start (GTK_BOX (hbox), label, FALSE, FALSE, 0);
     replace_entry = gtk_entry_new ();
@@ -513,16 +520,22 @@ fnr_dialog_setup_common (GtkWidget *dialog, gboolean is_replace, DDisplay *ddisp
   g_object_set_data (G_OBJECT (dialog), "match-all-properties", match_all_properties);
   if (is_replace)
     gtk_widget_set_sensitive (GTK_WIDGET (match_all_properties), FALSE);
-    
+
 
   gtk_widget_show_all (vbox);
 }
 
+
 /**
- * React to <Display>/Edit/Find
+ * edit_find_callback:
+ * @action: the #GtkAction
+ *
+ * React to `<Display>/Edit/Find`
+ *
+ * Since: dawn-of-time
  */
 void
-edit_find_callback(GtkAction *action)
+edit_find_callback (GtkAction *action)
 {
   DDisplay *ddisp;
   GtkWidget *dialog;
@@ -530,25 +543,31 @@ edit_find_callback(GtkAction *action)
   ddisp = ddisplay_active();
   if (!ddisp) return;
 
-  /* no static var, instead we are attaching the dialog to the diplay shell */
+  /* no static var, instead we are attaching the dialog to the display shell */
   dialog = g_object_get_data (G_OBJECT (ddisp->shell), "edit-find-dialog");
   if (!dialog) {
-    dialog = gtk_dialog_new_with_buttons (
-		_("Find"), 
-		GTK_WINDOW (ddisp->shell), GTK_DIALOG_DESTROY_WITH_PARENT,
-		GTK_STOCK_CLOSE, GTK_RESPONSE_CLOSE,
-		GTK_STOCK_FIND, RESPONSE_FIND,
-		NULL);
+    dialog = gtk_dialog_new_with_buttons (_("Find"),
+                                          GTK_WINDOW (ddisp->shell),
+                                          GTK_DIALOG_DESTROY_WITH_PARENT,
+                                          _("_Close"), GTK_RESPONSE_CLOSE,
+                                          _("_Find"), RESPONSE_FIND,
+                                          NULL);
 
     fnr_dialog_setup_common (dialog, FALSE, ddisp);
   }
   g_object_set_data (G_OBJECT (ddisp->shell), "edit-find-dialog", dialog);
 
-  gtk_dialog_run (GTK_DIALOG (dialog));  
+  gtk_dialog_run (GTK_DIALOG (dialog));
 }
 
+
 /**
- * React to <Display>/Edit/Replace
+ * edit_replace_callback:
+ * @action: the #GtkAction
+ *
+ * React to `<Display>/Edit/Replace`
+ *
+ * Since: dawn-of-time
  */
 void
 edit_replace_callback(GtkAction *action)
@@ -559,28 +578,22 @@ edit_replace_callback(GtkAction *action)
   ddisp = ddisplay_active();
   if (!ddisp) return;
 
-  /* no static var, instead we are attaching the dialog to the diplay shell */
+  /* no static var, instead we are attaching the dialog to the display shell */
   dialog = g_object_get_data (G_OBJECT (ddisp->shell), "edit-replace-dialog");
   if (!dialog) {
-    GtkWidget *button;
-    dialog = gtk_dialog_new_with_buttons (
-		_("Replace"),
-		GTK_WINDOW (ddisp->shell), GTK_DIALOG_DESTROY_WITH_PARENT,
-		GTK_STOCK_CLOSE, GTK_RESPONSE_CLOSE,
-		_("Replace _All"), RESPONSE_REPLACE_ALL,
-		NULL);
-    /* not adding the button in the list above to modify it's text; 
-     * the default "Find and Replace" is just too long for my taste ;) 
-     */
-    button = gtk_dialog_add_button (GTK_DIALOG (dialog), _("_Replace"), RESPONSE_REPLACE);
-    gtk_button_set_image (GTK_BUTTON (button), 
-                          gtk_image_new_from_stock (GTK_STOCK_FIND_AND_REPLACE, GTK_ICON_SIZE_BUTTON));
+    dialog = gtk_dialog_new_with_buttons (_("Replace"),
+                                          GTK_WINDOW (ddisp->shell),
+                                          GTK_DIALOG_DESTROY_WITH_PARENT,
+                                          _("_Close"), GTK_RESPONSE_CLOSE,
+                                          _("Replace _All"), RESPONSE_REPLACE_ALL,
+                                          _("_Replace"), RESPONSE_REPLACE,
+                                          NULL);
 
-    gtk_dialog_add_button (GTK_DIALOG (dialog), GTK_STOCK_FIND, RESPONSE_FIND);
+    gtk_dialog_add_button (GTK_DIALOG (dialog), _("_Find"), RESPONSE_FIND);
 
     fnr_dialog_setup_common (dialog, TRUE, ddisp);
   }
   g_object_set_data (G_OBJECT (ddisp->shell), "edit-replace-dialog", dialog);
 
-  gtk_dialog_run (GTK_DIALOG (dialog));  
+  gtk_dialog_run (GTK_DIALOG (dialog));
 }

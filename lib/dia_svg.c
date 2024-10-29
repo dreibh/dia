@@ -30,10 +30,10 @@
 
 #include "dia_svg.h"
 
-/*!
- * \defgroup DiaSvg Services for SVG
- * \ingroup Plugins
- * \brief A set of function helping to read and write SVG with Dia
+/**
+ * SECTION:dia_svg
+ * @title: Dia SVG
+ * @short_description: A set of function helping to read and write SVG with Dia
  *
  * The Dia application supports various variants of SVG. There are
  * at least two importers of SVG dialects, namely \ref Shapes and
@@ -61,19 +61,19 @@ dia_svg_style_init(DiaSvgStyle *gs, DiaSvgStyle *parent_style)
   gs->stroke = parent_style ? parent_style->stroke : DIA_SVG_COLOUR_DEFAULT;
   gs->stroke_opacity = parent_style ? parent_style->stroke_opacity : 1.0;
   gs->line_width = parent_style ? parent_style->line_width : 0.0;
-  gs->linestyle = parent_style ? parent_style->linestyle : LINESTYLE_SOLID;
+  gs->linestyle = parent_style ? parent_style->linestyle : DIA_LINE_STYLE_SOLID;
   gs->dashlength = parent_style ? parent_style->dashlength : 1;
   /* http://www.w3.org/TR/SVG/painting.html#FillProperty - default black
    * but we still have to see the difference
-   */ 
+   */
   gs->fill = parent_style ? parent_style->fill : DIA_SVG_COLOUR_DEFAULT;
   gs->fill_opacity = parent_style ? parent_style->fill_opacity : 1.0;
-  gs->linecap = parent_style ? parent_style->linecap : LINECAPS_DEFAULT;
-  gs->linejoin = parent_style ? parent_style->linejoin : LINEJOIN_DEFAULT;
-  gs->linestyle = parent_style ? parent_style->linestyle : LINESTYLE_DEFAULT;
-  gs->font = (parent_style && parent_style->font) ? dia_font_ref(parent_style->font) : NULL;
+  gs->linecap = parent_style ? parent_style->linecap : DIA_LINE_CAPS_DEFAULT;
+  gs->linejoin = parent_style ? parent_style->linejoin : DIA_LINE_JOIN_DEFAULT;
+  gs->linestyle = parent_style ? parent_style->linestyle : DIA_LINE_STYLE_DEFAULT;
+  gs->font = (parent_style && parent_style->font) ? g_object_ref (parent_style->font) : NULL;
   gs->font_height = parent_style ? parent_style->font_height : 0.8;
-  gs->alignment = parent_style ? parent_style->alignment : ALIGN_LEFT;
+  gs->alignment = parent_style ? parent_style->alignment : DIA_ALIGN_LEFT;
 
   gs->stop_color = parent_style ? parent_style->stop_color : 0x000000; /* default black */
   gs->stop_opacity = parent_style ? parent_style->stop_opacity : 1.0;
@@ -97,9 +97,8 @@ dia_svg_style_copy(DiaSvgStyle *dest, DiaSvgStyle *src)
   dest->dashlength = src->dashlength;
   dest->fill = src->fill;
   dest->fill_opacity = src->fill_opacity;
-  if (dest->font)
-    dia_font_unref (dest->font);
-  dest->font = src->font ? dia_font_ref(src->font) : NULL;
+  g_clear_object (&dest->font);
+  dest->font = src->font ? g_object_ref (src->font) : NULL;
   dest->font_height = src->font_height;
   dest->alignment = src->alignment;
   dest->stop_color = src->stop_color;
@@ -299,7 +298,7 @@ svg_named_color (const char *name, gint32 *color)
 
   return FALSE;
 }
-/*! 
+/*!
  * \brief Parse an SVG color description.
  *
  * @param color A place to store the color information (0RGB)
@@ -348,7 +347,7 @@ _parse_color(gint32 *color, const char *str)
       *color = ((0xFF<<24) & 0xFF000000) | ((r<<16) & 0xFF0000) | ((g<<8) & 0xFF00) | (b & 0xFF);
     } else if (strchr (str+4, '%')) {
       /* e.g. cairo uses percent values */
-      gchar **vals = g_strsplit (str+4, "%,", -1);
+      char **vals = g_strsplit (str+4, "%,", -1);
       int     i;
 
       *color = 0xFF000000;
@@ -374,9 +373,9 @@ _parse_color(gint32 *color, const char *str)
     } else {
       /* need to make a copy of the color only */
       gboolean ret;
-      gchar *sc = g_strndup (str, se - str);
+      char *sc = g_strndup (str, se - str);
       ret = svg_named_color (sc, color);
-      g_free (sc);
+      g_clear_pointer (&sc, g_free);
       return ret;
     }
   }
@@ -393,7 +392,7 @@ _parse_color(gint32 *color, const char *str)
  * \ingroup DiaSvg
  */
 gboolean
-dia_svg_parse_color (const gchar *str, Color *color)
+dia_svg_parse_color (const char *str, Color *color)
 {
   gint32 c;
   gboolean ret = _parse_color (&c, str);
@@ -412,57 +411,70 @@ enum
   FONT_NAME_LENGTH_MAX = 40
 };
 
+
 static void
-_parse_dasharray (DiaSvgStyle *s, real user_scale, gchar *str, gchar **end)
+_parse_dasharray (DiaSvgStyle *s, double user_scale, char *str, char **end)
 {
-  gchar *ptr;
+  char *ptr;
   /* by also splitting on ';' we can also parse the continued style string */
-  gchar **dashes = g_regex_split_simple ("[\\s,;]+", (gchar *)str, 0, 0);
+  char **dashes = g_regex_split_simple ("[\\s,;]+", (char *) str, 0, 0);
   int n = 0;
-  real dl;
+  double dl;
 
   s->dashlength = g_ascii_strtod(str, &ptr);
-  if (s->dashlength <= 0.0) /* e.g. "none" */
-    s->linestyle = LINESTYLE_SOLID;
-  else if (user_scale > 0)
+  if (s->dashlength <= 0.0) {
+    /* e.g. "none" */
+    s->linestyle = DIA_LINE_STYLE_SOLID;
+  } else if (user_scale > 0) {
     s->dashlength /= user_scale;
+  }
 
   if (s->dashlength) { /* at least one value */
-    while (dashes[n] && g_ascii_strtod (dashes[n], NULL) > 0)
+    while (dashes[n] && g_ascii_strtod (dashes[n], NULL) > 0) {
       ++n; /* Dia can not do arbitrary length, the number of dashes gives the style */
+    }
   }
-  if (n > 0)
+
+  if (n > 0) {
     s->dashlength = g_ascii_strtod (dashes[0], NULL);
-  if (user_scale > 0)
+  }
+
+  if (user_scale > 0) {
       s->dashlength /= user_scale;
+  }
+
   switch (n) {
-    case 0 :
-      s->linestyle = LINESTYLE_SOLID;
+    case 0:
+      s->linestyle = DIA_LINE_STYLE_SOLID;
       break;
-    case 1 :
-      s->linestyle = LINESTYLE_DASHED;
+    case 1:
+      s->linestyle = DIA_LINE_STYLE_DASHED;
       break;
-    case 2 :
+    case 2:
       dl = g_ascii_strtod (dashes[1], NULL);
-      if (user_scale > 0)
+
+      if (user_scale > 0) {
         dl /= user_scale;
-      if (dl < s->line_width || dl > s->dashlength) { /* the difference is arbitrary */
-	s->linestyle = LINESTYLE_DOTTED;
-	s->dashlength *= 10.0; /* dot = 10% of len */
+      }
+
+      if (dl < s->line_width || dl > s->dashlength) {
+        /* the difference is arbitrary */
+        s->linestyle = DIA_LINE_STYLE_DOTTED;
+        s->dashlength *= 10.0; /* dot = 10% of len */
       } else {
-	s->linestyle = LINESTYLE_DASHED;
+        s->linestyle = DIA_LINE_STYLE_DASHED;
       }
       break;
-    case 4 :
-      s->linestyle = LINESTYLE_DASH_DOT;
+    case 4:
+      s->linestyle = DIA_LINE_STYLE_DASH_DOT;
       break;
     default :
       /* If an odd number of values is provided, then the list of values is repeated to
        * yield an even number of values. Thus, stroke-dasharray: 5,3,2 is equivalent to
        * stroke-dasharray: 5,3,2,5,3,2.
        */
-    case 6 :
-      s->linestyle = LINESTYLE_DASH_DOT_DOT;
+    case 6:
+      s->linestyle = DIA_LINE_STYLE_DASH_DOT_DOT;
       break;
   }
   g_strfreev (dashes);
@@ -471,29 +483,33 @@ _parse_dasharray (DiaSvgStyle *s, real user_scale, gchar *str, gchar **end)
     *end = ptr;
 }
 
+
 static void
 _parse_linejoin (DiaSvgStyle *s, const char *val)
 {
-  if (!strncmp(val, "miter", 5))
-    s->linejoin = LINEJOIN_MITER;
-  else if (!strncmp(val, "round", 5))
-    s->linejoin = LINEJOIN_ROUND;
-  else if (!strncmp(val, "bevel", 5))
-    s->linejoin = LINEJOIN_BEVEL;
-  else if (!strncmp(val, "default", 7))
-    s->linejoin = LINEJOIN_DEFAULT;
+  if (!strncmp (val, "miter", 5)) {
+    s->linejoin = DIA_LINE_JOIN_MITER;
+  } else if (!strncmp (val, "round", 5)) {
+    s->linejoin = DIA_LINE_JOIN_ROUND;
+  } else if (!strncmp (val, "bevel", 5)) {
+    s->linejoin = DIA_LINE_JOIN_BEVEL;
+  } else if (!strncmp (val, "default", 7)) {
+    s->linejoin = DIA_LINE_JOIN_DEFAULT;
+  }
 }
+
+
 static void
 _parse_linecap (DiaSvgStyle *s, const char *val)
 {
   if (!strncmp(val, "butt", 4))
-    s->linecap = LINECAPS_BUTT;
+    s->linecap = DIA_LINE_CAPS_BUTT;
   else if (!strncmp(val, "round", 5))
-    s->linecap = LINECAPS_ROUND;
+    s->linecap = DIA_LINE_CAPS_ROUND;
   else if (!strncmp(val, "square", 6) || !strncmp(val, "projecting", 10))
-    s->linecap = LINECAPS_PROJECTING;
+    s->linecap = DIA_LINE_CAPS_PROJECTING;
   else if (!strncmp(val, "default", 7))
-    s->linecap = LINECAPS_DEFAULT;
+    s->linecap = DIA_LINE_CAPS_DEFAULT;
 }
 
 /*!
@@ -506,54 +522,62 @@ _parse_linecap (DiaSvgStyle *s, const char *val)
 static void
 _style_adjust_font (DiaSvgStyle *s, const char *family, const char *style, const char *weight)
 {
-    if (s->font)
-      dia_font_unref (s->font);
-    /* given font_height is bogus, especially if not given at all
-     * or without unit ... see bug 665648 about invalid CSS
-     */
-    s->font = dia_font_new_from_style(DIA_FONT_SANS, s->font_height > 0 ? s->font_height : 1.0);
-    if (family) {
-      /* SVG allows a list of families here, also there is some strange formatting 
-       * seen, like 'Arial'. If the given family name can not be resolved by 
-       * Pango it complaints loudly with g_warning().
-       */
-      gchar **families = g_strsplit(family, ",", -1);
-      int i = 0;
-      gboolean found = FALSE;
-      while (!found && families[i]) {
-	const gchar *chomped = g_strchomp (g_strdelimit(families[i], "'", ' '));
-	PangoFont *loaded;
-        dia_font_set_any_family(s->font, chomped);
-	loaded = pango_context_load_font(dia_font_get_context(),
-					 dia_font_get_description(s->font));
-	if (loaded) {
-	  g_object_unref(loaded);
-	  found = TRUE;
-	}
-	++i;
+  g_clear_object (&s->font);
+  /* given font_height is bogus, especially if not given at all
+    * or without unit ... see bug 665648 about invalid CSS
+    */
+  s->font = dia_font_new_from_style (DIA_FONT_SANS, s->font_height > 0 ? s->font_height : 1.0);
+  if (family) {
+    /* SVG allows a list of families here, also there is some strange formatting
+      * seen, like 'Arial'. If the given family name can not be resolved by
+      * Pango it complaints loudly with g_warning().
+      */
+    char **families = g_strsplit (family, ",", -1);
+    int i = 0;
+    gboolean found = FALSE;
+    while (!found && families[i]) {
+      const char *chomped = g_strchomp (g_strdelimit (families[i], "'", ' '));
+      PangoFont *loaded;
+
+      dia_font_set_any_family(s->font, chomped);
+      loaded = pango_context_load_font (dia_font_get_context (),
+                                        dia_font_get_description (s->font));
+      if (loaded) {
+        g_clear_object (&loaded);
+        found = TRUE;
       }
-      if (!found)
-	dia_font_set_any_family(s->font, "sans");
-      g_strfreev(families);
+      ++i;
     }
-    if (style) {
-      dia_font_set_slant_from_string(s->font,style);
+
+    if (!found) {
+      dia_font_set_any_family (s->font, "sans");
     }
-    if (weight) {
-      dia_font_set_weight_from_string(s->font,weight);
-    }
+
+    g_strfreev (families);
+  }
+
+  if (style) {
+    dia_font_set_slant_from_string (s->font, style);
+  }
+
+  if (weight) {
+    dia_font_set_weight_from_string (s->font, weight);
+  }
 }
 
+
 static void
-_parse_text_align(DiaSvgStyle *s, const gchar *ptr)
+_parse_text_align (DiaSvgStyle *s, const char *ptr)
 {
-  if (!strncmp(ptr, "start", 5))
-    s->alignment = ALIGN_LEFT;
-  else if (!strncmp(ptr, "end", 3))
-    s->alignment = ALIGN_RIGHT;
-  else if (!strncmp(ptr, "middle", 6))
-    s->alignment = ALIGN_CENTER;
+  if (!strncmp (ptr, "start", 5)) {
+    s->alignment = DIA_ALIGN_LEFT;
+  } else if (!strncmp (ptr, "end", 3)) {
+    s->alignment = DIA_ALIGN_RIGHT;
+  } else if (!strncmp (ptr, "middle", 6)) {
+    s->alignment = DIA_ALIGN_CENTRE;
+  }
 }
+
 
 /*!
  * \brief Parse SVG/CSS style string
@@ -567,10 +591,10 @@ _parse_text_align(DiaSvgStyle *s, const gchar *ptr)
  * \ingroup DiaSvg
  */
 void
-dia_svg_parse_style_string (DiaSvgStyle *s, real user_scale, const gchar *str)
+dia_svg_parse_style_string (DiaSvgStyle *s, double user_scale, const char *str)
 {
   int i = 0;
-  gchar *ptr = (gchar *)str;
+  char *ptr = (char *) str;
   char *family = NULL, *style = NULL, *weight = NULL;
 
   while (ptr[0] != '\0') {
@@ -653,7 +677,7 @@ dia_svg_parse_style_string (DiaSvgStyle *s, real user_scale, const gchar *str)
       ptr += 13;
       s->stop_opacity = g_ascii_strtod(ptr, &ptr);
     } else if (!strncmp("opacity", ptr, 7)) {
-      real opacity;
+      double opacity;
       ptr += 7;
       opacity = g_ascii_strtod(ptr, &ptr);
       /* multiplicative effect of opacity */
@@ -680,20 +704,21 @@ dia_svg_parse_style_string (DiaSvgStyle *s, real user_scale, const gchar *str)
       while (ptr[0] != '\0' && g_ascii_isspace(ptr[0])) ptr++;
       if (ptr[0] == '\0') break;
 
-      if (!strncmp(ptr, "solid", 5))
-	s->linestyle = LINESTYLE_SOLID;
-      else if (!strncmp(ptr, "dashed", 6))
-	s->linestyle = LINESTYLE_DASHED;
-      else if (!strncmp(ptr, "dash-dot", 8))
-	s->linestyle = LINESTYLE_DASH_DOT;
-      else if (!strncmp(ptr, "dash-dot-dot", 12))
-	s->linestyle = LINESTYLE_DASH_DOT_DOT;
-      else if (!strncmp(ptr, "dotted", 6))
-	s->linestyle = LINESTYLE_DOTTED;
-      else if (!strncmp(ptr, "default", 7))
-	s->linestyle = LINESTYLE_DEFAULT;
+      if (!strncmp (ptr, "solid", 5)) {
+        s->linestyle = DIA_LINE_STYLE_SOLID;
+      } else if (!strncmp (ptr, "dashed", 6)) {
+        s->linestyle = DIA_LINE_STYLE_DASHED;
+      } else if (!strncmp (ptr, "dash-dot", 8)) {
+        s->linestyle = DIA_LINE_STYLE_DASH_DOT;
+      } else if (!strncmp (ptr, "dash-dot-dot", 12)) {
+        s->linestyle = DIA_LINE_STYLE_DASH_DOT_DOT;
+      } else if (!strncmp (ptr, "dotted", 6)) {
+        s->linestyle = DIA_LINE_STYLE_DOTTED;
+      } else if (!strncmp (ptr, "default", 7)) {
+        s->linestyle = DIA_LINE_STYLE_DEFAULT;
+      }
       /* XXX: deal with a real pattern */
-    } else if (!strncmp("stroke-dashlength:", ptr, 18)) {
+    } else if (!strncmp ("stroke-dashlength:", ptr, 18)) {
       ptr += 18;
       while (ptr[0] != '\0' && g_ascii_isspace(ptr[0])) ptr++;
       if (ptr[0] == '\0') break;
@@ -705,8 +730,8 @@ dia_svg_parse_style_string (DiaSvgStyle *s, real user_scale, const gchar *str)
 	if (user_scale > 0)
 	  s->dashlength /= user_scale;
       }
-    } else if (!strncmp("stroke-dasharray:", ptr, 17)) {
-      s->linestyle = LINESTYLE_DASHED;
+    } else if (!strncmp ("stroke-dasharray:", ptr, 17)) {
+      s->linestyle = DIA_LINE_STYLE_DASHED;
       ptr += 17;
       while (ptr[0] != '\0' && g_ascii_isspace(ptr[0])) ptr++;
       if (ptr[0] == '\0') break;
@@ -725,9 +750,9 @@ dia_svg_parse_style_string (DiaSvgStyle *s, real user_scale, const gchar *str)
   if (family || style || weight) {
     _style_adjust_font (s, family, style, weight);
 
-    g_free(family);
-    g_free(style);
-    g_free(weight);
+    g_clear_pointer (&family, g_free);
+    g_clear_pointer (&style, g_free);
+    g_clear_pointer (&weight, g_free);
   }
 }
 
@@ -746,14 +771,14 @@ dia_svg_parse_style_string (DiaSvgStyle *s, real user_scale, const gchar *str)
  * \ingroup DiaSvg
  */
 void
-dia_svg_parse_style(xmlNodePtr node, DiaSvgStyle *s, real user_scale)
+dia_svg_parse_style (xmlNodePtr node, DiaSvgStyle *s, double user_scale)
 {
   xmlChar *str;
 
   str = xmlGetProp(node, (const xmlChar *)"style");
 
   if (str) {
-    dia_svg_parse_style_string (s, user_scale, (gchar *)str);
+    dia_svg_parse_style_string (s, user_scale, (char *)str);
     xmlFree(str);
   }
 
@@ -769,7 +794,7 @@ dia_svg_parse_style(xmlNodePtr node, DiaSvgStyle *s, real user_scale)
   }
   str = xmlGetProp(node, (const xmlChar *)"opacity");
   if (str) {
-    real opacity = g_ascii_strtod((char *) str, NULL);
+    double opacity = g_ascii_strtod ((char *) str, NULL);
     /* multiplicative effect of opacity */
     s->stroke_opacity *= opacity;
     s->fill_opacity *= opacity;
@@ -818,22 +843,22 @@ dia_svg_parse_style(xmlNodePtr node, DiaSvgStyle *s, real user_scale)
   str = xmlGetProp(node, (const xmlChar *)"stroke-dasharray");
   if (str) {
     if (strcmp ((const char *)str, "inherit") != 0)
-      _parse_dasharray (s, user_scale, (gchar *)str, NULL);
+      _parse_dasharray (s, user_scale, (char *)str, NULL);
     xmlFree(str);
   }
   str = xmlGetProp(node, (const xmlChar *)"stroke-linejoin");
   if (str) {
     if (strcmp ((const char *)str, "inherit") != 0)
-      _parse_linejoin (s, (gchar *)str);
+      _parse_linejoin (s, (char *)str);
     xmlFree(str);
   }
   str = xmlGetProp(node, (const xmlChar *)"stroke-linecap");
   if (str) {
     if (strcmp ((const char *)str, "inherit") != 0)
-      _parse_linecap (s, (gchar *)str);
+      _parse_linecap (s, (char *)str);
     xmlFree(str);
   }
-  
+
   /* text-props, again ;( */
   str = xmlGetProp(node, (const xmlChar *)"font-size");
   if (str) {
@@ -841,7 +866,7 @@ dia_svg_parse_style(xmlNodePtr node, DiaSvgStyle *s, real user_scale)
      * should be initialized by parent style already
      */
     if (strcmp ((const char *)str, "inherit") != 0) {
-      s->font_height = g_ascii_strtod((gchar *)str, NULL);
+      s->font_height = g_ascii_strtod ((char *)str, NULL);
       if (user_scale > 0)
 	s->font_height /= user_scale;
     }
@@ -849,7 +874,7 @@ dia_svg_parse_style(xmlNodePtr node, DiaSvgStyle *s, real user_scale)
   }
   str = xmlGetProp(node, (const xmlChar *)"text-anchor");
   if (str) {
-    _parse_text_align (s, (const gchar*)str);
+    _parse_text_align (s, (const char*) str);
     xmlFree(str);
   }
   {
@@ -857,7 +882,7 @@ dia_svg_parse_style(xmlNodePtr node, DiaSvgStyle *s, real user_scale)
     xmlChar *slant  = xmlGetProp(node, (const xmlChar *)"font-style");
     xmlChar *weight = xmlGetProp(node, (const xmlChar *)"font-weight");
     if (family || slant || weight) {
-      _style_adjust_font (s, (gchar *)family, (gchar *)slant, (gchar *)weight);
+      _style_adjust_font (s, (char *)family, (char *)slant, (char *)weight);
 
       if (family)
         xmlFree(family);
@@ -869,37 +894,45 @@ dia_svg_parse_style(xmlNodePtr node, DiaSvgStyle *s, real user_scale)
   }
 }
 
-/*!
- * \brief Parse a SVG description of an arc segment.
+
+/**
+ * _path_arc_segment:
+ * @points: destination array of #BezPoint
+ * @xc: center x
+ * @yc: center y
+ * @th0: first angle
+ * @th1: second angle
+ * @rx: radius x
+ * @ry: radius y
+ * @x_axis_rotation: rotation of the axis
+ * @last_p2: the resulting current point
+ *
+ * Parse a SVG description of an arc segment.
+ *
  * Code stolen from (and adapted)
  * http://www.inkscape.org/doc/doxygen/html/svg-path_8cpp.php#a7
  * which may have got it from rsvg, hope it is correct ;)
- * @param points destination array of _BezPoint
- * @param xc center x
- * @param yc center y
- * @param th0 first angle
- * @param th1 second angle
- * @param rx radius x
- * @param ry radius y
- * @param x_axis_rotation rotation of the axis
- * @param last_p2 the resulting current point
+ *
  * If you want the description of the algorithm read the SVG specs:
  * http://www.w3.org/TR/SVG/paths.html#PathDataEllipticalArcCommands
  */
 static void
-_path_arc_segment(GArray* points,
-		  real xc, real yc,
-		  real th0, real th1,
-		  real rx, real ry,
-		  real x_axis_rotation,
-		  Point *last_p2)
+_path_arc_segment (GArray *points,
+                   double  xc,
+                   double  yc,
+                   double  th0,
+                   double  th1,
+                   double  rx,
+                   double  ry,
+                   double  x_axis_rotation,
+                   Point  *last_p2)
 {
   BezPoint bez;
-  real sin_th, cos_th;
-  real a00, a01, a10, a11;
-  real x1, y1, x2, y2, x3, y3;
-  real t;
-  real th_half;
+  double sin_th, cos_th;
+  double a00, a01, a10, a11;
+  double x1, y1, x2, y2, x3, y3;
+  double t;
+  double th_half;
 
   sin_th = sin (x_axis_rotation * (M_PI / 180.0));
   cos_th = cos (x_axis_rotation * (M_PI / 180.0));
@@ -931,25 +964,22 @@ _path_arc_segment(GArray* points,
   g_array_append_val(points, bez);
 }
 
-/** Parse an SVG description of a full arc.
- * @param points
- * @param cpx
- * @param cpy
- * @param rx
- * @param ry
- * @param x_axis_rotation
- * @param large_arc_flag
- * @param sweep_flag
- * @param x
- * @param y
- * @param last_p2
+
+/*
+ * Parse an SVG description of a full arc.
  */
 static void
-_path_arc(GArray *points, double cpx, double cpy,
-	   double rx, double ry, double x_axis_rotation,
-	   int large_arc_flag, int sweep_flag,
-	   double x, double y,
-	   Point *last_p2)
+_path_arc (GArray *points,
+           double  cpx,
+           double  cpy,
+           double  rx,
+           double  ry,
+           double  x_axis_rotation,
+           int     large_arc_flag,
+           int     sweep_flag,
+           double  x,
+           double  y,
+           Point  *last_p2)
 {
     double sin_th, cos_th;
     double a00, a01, a10, a11;
@@ -1030,31 +1060,37 @@ _path_arc(GArray *points, double cpx, double cpy,
 /* routine to chomp off the start of the string */
 #define path_chomp(path) while (path[0]!='\0'&&strchr(" \t\n\r,", path[0])) path++
 
-/*!
- * \brief Takes SVG path content and converts it in an array of BezPoint.
+/**
+ * dia_svg_parse_path:
+ * @path_str: A string describing an SVG path.
+ * @unparsed: The position in @path_str where parsing ended, or %NULL if
+ *            the string was completely parsed. This should be used for
+ *            calling the function until it is fully parsed.
+ * @closed: Whether the path was closed.
+ * @current_point: to retain it over splitting
+ *
+ * Takes SVG path content and converts it in an array of BezPoint.
  *
  * SVG pathes can contain multiple MOVE_TO commands while Dia's bezier
  * object can only contain one so you may need to call this function
  * multiple times.
  *
- * @param path_str A string describing an SVG path.
- * @param unparsed The position in `path_str' where parsing ended, or NULL if
- *                 the string was completely parsed.  This should be used for
- *                 calling the function until it is fully parsed.
- * @param closed Whether the path was closed.
- * @param current_point to retain it over splitting
- * @return TRUE if there is any useful data in parsed to points
  * @bug This function is way too long (324 lines). So dont touch it. please!
  * Shouldn't we try to turn straight lines, simple arc, polylines and
  * zigzaglines into their appropriate objects?  Could either be done by
  * returning an object or by having functions that try parsing as
  * specific simple paths.
- * NOPE: Dia is capable to handle beziers and the file has given us some so 
+ * NOPE: Dia is capable to handle beziers and the file has given us some so
  * WHY should be break it in to pieces ???
+ *
+ * Returns: %TRUE if there is any useful data in parsed to points
  */
 gboolean
-dia_svg_parse_path(GArray *points, const gchar *path_str, gchar **unparsed,
-		   gboolean *closed, Point *current_point)
+dia_svg_parse_path (GArray      *points,
+                    const char  *path_str,
+                    char       **unparsed,
+                    gboolean    *closed,
+                    Point       *current_point)
 {
   enum {
     PATH_MOVE, PATH_LINE, PATH_HLINE, PATH_VLINE, PATH_CURVE,
@@ -1065,7 +1101,7 @@ dia_svg_parse_path(GArray *points, const gchar *path_str, gchar **unparsed,
   Point last_control = {0.0, 0.0};
   gboolean last_relative = FALSE;
   BezPoint bez = { 0, };
-  gchar *path = (gchar *)path_str;
+  char *path = (char *)path_str;
   gboolean need_next_element = FALSE;
   /* we can grow the same array in multiple steps */
   gsize points_at_start = points->len;
@@ -1080,7 +1116,7 @@ dia_svg_parse_path(GArray *points, const gchar *path_str, gchar **unparsed,
   path_chomp(path);
   while (path[0] != '\0') {
 #ifdef DEBUG_CUSTOM
-    g_print("Path: %s\n", path);
+    g_printerr ("Path: %s\n", path);
 #endif
     /* check for a new command */
     switch (path[0]) {
@@ -1240,282 +1276,292 @@ dia_svg_parse_path(GArray *points, const gchar *path_str, gchar **unparsed,
 
     /* actually parse the path component */
     switch (last_type) {
-    case PATH_MOVE:
-      if (points->len - points_at_start > 1)
-	g_warning ("Only first point should be 'move'");
-      bez.type = BEZ_MOVE_TO;
-      bez.p1.x = g_ascii_strtod(path, &path);
-      path_chomp(path);
-      bez.p1.y = g_ascii_strtod(path, &path);
-      path_chomp(path);
-      if (last_relative) {
-	bez.p1.x += last_point.x;
-	bez.p1.y += last_point.y;
-      }
-      last_point = bez.p1;
-      last_control = bez.p1;
-      last_open = bez.p1;
-      if (points->len - points_at_start == 1) /* stupid svg, but we can handle it */
-	g_array_index(points,BezPoint,0) = bez;
-      else
-        g_array_append_val(points, bez);
-      /* [SVG11 8.3.2] If a moveto is followed by multiple pairs of coordinates, 
-       * the subsequent pairs are treated as implicit lineto commands 
-       */
-      last_type = PATH_LINE;
-      break;
-    case PATH_LINE:
-      bez.type = BEZ_LINE_TO;
-      bez.p1.x = g_ascii_strtod(path, &path);
-      path_chomp(path);
-      bez.p1.y = g_ascii_strtod(path, &path);
-      path_chomp(path);
-      if (last_relative) {
-	bez.p1.x += last_point.x;
-	bez.p1.y += last_point.y;
-      }
-      /* Strictly speeaking it should not be necessary to assign the other 
-       * two points. But it helps hiding a serious limitation with the 
-       * standard bezier serialization, namely only saving one move-to
-       * and the rest as curve-to */
+      case PATH_MOVE:
+        if (points->len - points_at_start > 1) {
+          g_warning ("Only first point should be 'move'");
+        }
+        bez.type = BEZ_MOVE_TO;
+        bez.p1.x = g_ascii_strtod (path, &path);
+        path_chomp (path);
+        bez.p1.y = g_ascii_strtod (path, &path);
+        path_chomp (path);
+        if (last_relative) {
+          bez.p1.x += last_point.x;
+          bez.p1.y += last_point.y;
+        }
+        last_point = bez.p1;
+        last_control = bez.p1;
+        last_open = bez.p1;
+        if (points->len - points_at_start == 1) {
+          /* stupid svg, but we can handle it */
+          g_array_index (points, BezPoint, 0) = bez;
+        } else {
+          g_array_append_val (points, bez);
+        }
+        /* [SVG11 8.3.2] If a moveto is followed by multiple pairs of coordinates,
+        * the subsequent pairs are treated as implicit lineto commands
+        */
+        last_type = PATH_LINE;
+        break;
+      case PATH_LINE:
+        bez.type = BEZ_LINE_TO;
+        bez.p1.x = g_ascii_strtod (path, &path);
+        path_chomp (path);
+        bez.p1.y = g_ascii_strtod (path, &path);
+        path_chomp (path);
+        if (last_relative) {
+          bez.p1.x += last_point.x;
+          bez.p1.y += last_point.y;
+        }
+        /* Strictly speeaking it should not be necessary to assign the other
+         * two points. But it helps hiding a serious limitation with the
+         * standard bezier serialization, namely only saving one move-to
+         * and the rest as curve-to */
 #define INIT_LINE_TO_AS_CURVE_TO bez.p3 = bez.p1; bez.p2 = last_point
 
-      INIT_LINE_TO_AS_CURVE_TO;
+        INIT_LINE_TO_AS_CURVE_TO;
 
-      last_point = bez.p1;
-      last_control = bez.p1;
+        last_point = bez.p1;
+        last_control = bez.p1;
 
-      g_array_append_val(points, bez);
-      break;
-    case PATH_HLINE:
-      bez.type = BEZ_LINE_TO;
-      bez.p1.x = g_ascii_strtod(path, &path);
-      path_chomp(path);
-      bez.p1.y = last_point.y;
-      if (last_relative)
-	bez.p1.x += last_point.x;
+        g_array_append_val (points, bez);
+        break;
+      case PATH_HLINE:
+        bez.type = BEZ_LINE_TO;
+        bez.p1.x = g_ascii_strtod (path, &path);
+        path_chomp (path);
+        bez.p1.y = last_point.y;
+        if (last_relative) {
+          bez.p1.x += last_point.x;
+        }
 
-      INIT_LINE_TO_AS_CURVE_TO;
+        INIT_LINE_TO_AS_CURVE_TO;
 
-      last_point = bez.p1;
-      last_control = bez.p1;
+        last_point = bez.p1;
+        last_control = bez.p1;
 
-      g_array_append_val(points, bez);
-      break;
-    case PATH_VLINE:
-      bez.type = BEZ_LINE_TO;
-      bez.p1.x = last_point.x;
-      bez.p1.y = g_ascii_strtod(path, &path);
-      path_chomp(path);
-      if (last_relative)
-	bez.p1.y += last_point.y;
+        g_array_append_val (points, bez);
+        break;
+      case PATH_VLINE:
+        bez.type = BEZ_LINE_TO;
+        bez.p1.x = last_point.x;
+        bez.p1.y = g_ascii_strtod (path, &path);
+        path_chomp (path);
+        if (last_relative) {
+          bez.p1.y += last_point.y;
+        }
 
-      INIT_LINE_TO_AS_CURVE_TO;
+        INIT_LINE_TO_AS_CURVE_TO;
 
-#undef INIT_LINE_TO_AS_CURVE_TO
+  #undef INIT_LINE_TO_AS_CURVE_TO
 
-      last_point = bez.p1;
-      last_control = bez.p1;
+        last_point = bez.p1;
+        last_control = bez.p1;
 
-      g_array_append_val(points, bez);
-      break;
-    case PATH_CURVE:
-      bez.type = BEZ_CURVE_TO;
-      bez.p1.x = g_ascii_strtod(path, &path);
-      path_chomp(path);
-      bez.p1.y = g_ascii_strtod(path, &path);
-      path_chomp(path);
-      bez.p2.x = g_ascii_strtod(path, &path);
-      path_chomp(path);
-      bez.p2.y = g_ascii_strtod(path, &path);
-      path_chomp(path);
-      bez.p3.x = g_ascii_strtod(path, &path);
-      path_chomp(path);
-      bez.p3.y = g_ascii_strtod(path, &path);
-      path_chomp(path);
-      if (last_relative) {
-	bez.p1.x += last_point.x;
-	bez.p1.y += last_point.y;
-	bez.p2.x += last_point.x;
-	bez.p2.y += last_point.y;
-	bez.p3.x += last_point.x;
-	bez.p3.y += last_point.y;
-      }
-      last_point = bez.p3;
-      last_control = bez.p2;
+        g_array_append_val (points, bez);
+        break;
+      case PATH_CURVE:
+        bez.type = BEZ_CURVE_TO;
+        bez.p1.x = g_ascii_strtod (path, &path);
+        path_chomp (path);
+        bez.p1.y = g_ascii_strtod (path, &path);
+        path_chomp (path);
+        bez.p2.x = g_ascii_strtod (path, &path);
+        path_chomp (path);
+        bez.p2.y = g_ascii_strtod (path, &path);
+        path_chomp (path);
+        bez.p3.x = g_ascii_strtod (path, &path);
+        path_chomp (path);
+        bez.p3.y = g_ascii_strtod (path, &path);
+        path_chomp (path);
+        if (last_relative) {
+          bez.p1.x += last_point.x;
+          bez.p1.y += last_point.y;
+          bez.p2.x += last_point.x;
+          bez.p2.y += last_point.y;
+          bez.p3.x += last_point.x;
+          bez.p3.y += last_point.y;
+        }
+        last_point = bez.p3;
+        last_control = bez.p2;
 
-      g_array_append_val(points, bez);
-      break;
-    case PATH_SMOOTHCURVE:
-      bez.type = BEZ_CURVE_TO;
-      bez.p1.x = 2 * last_point.x - last_control.x;
-      bez.p1.y = 2 * last_point.y - last_control.y;
-      bez.p2.x = g_ascii_strtod(path, &path);
-      path_chomp(path);
-      bez.p2.y = g_ascii_strtod(path, &path);
-      path_chomp(path);
-      bez.p3.x = g_ascii_strtod(path, &path);
-      path_chomp(path);
-      bez.p3.y = g_ascii_strtod(path, &path);
-      path_chomp(path);
-      if (last_relative) {
-	bez.p2.x += last_point.x;
-	bez.p2.y += last_point.y;
-	bez.p3.x += last_point.x;
-	bez.p3.y += last_point.y;
-      }
-      last_point = bez.p3;
-      last_control = bez.p2;
+        g_array_append_val (points, bez);
+        break;
+      case PATH_SMOOTHCURVE:
+        bez.type = BEZ_CURVE_TO;
+        bez.p1.x = 2 * last_point.x - last_control.x;
+        bez.p1.y = 2 * last_point.y - last_control.y;
+        bez.p2.x = g_ascii_strtod (path, &path);
+        path_chomp (path);
+        bez.p2.y = g_ascii_strtod (path, &path);
+        path_chomp (path);
+        bez.p3.x = g_ascii_strtod (path, &path);
+        path_chomp (path);
+        bez.p3.y = g_ascii_strtod (path, &path);
+        path_chomp (path);
+        if (last_relative) {
+          bez.p2.x += last_point.x;
+          bez.p2.y += last_point.y;
+          bez.p3.x += last_point.x;
+          bez.p3.y += last_point.y;
+        }
+        last_point = bez.p3;
+        last_control = bez.p2;
 
-      g_array_append_val(points, bez);
-      break;
-    case PATH_QUBICCURVE: {
-	/* raise quadratic bezier to cubic (copied from librsvg) */
-	real x1, y1;
-	x1 = g_ascii_strtod(path, &path);
-	path_chomp(path);
-	y1 = g_ascii_strtod(path, &path);
-	path_chomp(path);
-	if (last_relative) {
-	  x1 += last_point.x;
-	  y1 += last_point.y;
-	}
-	bez.type = BEZ_CURVE_TO;
-	bez.p1.x = (last_point.x + 2 * x1) * (1.0 / 3.0);
-	bez.p1.y = (last_point.y + 2 * y1) * (1.0 / 3.0);
-	bez.p3.x = g_ascii_strtod(path, &path);
-	path_chomp(path);
-	bez.p3.y = g_ascii_strtod(path, &path);
-	path_chomp(path);
-	if (last_relative) {
-	  bez.p3.x += last_point.x;
-	  bez.p3.y += last_point.y;
-	}
-	bez.p2.x = (bez.p3.x + 2 * x1) * (1.0 / 3.0);
-	bez.p2.y = (bez.p3.y + 2 * y1) * (1.0 / 3.0);
-	last_point = bez.p3;
-	last_control.x = x1;
-	last_control.y = y1;
-        g_array_append_val(points, bez);
-      }
-      break;
-    case PATH_TTQCURVE:
-      {
-	/* Truetype quadratic bezier curveto */
-	double xc, yc; /* quadratic control point */
+        g_array_append_val (points, bez);
+        break;
+      case PATH_QUBICCURVE: {
+          /* raise quadratic bezier to cubic (copied from librsvg) */
+          double x1, y1;
+          x1 = g_ascii_strtod (path, &path);
+          path_chomp (path);
+          y1 = g_ascii_strtod (path, &path);
+          path_chomp (path);
+          if (last_relative) {
+            x1 += last_point.x;
+            y1 += last_point.y;
+          }
+          bez.type = BEZ_CURVE_TO;
+          bez.p1.x = (last_point.x + 2 * x1) * (1.0 / 3.0);
+          bez.p1.y = (last_point.y + 2 * y1) * (1.0 / 3.0);
+          bez.p3.x = g_ascii_strtod (path, &path);
+          path_chomp (path);
+          bez.p3.y = g_ascii_strtod (path, &path);
+          path_chomp (path);
+          if (last_relative) {
+            bez.p3.x += last_point.x;
+            bez.p3.y += last_point.y;
+          }
+          bez.p2.x = (bez.p3.x + 2 * x1) * (1.0 / 3.0);
+          bez.p2.y = (bez.p3.y + 2 * y1) * (1.0 / 3.0);
+          last_point = bez.p3;
+          last_control.x = x1;
+          last_control.y = y1;
+          g_array_append_val (points, bez);
+        }
+        break;
+      case PATH_TTQCURVE:
+        {
+          /* Truetype quadratic bezier curveto */
+          double xc, yc; /* quadratic control point */
 
-	xc = 2 * last_point.x - last_control.x;
-	yc = 2 * last_point.y - last_control.y;
-	/* generate a quadratic bezier with control point = xc, yc */
-	bez.type = BEZ_CURVE_TO;
-	bez.p1.x = (last_point.x + 2 * xc) * (1.0 / 3.0);
-	bez.p1.y = (last_point.y + 2 * yc) * (1.0 / 3.0);
-	bez.p3.x = g_ascii_strtod(path, &path);
-	path_chomp(path);
-	bez.p3.y = g_ascii_strtod(path, &path);
-	path_chomp(path);
-	if (last_relative) {
-	  bez.p3.x += last_point.x;
-	  bez.p3.y += last_point.y;
-	}
-	bez.p2.x = (bez.p3.x + 2 * xc) * (1.0 / 3.0);
-	bez.p2.y = (bez.p3.y + 2 * yc) * (1.0 / 3.0);
-	last_point = bez.p3;
-	last_control.x = xc;
-	last_control.y = yc;
-        g_array_append_val(points, bez);
-      }
-      break;
-    case PATH_ARC :
-      {
-	real  rx, ry;
-	real  xrot;
-	int   largearc, sweep;
-	Point dest, dest_c;
-	dest_c.x=0;
-	dest_c.y=0;
+          xc = 2 * last_point.x - last_control.x;
+          yc = 2 * last_point.y - last_control.y;
+          /* generate a quadratic bezier with control point = xc, yc */
+          bez.type = BEZ_CURVE_TO;
+          bez.p1.x = (last_point.x + 2 * xc) * (1.0 / 3.0);
+          bez.p1.y = (last_point.y + 2 * yc) * (1.0 / 3.0);
+          bez.p3.x = g_ascii_strtod (path, &path);
+          path_chomp (path);
+          bez.p3.y = g_ascii_strtod (path, &path);
+          path_chomp (path);
+          if (last_relative) {
+            bez.p3.x += last_point.x;
+            bez.p3.y += last_point.y;
+          }
+          bez.p2.x = (bez.p3.x + 2 * xc) * (1.0 / 3.0);
+          bez.p2.y = (bez.p3.y + 2 * yc) * (1.0 / 3.0);
+          last_point = bez.p3;
+          last_control.x = xc;
+          last_control.y = yc;
+          g_array_append_val (points, bez);
+        }
+        break;
+      case PATH_ARC:
+        {
+          double rx, ry;
+          double xrot;
+          int    largearc, sweep;
+          Point  dest, dest_c;
+          dest_c.x=0;
+          dest_c.y=0;
 
-	rx = g_ascii_strtod(path, &path);
-	path_chomp(path);
-	ry = g_ascii_strtod(path, &path);
-	path_chomp(path);
-#if 1 /* ok if it is all properly separated */
-	xrot = g_ascii_strtod(path, &path);
-	path_chomp(path);
+          rx = g_ascii_strtod (path, &path);
+          path_chomp (path);
+          ry = g_ascii_strtod (path, &path);
+          path_chomp (path);
+        #if 1 /* ok if it is all properly separated */
+          xrot = g_ascii_strtod (path, &path);
+          path_chomp (path);
 
-	largearc = (int)g_ascii_strtod(path, &path);
-	path_chomp(path);
-	sweep = (int)g_ascii_strtod(path, &path);
-	path_chomp(path);
-#else
-	/* Actually three flags, which might not be properly separated,
-	 * but even with this paths-data-20-f.svg does not work. IMHO the
-	 * test case is seriously borked and can only pass if parsing
-	 * the arc is tweaked against the test. In other words that test
-	 * looks like it is built against one specific implementation.
-	 * Inkscape and librsvg fail, Firefox pass.
-	 */
-	xrot = path[0] == '0' ? 0.0 : 1.0; ++path;
-	path_chomp(path);
+          largearc = (int) g_ascii_strtod (path, &path);
+          path_chomp (path);
+          sweep = (int) g_ascii_strtod (path, &path);
+          path_chomp (path);
+        #else
+          /* Actually three flags, which might not be properly separated,
+          * but even with this paths-data-20-f.svg does not work. IMHO the
+          * test case is seriously borked and can only pass if parsing
+          * the arc is tweaked against the test. In other words that test
+          * looks like it is built against one specific implementation.
+          * Inkscape and librsvg fail, Firefox pass.
+          */
+          xrot = path[0] == '0' ? 0.0 : 1.0; ++path;
+          path_chomp(path);
 
-	largearc = path[0] == '0' ? 0 : 1; ++path;
-	path_chomp(path);
-	sweep =  path[0] == '0' ? 0 : 1; ++path;
-	path_chomp(path);
-#endif
+          largearc = path[0] == '0' ? 0 : 1; ++path;
+          path_chomp(path);
+          sweep =  path[0] == '0' ? 0 : 1; ++path;
+          path_chomp(path);
+        #endif
 
-	dest.x = g_ascii_strtod(path, &path);
-	path_chomp(path);
-	dest.y = g_ascii_strtod(path, &path);
-	path_chomp(path);
+          dest.x = g_ascii_strtod (path, &path);
+          path_chomp (path);
+          dest.y = g_ascii_strtod (path, &path);
+          path_chomp (path);
 
-	if (last_relative) {
-	  dest.x += last_point.x;
-	  dest.y += last_point.y;
-	}
+          if (last_relative) {
+            dest.x += last_point.x;
+            dest.y += last_point.y;
+          }
 
-	/* avoid matherr with bogus values - just ignore them
-	 * does happen e.g. with 'Chem-Widgets - clamp-large' 
-	 */
-	if (last_point.x != dest.x || last_point.y != dest.y)
-	  _path_arc (points, last_point.x, last_point.y,
-		     rx, ry, xrot, largearc, sweep, dest.x, dest.y,
-		     &dest_c);
-	last_point = dest;
-	last_control = dest_c;
-      }
-      break;
-    case PATH_CLOSE:
-      /* close the path with a line - second condition to ignore single close */
-      if (!*closed && (points->len != points_at_start)) {
-	const BezPoint *bpe = &g_array_index(points, BezPoint, points->len-1);
-	/* if the last point already meets the first point dont add it again */
-	const Point pte = bpe->type == BEZ_CURVE_TO ? bpe->p3 : bpe->p1;
-	if (pte.x != last_open.x || pte.y != last_open.y) {
-	  bez.type = BEZ_LINE_TO;
-	  bez.p1 = last_open;
-	  g_array_append_val(points, bez);
-	}
-	last_point = last_open;
-      }
-      *closed = TRUE;
-      need_next_element = TRUE;
-      break;
-    case PATH_END:
-      while (*path != '\0')
-	path++;
-      need_next_element = FALSE;
-      break;
+          /* avoid matherr with bogus values - just ignore them
+          * does happen e.g. with 'Chem-Widgets - clamp-large'
+          */
+          if (last_point.x != dest.x || last_point.y != dest.y) {
+            _path_arc (points, last_point.x, last_point.y,
+                      rx, ry, xrot, largearc, sweep, dest.x, dest.y,
+                      &dest_c);
+          }
+          last_point = dest;
+          last_control = dest_c;
+        }
+        break;
+      case PATH_CLOSE:
+        /* close the path with a line - second condition to ignore single close */
+        if (!*closed && (points->len != points_at_start)) {
+          const BezPoint *bpe = &g_array_index (points, BezPoint, points->len-1);
+          /* if the last point already meets the first point dont add it again */
+          const Point pte = bpe->type == BEZ_CURVE_TO ? bpe->p3 : bpe->p1;
+          if (pte.x != last_open.x || pte.y != last_open.y) {
+            bez.type = BEZ_LINE_TO;
+            bez.p1 = last_open;
+            g_array_append_val (points, bez);
+          }
+          last_point = last_open;
+        }
+        *closed = TRUE;
+        need_next_element = TRUE;
+        break;
+      case PATH_END:
+        while (*path != '\0') {
+          path++;
+        }
+        need_next_element = FALSE;
+        break;
+      default:
+        g_return_val_if_reached (FALSE);
     }
     /* get rid of any ignorable characters */
-    path_chomp(path);
+    path_chomp (path);
 MORETOPARSE:
     if (need_next_element) {
       /* check if there really is more to be parsed */
-      if (path[0] != 0)
-	*unparsed = path;
-      else
-	*unparsed = NULL;
+      if (path[0] != 0) {
+        *unparsed = path;
+      } else {
+        *unparsed = NULL;
+      }
       break; /* while */
     }
   }
@@ -1525,153 +1571,237 @@ MORETOPARSE:
    * would crash on it.
    */
   if (points->len < 2) {
-    g_array_set_size(points, 0);
+    g_array_set_size (points, 0);
   }
-  if (current_point)
+
+  if (current_point) {
     *current_point = last_point;
+  }
+
   return (points->len > 1);
 }
 
+
 static gboolean
-_parse_transform (const gchar *trans, DiaMatrix *m, real scale)
+_parse_transform (const char *trans, graphene_matrix_t *m, double scale)
 {
-  gchar **list;
-  gchar *p = strchr (trans, '(');
+  char **list;
+  char *p = strchr (trans, '(');
   int i = 0;
 
-  while (   (*trans != '\0') 
-         && (*trans == ' ' || *trans == ',' || *trans == '\t' || *trans == '\n' || *trans == '\r'))
+  while (   (*trans != '\0')
+         && (*trans == ' ' || *trans == ',' || *trans == '\t' ||
+             *trans == '\n' || *trans == '\r')) {
     ++trans; /* skip whitespace */
+  }
 
-  if (!p || !*trans)
+  if (!p || !*trans) {
     return FALSE; /* silently fail */
+  }
 
-  list = g_regex_split_simple ("[\\s,]+", p+1, 0, 0);
+  list = g_regex_split_simple ("[\\s,]+", p + 1, 0, 0);
   if (strncmp (trans, "matrix", 6) == 0) {
-    if (list[i])
-      m->xx = g_ascii_strtod (list[i], NULL), ++i;
-    if (list[i])
-      m->yx = g_ascii_strtod (list[i], NULL), ++i;
-    if (list[i])
-      m->xy = g_ascii_strtod (list[i], NULL), ++i;
-    if (list[i])
-      m->yy = g_ascii_strtod (list[i], NULL), ++i;
-    if (list[i])
-      m->x0 = g_ascii_strtod (list[i], NULL), ++i;
-    if (list[i])
-      m->y0 = g_ascii_strtod (list[i], NULL), ++i;
+    float xx = 0, yx = 0, xy = 0, yy = 0, x0 = 0, y0 = 0;
+
+    if (list[i]) {
+      xx = g_ascii_strtod (list[i], NULL);
+      ++i;
+    }
+
+    if (list[i]) {
+      yx = g_ascii_strtod (list[i], NULL);
+      ++i;
+    }
+
+    if (list[i]) {
+      xy = g_ascii_strtod (list[i], NULL);
+      ++i;
+    }
+
+    if (list[i]) {
+      yy = g_ascii_strtod (list[i], NULL);
+      ++i;
+    }
+
+    if (list[i]) {
+      x0 = g_ascii_strtod (list[i], NULL);
+      ++i;
+    }
+
+    if (list[i]) {
+      y0 = g_ascii_strtod (list[i], NULL);
+      ++i;
+    }
+
+    graphene_matrix_init_from_2d (m, xx, yx, xy, yy, x0 / scale, y0 / scale);
   } else if (strncmp (trans, "translate", 9) == 0) {
-    m->xx = m->yy = 1.0;
-    if (list[i])
-      m->x0 = g_ascii_strtod (list[i], NULL), ++i;
-    if (list[i])
-      m->y0 = g_ascii_strtod (list[i], NULL), ++i;
+    double x0 = 0, y0 = 0;
+
+    if (list[i]) {
+      x0 = g_ascii_strtod (list[i], NULL);
+      ++i;
+    }
+
+    if (list[i]) {
+      y0 = g_ascii_strtod (list[i], NULL);
+      ++i;
+    }
+
+    graphene_matrix_init_translate (m, &GRAPHENE_POINT3D_INIT (x0 / scale, y0 / scale, 0));
   } else if (strncmp (trans, "scale", 5) == 0) {
-    if (list[i])
-      m->xx = g_ascii_strtod (list[i], NULL), ++i;
-    if (list[i])
-      m->yy = g_ascii_strtod (list[i], NULL), ++i;
-    else
-      m->yy = m->xx;
+    double xx = 0, yy = 0;
+
+    if (list[i]) {
+      xx = g_ascii_strtod (list[i], NULL);
+      ++i;
+    }
+
+    if (list[i]) {
+      yy = g_ascii_strtod (list[i], NULL);
+      ++i;
+    } else {
+      yy = xx;
+    }
+
+    graphene_matrix_init_scale (m, xx, yy, 1.0);
   } else if (strncmp (trans, "rotate", 6) == 0) {
-    DiaMatrix translate = {1, 0, 0, 1, 0, 0 };
-    real angle;
-    
-    if (list[i])
-      angle = g_ascii_strtod (list[i], NULL), ++i;
-    else {
-      angle = 0;
+    double angle = 0;
+    double cx = 0, cy = 0;
+
+    if (list[i]) {
+      angle = g_ascii_strtod (list[i], NULL);
+      ++i;
+    } else {
       g_warning ("transform=rotate no angle?");
     }
-    m->xx =  cos(G_PI*angle/180);
-    m->yx =  sin(G_PI*angle/180);
-    m->xy = -sin(G_PI*angle/180);
-    m->yy =  cos(G_PI*angle/180);
+
     /* FIXME: check with real world data, I'm uncertain */
+    /* rotate around the given offset */
     if (list[i]) {
-      real cx, cy;
-      cx = g_ascii_strtod (list[i], NULL), ++i;
-      if (list[i])
-        cy = g_ascii_strtod (list[i], NULL), ++i;
-      else
+      graphene_point3d_t point;
+
+      cx = g_ascii_strtod (list[i], NULL);
+      ++i;
+
+      if (list[i]) {
+        cy = g_ascii_strtod (list[i], NULL);
+        ++i;
+      } else {
         cy = 0.0; /* if offsets don't come in pairs */
-      /* rotate around the given offset */
-      translate.x0 = cx;
-      translate.y0 = cy;
-      dia_matrix_multiply (m, m, &translate);
-      translate.x0 = -cx;
-      translate.y0 = -cy;
-      dia_matrix_multiply (m, &translate, m);
+      }
+
+      /* translate by -cx,-cy */
+      graphene_point3d_init (&point, -(cx / scale), -(cy / scale), 0);
+      graphene_matrix_init_translate (m, &point);
+
+      /* rotate by angle */
+      graphene_matrix_rotate_z (m, angle);
+
+      /* translate by cx,cy */
+      graphene_point3d_init (&point, cx / scale, cy / scale, 0);
+      graphene_matrix_translate (m, &point);
+    } else {
+      graphene_matrix_init_rotate (m, angle, graphene_vec3_z_axis ());
     }
   } else if (strncmp (trans, "skewX", 5) == 0) {
-    m->xx = m->yy = 1.0;
-    if (list[i])
-      m->xy = tan (G_PI*g_ascii_strtod (list[i], NULL)/180);
+    float skew = 0;
+
+    if (list[i]) {
+      skew = g_ascii_strtod (list[i], NULL);
+    }
+
+    graphene_matrix_init_skew (m, DIA_RADIANS (skew), 0);
   } else if (strncmp (trans, "skewY", 5) == 0) {
-    m->xx = m->yy = 1.0;
-    if (list[i])
-      m->yx = tan (G_PI*g_ascii_strtod (list[i], NULL)/180);
+    float skew = 0;
+
+    if (list[i]) {
+      skew = g_ascii_strtod (list[i], NULL);
+    }
+
+    graphene_matrix_init_skew (m, 0, DIA_RADIANS (skew));
   } else {
     g_warning ("SVG: %s?", trans);
+
     return FALSE;
   }
-  g_strfreev(list);
 
-  if (scale > 0 && m) {
-    m->x0 /= scale;
-    m->y0 /= scale;
-  }
+  g_clear_pointer (&list, g_strfreev);
+
   return TRUE;
 }
 
-DiaMatrix *
-dia_svg_parse_transform(const gchar *trans, real scale)
+
+graphene_matrix_t *
+dia_svg_parse_transform (const char *trans, double scale)
 {
-  DiaMatrix *m = NULL;
-  gchar **transforms = g_regex_split_simple ("\\)", trans, 0, 0);
+  graphene_matrix_t *m = NULL;
+  char **transforms = g_regex_split_simple ("\\)", trans, 0, 0);
   int i = 0;
 
   /* go through the list of transformations - not that one would be enough ;) */
   while (transforms[i]) {
-    DiaMatrix mat = { 0, };
+    graphene_matrix_t mat;
 
     if (_parse_transform (transforms[i], &mat, scale)) {
       if (!m) {
-	m = g_new (DiaMatrix, 1);
-	*m = mat;
+        m = graphene_matrix_alloc ();
+        graphene_matrix_init_from_matrix (m, &mat);
       } else {
-	dia_matrix_multiply (m, &mat, m);
+        graphene_matrix_multiply (m, &mat, m);
       }
     }
     ++i;
   }
-  g_strfreev(transforms);
+
+  g_clear_pointer (&transforms, g_strfreev);
 
   return m;
 }
 
-gchar *
-dia_svg_from_matrix(const DiaMatrix *matrix, real scale)
+
+char *
+dia_svg_from_matrix (const graphene_matrix_t *matrix, double scale)
 {
   /*  transform="matrix(1,0,0,1,0,0)" */
-  gchar buf[G_ASCII_DTOSTR_BUF_SIZE];
+  char buf[G_ASCII_DTOSTR_BUF_SIZE];
   GString *sm = g_string_new ("matrix(");
-  gchar *s;
 
-  g_ascii_formatd (buf, sizeof(buf), "%g", matrix->xx);
-  g_string_append (sm, buf); g_string_append (sm, ",");
-  g_ascii_formatd (buf, sizeof(buf), "%g", matrix->yx);
-  g_string_append (sm, buf); g_string_append (sm, ",");
-  g_ascii_formatd (buf, sizeof(buf), "%g", matrix->xy);
-  g_string_append (sm, buf); g_string_append (sm, ",");
-  g_ascii_formatd (buf, sizeof(buf), "%g", matrix->yy);
-  g_string_append (sm, buf); g_string_append (sm, ",");
-  g_ascii_formatd (buf, sizeof(buf), "%g", matrix->x0 * scale);
-  g_string_append (sm, buf); g_string_append (sm, ",");
-  g_ascii_formatd (buf, sizeof(buf), "%g", matrix->y0 * scale);
-  g_string_append (sm, buf); g_string_append (sm, ")");
-  
-  s = sm->str;
-  g_string_free (sm, FALSE);
-  return s;
+  g_ascii_formatd (buf,
+                   sizeof (buf),
+                   "%g",
+                   graphene_matrix_get_value (matrix, 0, 0));
+  g_string_append (sm, buf);
+  g_string_append (sm, ",");
+  g_ascii_formatd (buf,
+                   sizeof (buf),
+                   "%g",
+                   graphene_matrix_get_value (matrix, 0, 1));
+  g_string_append (sm, buf);
+  g_string_append (sm, ",");
+  g_ascii_formatd (buf,
+                   sizeof (buf),
+                   "%g",
+                   graphene_matrix_get_value (matrix, 1, 0));
+  g_string_append (sm, buf);
+  g_string_append (sm, ",");
+  g_ascii_formatd (buf,
+                   sizeof (buf),
+                   "%g",
+                   graphene_matrix_get_value (matrix, 1, 1));
+  g_string_append (sm, buf);
+  g_string_append (sm, ",");
+  g_ascii_formatd (buf,
+                   sizeof (buf),
+                   "%g",
+                   graphene_matrix_get_x_translation (matrix) * scale);
+  g_string_append (sm, buf);
+  g_string_append (sm, ",");
+  g_ascii_formatd (buf,
+                   sizeof (buf),
+                   "%g",
+                   graphene_matrix_get_y_translation (matrix) * scale);
+  g_string_append (sm, buf);
+  g_string_append (sm, ")");
+
+  return g_string_free (sm, FALSE);
 }

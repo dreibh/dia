@@ -23,12 +23,15 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <string.h>
 
 #include <gtk/gtk.h>
 #define WIDGET GtkWidget
+
 #include "properties.h"
 #include "prop_basic.h"
 #include "propinternals.h"
@@ -67,11 +70,11 @@ make_new_prop(const char *name, PropertyType type, guint flags)
   if (!hash) hash = g_hash_table_new((GHashFunc)desc_hash_hash,
                                      (GCompareFunc)desc_hash_compare);
 
-  descr = g_hash_table_lookup(hash,moniker);
+  descr = g_hash_table_lookup (hash,moniker);
   if (descr) {
-    g_free(moniker);
+    g_clear_pointer (&moniker, g_free);
   } else {
-    descr = g_new0(PropDescription,1);
+    descr = g_new0 (PropDescription,1);
     descr->name = name;
     descr->type = type;
     descr->flags = flags;
@@ -231,16 +234,18 @@ void copy_init_property(Property *dest, const Property *src)
 NoopProperty *
 noopprop_new(const PropDescription *pdesc, PropDescToPropPredicate reason)
 {
-  NoopProperty *prop = g_new(NoopProperty,1);
-  initialize_property(&prop->common, pdesc, reason);
+  NoopProperty *prop = g_new0 (NoopProperty, 1);
+  initialize_property (&prop->common, pdesc, reason);
   return prop;
 }
 
+
 void
-noopprop_free(NoopProperty *prop)
+noopprop_free (NoopProperty *prop)
 {
-  g_free(prop);
+  g_clear_pointer (&prop, g_free);
 }
+
 
 NoopProperty *
 noopprop_copy(NoopProperty *src)

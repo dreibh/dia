@@ -22,7 +22,9 @@
  *          and many arms going from the connnection point.
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <gtk/gtk.h> /* because of GtkWidgket */
 #include "pixmaps/compound.xpm"
@@ -34,6 +36,7 @@
 #include "propinternals.h"
 
 #include "debug.h"
+#include "database.h"
 
 /* ------------------------------------------------------------------------ */
 
@@ -81,34 +84,39 @@ struct _ArmHandleState {
   ConnectionPoint * connected_to;
 };
 
-struct _CompoundChange {
-  ObjectChange obj_change;
-  Compound * obj;
-  CompoundState * saved_state;
+
+struct _DiaDBCompoundObjectChange {
+  DiaObjectChange  obj_change;
+  Compound        *obj;
+  CompoundState   *saved_state;
 };
 
-struct _MountPointMoveChange {
-  ObjectChange obj_change;
 
-  Compound * obj;
-  Point saved_pos;
+DIA_DEFINE_OBJECT_CHANGE (DiaDBCompoundObjectChange,
+                          dia_db_compound_object_change)
+
+
+struct _DiaDBCompoundMountObjectChange {
+  DiaObjectChange  obj_change;
+  Compound        *obj;
+  Point            saved_pos;
 };
+
+
+DIA_DEFINE_OBJECT_CHANGE (DiaDBCompoundMountObjectChange,
+                          dia_db_compound_mount_object_change)
+
 
 /* ------------------------------------------------------------------------ */
 
 static CompoundState * compound_state_new (Compound *);
 static void compound_state_free (CompoundState *);
 static void compound_state_set (CompoundState *, Compound *);
-static CompoundChange * compound_change_new (Compound *, CompoundState *);
-static void compound_change_apply (CompoundChange *, DiaObject *);
-static void compound_change_free (CompoundChange *);
 
-static MountPointMoveChange *
-mount_point_move_change_new (Compound *, Point *);
-static void
-mount_point_move_change_apply (MountPointMoveChange *, DiaObject *);
-static void
-mount_point_move_change_free (MountPointMoveChange *);
+static DiaObjectChange *compound_change_new           (Compound             *,
+                                                       CompoundState        *);
+static DiaObjectChange *mount_point_move_change_new   (Compound             *,
+                                                       Point                *);
 
 static DiaObject * compound_create (Point *, void *, Handle **, Handle **);
 static DiaObject * compound_load (ObjectNode obj_node, int version,DiaContext *ctx);
@@ -118,19 +126,28 @@ static void compound_draw (Compound *, DiaRenderer *);
 static real compound_distance_from (Compound *, Point *);
 static void compound_select (Compound *, Point *, DiaRenderer *);
 static DiaObject * compound_copy (Compound *);
-static ObjectChange * compound_move (Compound *, Point *);
-static ObjectChange * compound_move_handle (Compound *, Handle *, Point *,
-                                            ConnectionPoint *,
-                                            HandleMoveReason, ModifierKeys);
-static ObjectChange * compound_apply_properties_dialog (Compound *,
-                                                        GtkWidget *);
-static PropDescription * compound_describe_props (Compound *);
-static void compound_get_props (Compound *, GPtrArray *);
-static void compound_set_props (Compound *, GPtrArray *);
-static void compound_update_object (Compound *);
-static ObjectChange * compound_flip_arms_cb (DiaObject *, Point *, gpointer);
-static ObjectChange * compound_repos_mount_point_cb (DiaObject *, Point *,
-                                                     gpointer);
+static DiaObjectChange *compound_move                    (Compound         *,
+                                                          Point            *);
+static DiaObjectChange *compound_move_handle             (Compound         *,
+                                                          Handle           *,
+                                                          Point            *,
+                                                          ConnectionPoint  *,
+                                                          HandleMoveReason,
+                                                          ModifierKeys);
+static DiaObjectChange *compound_apply_properties_dialog (Compound         *,
+                                                          GtkWidget        *);
+static PropDescription *compound_describe_props          (Compound         *);
+static void             compound_get_props               (Compound         *,
+                                                          GPtrArray        *);
+static void             compound_set_props               (Compound         *,
+                                                          GPtrArray        *);
+static void             compound_update_object           (Compound         *);
+static DiaObjectChange *compound_flip_arms_cb            (DiaObject        *,
+                                                          Point            *,
+                                                          gpointer);
+static DiaObjectChange *compound_repos_mount_point_cb    (DiaObject        *,
+                                                          Point            *,
+                                                          gpointer);
 static DiaMenu * compound_object_menu(DiaObject *, Point *);
 static gint adjust_handle_count_to (Compound *, gint);
 static void setup_mount_point (ConnectionPoint *, DiaObject *, Point *);
@@ -291,34 +308,19 @@ compound_state_set (CompoundState * state, Compound * comp)
   compound_sanity_check (comp, "Restored state");
 }
 
+
 static void
 compound_state_free (CompoundState * state)
 {
-  g_free (state->handle_states);
+  g_clear_pointer (&state->handle_states, g_free);
   g_free (state);
 }
 
-static CompoundChange *
-compound_change_new (Compound * comp, CompoundState * state)
-{
-  CompoundChange * change;
-
-  change = g_new (CompoundChange, 1);
-
-  change->obj_change.apply = (ObjectChangeApplyFunc) compound_change_apply;
-  change->obj_change.revert = (ObjectChangeRevertFunc) compound_change_apply;
-  change->obj_change.free = (ObjectChangeFreeFunc) compound_change_free;
-
-  change->obj = comp;
-  change->saved_state = state;
-
-  return change;
-}
 
 static void
-compound_change_apply (CompoundChange * change, DiaObject * obj)
+compound_change_apply (DiaDBCompoundObjectChange *change, DiaObject *obj)
 {
-  CompoundState * old_state;
+  CompoundState *old_state;
 
   old_state = compound_state_new (change->obj);
 
@@ -328,35 +330,48 @@ compound_change_apply (CompoundChange * change, DiaObject * obj)
   change->saved_state = old_state;
 }
 
+
 static void
-compound_change_free (CompoundChange * change)
+dia_db_compound_object_change_apply (DiaObjectChange *self, DiaObject *obj)
 {
+  compound_change_apply (DIA_DB_COMPOUND_OBJECT_CHANGE (self), obj);
+}
+
+
+static void
+dia_db_compound_object_change_revert (DiaObjectChange *self, DiaObject *obj)
+{
+  compound_change_apply (DIA_DB_COMPOUND_OBJECT_CHANGE (self), obj);
+}
+
+
+static void
+dia_db_compound_object_change_free (DiaObjectChange *self)
+{
+  DiaDBCompoundObjectChange *change = DIA_DB_COMPOUND_OBJECT_CHANGE (self);
+
   compound_state_free (change->saved_state);
 }
 
-static MountPointMoveChange *
-mount_point_move_change_new (Compound * comp, Point * pos)
-{
-  MountPointMoveChange * change;
 
-  change = g_new (MountPointMoveChange, 1);
-  change->obj_change.apply =
-    (ObjectChangeApplyFunc) mount_point_move_change_apply;
-  change->obj_change.revert =
-    (ObjectChangeRevertFunc) mount_point_move_change_apply;
-  change->obj_change.free =
-    (ObjectChangeFreeFunc) mount_point_move_change_free;
+static DiaObjectChange *
+compound_change_new (Compound *comp, CompoundState *state)
+{
+  DiaDBCompoundObjectChange *change;
+
+  change = dia_object_change_new (DIA_DB_TYPE_COMPOUND_OBJECT_CHANGE);
 
   change->obj = comp;
-  change->saved_pos = *pos;
+  change->saved_state = state;
 
-  return change;
+  return DIA_OBJECT_CHANGE (change);
 }
 
+
 static void
-mount_point_move_change_apply (MountPointMoveChange * change, DiaObject * obj)
+mount_point_move_change_apply (DiaDBCompoundMountObjectChange *change, DiaObject *obj)
 {
-  Compound * comp = change->obj;
+  Compound *comp = change->obj;
   Point old_pos = comp->handles[0].pos;
 
   comp->handles[0].pos = change->saved_pos;
@@ -368,11 +383,43 @@ mount_point_move_change_apply (MountPointMoveChange * change, DiaObject * obj)
   compound_sanity_check (comp, "After applying mount point move change");
 }
 
+
 static void
-mount_point_move_change_free (MountPointMoveChange * change)
+dia_db_compound_mount_object_change_apply (DiaObjectChange *self, DiaObject *obj)
+{
+  mount_point_move_change_apply (DIA_DB_COMPOUND_MOUNT_OBJECT_CHANGE (self),
+                                 obj);
+}
+
+
+static void
+dia_db_compound_mount_object_change_revert (DiaObjectChange *self, DiaObject *obj)
+{
+  mount_point_move_change_apply (DIA_DB_COMPOUND_MOUNT_OBJECT_CHANGE (self),
+                                 obj);
+}
+
+
+static void
+dia_db_compound_mount_object_change_free (DiaObjectChange *change)
 {
   /* currently there is nothing to be done here */
 }
+
+
+static DiaObjectChange *
+mount_point_move_change_new (Compound *comp, Point *pos)
+{
+  DiaDBCompoundMountObjectChange *change;
+
+  change = dia_object_change_new (DIA_DB_TYPE_COMPOUND_MOUNT_OBJECT_CHANGE);
+
+  change->obj = comp;
+  change->saved_pos = *pos;
+
+  return DIA_OBJECT_CHANGE (change);
+}
+
 
 /* ------------------------------------------------------------------------ */
 
@@ -514,35 +561,34 @@ compound_save (Compound *comp, ObjectNode obj_node, DiaContext *ctx)
   data_add_color (attr, &comp->line_color, ctx);
 }
 
+
 static void
 compound_destroy (Compound * comp)
 {
   compound_sanity_check (comp, "Destroying");
 
   object_destroy (&comp->object);
-  g_free (comp->handles);
+  g_clear_pointer (&comp->handles, g_free);
 }
+
 
 static void
 compound_draw (Compound * comp, DiaRenderer * renderer)
 {
-  DiaRendererClass * renderer_ops;
   gint num_handles;
   Point * mount_point_pos;
   gint i;
 
-  renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   num_handles = comp->object.num_handles;
   mount_point_pos = &comp->mount_point.pos;
 
-  renderer_ops->set_linewidth (renderer, comp->line_width);
+  dia_renderer_set_linewidth (renderer, comp->line_width);
 
-  for (i = 1; i < num_handles; i++)
-    {
-      renderer_ops->draw_line (renderer,
-                               mount_point_pos,
-                               &comp->handles[i].pos,
-                               &comp->line_color);
+  for (i = 1; i < num_handles; i++) {
+    dia_renderer_draw_line (renderer,
+                            mount_point_pos,
+                            &comp->handles[i].pos,
+                            &comp->line_color);
 #if DEBUG_DRAW_BOUNDING_BOX
  {
    Point ul, br;
@@ -551,10 +597,10 @@ compound_draw (Compound * comp, DiaRenderer * renderer)
    br.x = comp->object.bounding_box.right;
    br.y = comp->object.bounding_box.bottom;
 
-   renderer_ops->draw_rect (renderer, &ul, &br, &comp->line_color);
+   dia_renderer_draw_rect (renderer, &ul, &br, &comp->line_color);
  }
 #endif
-    }
+  }
 
 #if DEBUG_DRAW_MP_DIRECTION
  {
@@ -570,7 +616,7 @@ compound_draw (Compound * comp, DiaRenderer * renderer)
    if (dirs & DIR_EAST)
      p.x += 1.0;
 
-   renderer_ops->draw_line (renderer, &comp->mount_point.pos, &p, &red);
+   dia_renderer_draw_line (renderer, &comp->mount_point.pos, &p, &red);
  }
 #endif
 
@@ -656,32 +702,36 @@ compound_copy (Compound * comp)
   return &copy->object;
 }
 
-static ObjectChange *
-compound_move (Compound * comp, Point * to)
+
+static DiaObjectChange *
+compound_move (Compound *comp, Point *to)
 {
   Point diff;
   Handle * h;
-  gint i, num_handles;
+  int i, num_handles;
 
   diff.x = to->x - comp->object.position.x;
   diff.y = to->y - comp->object.position.y;
 
   num_handles = comp->object.num_handles;
-  for (i = 0; i < num_handles; i++)
-    {
-      h = &comp->handles[i];
-      point_add (&h->pos, &diff);
-    }
+  for (i = 0; i < num_handles; i++) {
+    h = &comp->handles[i];
+    point_add (&h->pos, &diff);
+  }
   point_add (&comp->mount_point.pos, &diff);
 
   compound_update_data (comp);
   return NULL;
 }
 
-static ObjectChange *
-compound_move_handle (Compound * comp, Handle * handle,
-                      Point * to, ConnectionPoint * cp,
-                      HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+compound_move_handle (Compound         *comp,
+                      Handle           *handle,
+                      Point            *to,
+                      ConnectionPoint  *cp,
+                      HandleMoveReason  reason,
+                      ModifierKeys      modifiers)
 {
   if (handle->id == HANDLE_MOUNT_POINT)
     {
@@ -718,7 +768,8 @@ compound_move_handle (Compound * comp, Handle * handle,
   return NULL;
 }
 
-static ObjectChange *
+
+static DiaObjectChange *
 compound_apply_properties_dialog (Compound * comp, GtkWidget * dialog_widget)
 {
   CompoundState * state;
@@ -728,8 +779,10 @@ compound_apply_properties_dialog (Compound * comp, GtkWidget * dialog_widget)
 
   prop_get_data_from_widgets(dialog);
   compound_apply_props (comp, dialog->props, FALSE);
-  return (ObjectChange *) compound_change_new (comp, state);
+
+  return compound_change_new (comp, state);
 }
+
 
 static PropDescription *
 compound_describe_props (Compound * comp)
@@ -790,7 +843,7 @@ compound_apply_props (Compound * comp, GPtrArray * props, gboolean is_default)
  */
 static void compound_update_object (Compound * comp)
 {
-  Rectangle * bb;
+  DiaRectangle * bb;
   Handle * h;
   gint i;
   gint num_handles = comp->object.num_handles;
@@ -821,21 +874,21 @@ static void compound_update_object (Compound * comp)
 #endif
 }
 
+
 /**
  * Add or remove handles, so that comp->object.num_handles will equal to
  * the specified value. When there have been no changes done 0 is
  * returned, otherwise the number of handles removed (negative value) or
  * the number of added handles (positive value) will be returned.
  */
-static gint
+static int
 adjust_handle_count_to (Compound * comp, gint to)
 {
   DiaObject * obj = &comp->object;
-  gint old_count = obj->num_handles;
-  gint new_count = to;
+  int old_count = obj->num_handles;
+  int new_count = to;
   Handle * h;
-  gint i;
-  gint diff = 0;
+  int diff = 0;
 
   /* we require to have always at least two arms! */
   g_assert (new_count >= 3);
@@ -843,30 +896,33 @@ adjust_handle_count_to (Compound * comp, gint to)
   if (new_count == old_count)
     return diff; /* every thing is ok */
 
-  obj->handles = g_realloc (obj->handles, new_count * sizeof(Handle *));
+  obj->handles = g_renew (Handle *, obj->handles, new_count);
   obj->num_handles = new_count;
   comp->num_arms = new_count-1;
 
-  if (new_count < old_count) /* removing */
-    {
-      for (i = new_count; i < old_count; i++)
-        object_unconnect (obj, &comp->handles[i]);
-      comp->handles = g_realloc (comp->handles, sizeof(Handle) * new_count);
+  if (new_count < old_count) {
+    /* removing */
+    for (int i = new_count; i < old_count; i++) {
+      object_unconnect (obj, &comp->handles[i]);
     }
-  else /* adding */
-    {
-      comp->handles = g_realloc (comp->handles, sizeof(Handle) * new_count);
-      for (i = old_count; i < new_count; i++)
-        {
-          h = &comp->handles[i];
-          setup_handle (h, HANDLE_ARM,
-                        HANDLE_MINOR_CONTROL, HANDLE_CONNECTABLE_NOBREAK);
-        }
+    comp->handles = g_renew (Handle, comp->handles, new_count);
+  } else {
+    /* adding */
+    comp->handles = g_renew (Handle, comp->handles, new_count);
+    for (int i = old_count; i < new_count; i++) {
+      h = &comp->handles[i];
+      setup_handle (h, HANDLE_ARM,
+                    HANDLE_MINOR_CONTROL, HANDLE_CONNECTABLE_NOBREAK);
     }
-  for (i = 0; i < new_count; i++)
+  }
+
+  for (int i = 0; i < new_count; i++) {
     obj->handles[i] = &comp->handles[i];
+  }
+
   return new_count - old_count;
 }
+
 
 static void
 setup_mount_point (ConnectionPoint * mp, DiaObject * obj, Point * pos)
@@ -1070,16 +1126,17 @@ compound_object_menu(DiaObject *obj, Point *p)
   return &compound_menu;
 }
 
-static ObjectChange *
+
+static DiaObjectChange *
 compound_flip_arms_cb (DiaObject *obj, Point *pos, gpointer data)
 {
   Compound * comp = (Compound *) obj;
-  gint direction = GPOINTER_TO_INT (data);
+  int direction = GPOINTER_TO_INT (data);
   Point * mppos = &comp->mount_point.pos;
   CompoundState * state;
   Handle * h;
   Point * p;
-  gint num_handles, i;
+  int num_handles, i;
 
   state = compound_state_new (comp);
 
@@ -1105,18 +1162,20 @@ compound_flip_arms_cb (DiaObject *obj, Point *pos, gpointer data)
 
   compound_update_data (comp);
   compound_sanity_check (comp, "After flipping sides");
-  return (ObjectChange *) compound_change_new (comp, state);
+
+  return compound_change_new (comp, state);
 }
 
-static ObjectChange *
+
+static DiaObjectChange *
 compound_repos_mount_point_cb (DiaObject * obj, Point *clicked, gpointer data)
 {
   Compound * comp = (Compound *) obj;
   Handle * h;
   Point old_pos;
   Point pos;
-  gint what_todo;
-  gint i, num_handles;
+  int what_todo;
+  int i, num_handles;
 
   old_pos = comp->mount_point.pos;
   what_todo = GPOINTER_TO_INT (data);
@@ -1151,7 +1210,7 @@ compound_repos_mount_point_cb (DiaObject * obj, Point *clicked, gpointer data)
   comp->mount_point.pos = pos;
   compound_update_data (comp);
 
-  return (ObjectChange *)mount_point_move_change_new (comp, &old_pos);
+  return mount_point_move_change_new (comp, &old_pos);
 }
 
 /**

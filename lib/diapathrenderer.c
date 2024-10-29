@@ -18,7 +18,10 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+
 #include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include "diapathrenderer.h"
 #include "text.h" /* just for text->color */
@@ -78,7 +81,7 @@ _path_renderer_clear (DiaPathRenderer *self)
 {
   if (self->pathes) {
     guint i;
-   
+
     for (i = 0; i < self->pathes->len; ++i) {
       GArray *path = g_ptr_array_index (self->pathes, i);
 
@@ -183,12 +186,12 @@ _remove_duplicated_path (DiaPathRenderer *self)
  * \memberof _DiaPathRenderer
  */
 static void
-begin_render (DiaRenderer *self, const Rectangle *update)
+begin_render (DiaRenderer *self, const DiaRectangle *update)
 {
 }
 /*!
  * \brief End of current rendering run
- * Should not be used to clean the accumulated paths 
+ * Should not be used to clean the accumulated paths
  * \memberof _DiaPathRenderer
  */
 static void
@@ -208,20 +211,28 @@ static void
 set_linewidth(DiaRenderer *self, real linewidth)
 {  /* 0 == hairline **/
 }
+
+
 static void
-set_linecaps(DiaRenderer *self, LineCaps mode)
+set_linecaps (DiaRenderer *self, DiaLineCaps mode)
 {
 }
+
+
 static void
-set_linejoin(DiaRenderer *self, LineJoin mode)
+set_linejoin (DiaRenderer *self, DiaLineJoin mode)
 {
 }
+
+
 static void
-set_linestyle(DiaRenderer *self, LineStyle mode, real dash_length)
+set_linestyle (DiaRenderer *self, DiaLineStyle mode, double dash_length)
 {
 }
+
+
 static void
-set_fillstyle(DiaRenderer *self, FillStyle mode)
+set_fillstyle (DiaRenderer *self, DiaFillStyle mode)
 {
 }
 
@@ -302,8 +313,8 @@ _path_arc_segment (GArray      *path,
  * \memberof _DiaPathRenderer
  */
 static void
-draw_line(DiaRenderer *self, 
-	  Point *start, Point *end, 
+draw_line(DiaRenderer *self,
+	  Point *start, Point *end,
 	  Color *line_colour)
 {
   DiaPathRenderer *renderer = DIA_PATH_RENDERER (self);
@@ -314,8 +325,8 @@ draw_line(DiaRenderer *self,
 }
 
 static void
-_polyline(DiaRenderer *self, 
-	  Point *points, int num_points, 
+_polyline(DiaRenderer *self,
+	  Point *points, int num_points,
 	  const Color *fill, const Color *stroke)
 {
   DiaPathRenderer *renderer = DIA_PATH_RENDERER (self);
@@ -337,8 +348,8 @@ _polyline(DiaRenderer *self,
  * \memberof _DiaPathRenderer
  */
 static void
-draw_polyline(DiaRenderer *self, 
-	      Point *points, int num_points, 
+draw_polyline(DiaRenderer *self,
+	      Point *points, int num_points,
 	      Color *line_colour)
 {
   _polyline (self, points, num_points, NULL, line_colour);
@@ -349,8 +360,8 @@ draw_polyline(DiaRenderer *self,
  * \memberof _DiaPathRenderer
  */
 static void
-draw_polygon(DiaRenderer *self, 
-	      Point *points, int num_points, 
+draw_polygon(DiaRenderer *self,
+	      Point *points, int num_points,
 	      Color *fill, Color *stroke)
 {
   DiaPathRenderer *renderer = DIA_PATH_RENDERER (self);
@@ -370,7 +381,7 @@ draw_polygon(DiaRenderer *self,
  * \memberof _DiaPathRenderer
  */
 static void
-draw_rect (DiaRenderer *self, 
+draw_rect (DiaRenderer *self,
 	   Point *ul_corner, Point *lr_corner,
 	   Color *fill, Color *stroke)
 {
@@ -386,7 +397,7 @@ draw_rect (DiaRenderer *self,
   /* 0: top-right, clock-wise */
   for (i = 0; i < 4; ++i) {
     BezPoint bp;
-    
+
     bp.type = BEZ_LINE_TO;
     bp.p1.x = pt.x + (i < 2 ? width : 0);
     bp.p1.y = pt.y + (i > 0 && i < 3 ? height : 0);
@@ -444,7 +455,7 @@ path_build_arc (GArray *path,
  * \private \memberof _DiaPathRenderer
  */
 static void
-_arc (DiaRenderer *self, 
+_arc (DiaRenderer *self,
       Point *center,
       real width, real height,
       real angle1, real angle2,
@@ -460,7 +471,7 @@ _arc (DiaRenderer *self,
  * \memberof _DiaPathRenderer
  */
 static void
-draw_arc (DiaRenderer *self, 
+draw_arc (DiaRenderer *self,
 	  Point *center,
 	  real width, real height,
 	  real angle1, real angle2,
@@ -474,7 +485,7 @@ draw_arc (DiaRenderer *self,
  * \memberof _DiaPathRenderer
  */
 static void
-fill_arc (DiaRenderer *self, 
+fill_arc (DiaRenderer *self,
 	  Point *center,
 	  real width, real height,
 	  real angle1, real angle2,
@@ -506,7 +517,7 @@ path_build_ellipse (GArray *path,
     pt.y = (i % 2 == 0 ? center->y : (i == 1 ? center->y + h2 : center->y - h2));
     bp.type = BEZ_CURVE_TO;
     bp.p3 = pt;
-    
+
     switch (i) {
     case 0 : /* going right for p1 */
       bp.p1.x = center->x + dx;
@@ -555,7 +566,7 @@ draw_ellipse (DiaRenderer *self,
   path_build_ellipse (path, center, width, height);
 }
 static void
-_bezier (DiaRenderer *self, 
+_bezier (DiaRenderer *self,
 	 BezPoint *points, int numpoints,
 	 const Color *fill, const Color *stroke)
 {
@@ -578,7 +589,7 @@ _bezier (DiaRenderer *self,
  * \memberof _DiaPathRenderer
  */
 static void
-draw_bezier (DiaRenderer *self, 
+draw_bezier (DiaRenderer *self,
 	     BezPoint *points,
 	     int numpoints,
 	     Color *color)
@@ -591,7 +602,7 @@ draw_bezier (DiaRenderer *self,
  * \memberof _DiaPathRenderer
  */
 static void
-draw_beziergon (DiaRenderer *self, 
+draw_beziergon (DiaRenderer *self,
 		BezPoint *points,
 		int numpoints,
 		Color *fill,
@@ -603,20 +614,20 @@ draw_beziergon (DiaRenderer *self,
  * \brief Convert the text object to a scaled path
  * \memberof _DiaPathRenderer
  */
-static void 
+static void
 draw_text (DiaRenderer *self,
-	   Text        *text) 
+	   Text        *text)
 {
   DiaPathRenderer *renderer = DIA_PATH_RENDERER (self);
   GArray *path = _get_current_path (renderer, NULL, &text->color);
   int n0 = path->len;
 
   if (!text_is_empty (text) && text_to_path (text, path)) {
-    Rectangle bz_bb, tx_bb;
+    DiaRectangle bz_bb, tx_bb;
     PolyBBExtras extra = { 0, };
     real dx, dy, sx, sy;
     guint i;
-    
+
     polybezier_bbox (&g_array_index (path, BezPoint, n0), path->len - n0, &extra, TRUE, &bz_bb);
     text_calc_boundingbox (text, &tx_bb);
     sx = (tx_bb.right - tx_bb.left) / (bz_bb.right - bz_bb.left);
@@ -639,28 +650,36 @@ draw_text (DiaRenderer *self,
   }
 }
 
-/*!
- * \brief Convert the string back to a _Text object and render that
- * \memberof _DiaPathRenderer
+
+/*
+ * Convert the string back to a #Text object and render that
  */
 static void
-draw_string(DiaRenderer *self,
-	    const char *text,
-	    Point *pos, Alignment alignment,
-	    Color *color)
+draw_string (DiaRenderer  *self,
+             const char   *text,
+             Point        *pos,
+             DiaAlignment  alignment,
+             Color        *color)
 {
-  if (text && strlen(text)) {
+  if (text && strlen (text)) {
     Text *text_obj;
+    DiaFont *font;
+    double font_height;
+
+    font = dia_renderer_get_font (self, &font_height);
     /* it could have been so easy without the context switch */
     text_obj = new_text (text,
-			 self->font, self->font_height,
-			 pos, color, alignment);
+                         font,
+                         font_height,
+                         pos,
+                         color,
+                         alignment);
     draw_text (self, text_obj);
     text_destroy (text_obj);
   }
 }
 
-/*! 
+/*!
  * \brief Render just a cheap emulation ;)
  *
  * It might be desirable to convert the given pixels to some vector representation.
@@ -695,7 +714,7 @@ draw_image(DiaRenderer *self,
   _path_lineto (path, &to);
 }
 
-/*! 
+/*!
  * \brief Create contour of the rounded rect
  *
  * This methods needs to be implemented to avoid the default
@@ -705,7 +724,7 @@ draw_image(DiaRenderer *self,
  * \memberof _DiaPathRenderer
  */
 static void
-draw_rounded_rect (DiaRenderer *self, 
+draw_rounded_rect (DiaRenderer *self,
 		   Point *ul_corner, Point *lr_corner,
 		   Color *fill, Color *stroke, real radius)
 {
@@ -718,11 +737,11 @@ draw_rounded_rect (DiaRenderer *self,
   if (radius > ry)
     radius = ry;
   if (stroke) /* deliberately ignoring fill for path building */
-    DIA_RENDERER_CLASS(dia_path_renderer_parent_class)->draw_rounded_rect(self, 
+    DIA_RENDERER_CLASS(dia_path_renderer_parent_class)->draw_rounded_rect(self,
 									  ul_corner, lr_corner,
 									  NULL, stroke, radius);
   else
-    DIA_RENDERER_CLASS(dia_path_renderer_parent_class)->draw_rounded_rect(self, 
+    DIA_RENDERER_CLASS(dia_path_renderer_parent_class)->draw_rounded_rect(self,
 									  ul_corner, lr_corner,
 									  fill, NULL, radius);
   /* stroke is set by the piecewise rendering above already */
@@ -798,7 +817,7 @@ create_standard_path_from_object (DiaObject *obj)
   renderer = g_object_new (DIA_TYPE_PATH_RENDERER, 0);
   pr = DIA_PATH_RENDERER (renderer);
 
-  obj->ops->draw (obj, renderer);
+  dia_object_draw (obj, renderer);
 
   /* messing with internals */
   if (!pr->pathes) { /* oops? */
@@ -816,13 +835,13 @@ create_standard_path_from_object (DiaObject *obj)
 
     for (i = 0; i < pr->pathes->len; ++i) {
       GArray *points = g_ptr_array_index (pr->pathes, i);
-      DiaObject *obj;
+      DiaObject *path_obj;
       if (points->len < 2)
-	obj = NULL;
+        path_obj = NULL;
       else
-        obj = create_standard_path (points->len, &g_array_index (points, BezPoint, 0));
-      if (obj)
-        list = g_list_append (list, obj);
+        path_obj = create_standard_path (points->len, &g_array_index (points, BezPoint, 0));
+      if (path_obj)
+        list = g_list_append (list, path_obj);
     }
     if (!list) {
       path = NULL;
@@ -834,7 +853,7 @@ create_standard_path_from_object (DiaObject *obj)
       path = group_create (list);
     }
   }
-  g_object_unref (renderer);
+  g_clear_object (&renderer);
 
   return path;
 }
@@ -864,7 +883,7 @@ create_standard_path_from_list (GList           *objects,
     int i;
 
     _path_renderer_clear (pr);
-    obj->ops->draw (obj, renderer);
+    dia_object_draw (obj, renderer);
     if (!pr->pathes) /* nothing created? */
       continue;
     /* get a single path from this rendererer run */

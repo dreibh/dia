@@ -29,9 +29,11 @@ typedef struct _DDisplay DDisplay;
 
 G_BEGIN_DECLS
 
-/** Defines the pixels per cm, default is 20 pixels = 1 cm */
-/** This is close to, but not quite the same as, the physical display size
- * in most cases */
+/*
+ * Defines the pixels per cm, default is 20 pixels = 1 cm
+ * This is close to, but not quite the same as, the physical display size
+ * in most cases
+ */
 
 #define DDISPLAY_MAX_ZOOM 2000.0
 #define DDISPLAY_NORMAL_ZOOM 20.0
@@ -54,34 +56,38 @@ struct _DDisplay {
   GtkWidget      *origin;              /* either decoration or menu button  */
   GtkWidget      *menu_bar;            /* widget for the menu bar           */
   GtkUIManager   *ui_manager;     /* ui manager used to create the menu bar */
-  GtkActionGroup *actions;        
+  GtkActionGroup *actions;
 
   /* menu bar widgets */
   GtkMenuItem *rulers;
 
-  GtkWidget *zoom_status;         
+  GtkWidget *zoom_status;
   GtkWidget *grid_status;
   GtkWidget *mainpoint_status;
+  GtkWidget *guide_snap_status;
   GtkWidget *modified_status;
 
   GtkAccelGroup *accel_group;
-  
+
   GtkAdjustment *hsbdata;         /* horizontal data information       */
   GtkAdjustment *vsbdata;         /* vertical data information         */
 
   Point origo;                    /* The origo (lower left) position   */
-  real zoom_factor;               /* zoom, 20.0 means 20 pixel == 1 cm */
-  Rectangle visible;              /* The part visible in this display  */
+  double zoom_factor;             /* zoom, 20.0 means 20 pixel == 1 cm */
+  DiaRectangle visible;           /* The part visible in this display  */
 
   Grid grid;                      /* the grid in this display          */
 
-  gboolean show_cx_pts;		  /* Connection points toggle boolean  */
+  gboolean guides_visible;        /* Whether guides are visible. */
+  gboolean guides_snap;           /* Whether to snap to guides. */
+
+  gboolean show_cx_pts;           /* Connection points toggle boolean  */
   gboolean autoscroll;
   gboolean mainpoint_magnetism;   /* Mainpoints snapped from entire obj*/
 
   int aa_renderer;
   DiaRenderer *renderer;
-  
+
   GSList *update_areas;           /* Update areas list                 */
 
   GtkIMContext *im_context;
@@ -89,25 +95,30 @@ struct _DDisplay {
   /* Preedit String */
   gchar *preedit_string;
   PangoAttrList *preedit_attrs;
- 
+
   /* Is there another case?  Like I see embedded-dia modules, do these do something
-   * in addition??? */  
+   * in addition??? */
   gboolean   is_standalone_window;
 
   /* Points to Integrated UI Toolbar */
   GtkToolbar *common_toolbar;
 
   /* Points to widget containing the diagram if not standalone window */
-  GtkWidget *container; 
+  GtkWidget *container;
 
   /* Private field, indicates if rulers are shown for this diagram. */
   gboolean rulers_are_showing;
 
   /* Private field, indicates which text, if any, is being edited */
   Focus *active_focus;
-  
-  /* Rember the last clicked point per display, but in diagram coordinates */
+
+  /* Remember the last clicked point per display, but in diagram coordinates */
   Point clicked_position;
+
+  /* For dragging a new guideline. */
+  gboolean is_dragging_new_guideline;
+  gdouble dragged_new_guideline_position;
+  GtkOrientation dragged_new_guideline_orientation;
 };
 
 extern GdkCursor *default_cursor;
@@ -115,41 +126,54 @@ extern GdkCursor *default_cursor;
 DDisplay *new_display(Diagram *dia);
 DDisplay *copy_display(DDisplay *orig_ddisp);
 /* Normal destroy is done through shell widget destroy event. */
-void ddisplay_really_destroy(DDisplay *ddisp); 
-void ddisplay_transform_coords_double(DDisplay *ddisp,
-				      coord x, coord y,
-				      double *xi, double *yi);
-void ddisplay_transform_coords(DDisplay *ddisp,
-			       coord x, coord y,
-			       int *xi, int *yi);
-void ddisplay_untransform_coords(DDisplay *ddisp,
-				 int xi, int yi,
-				 coord *x, coord *y);
-real ddisplay_transform_length(DDisplay *ddisp, real len);
-real ddisplay_untransform_length(DDisplay *ddisp, real len);
+void     ddisplay_really_destroy          (DDisplay *ddisp);
+void     ddisplay_transform_coords_double (DDisplay *ddisp,
+                                           double    x,
+                                           double    y,
+                                           double   *xi,
+                                           double   *yi);
+void     ddisplay_transform_coords        (DDisplay *ddisp,
+                                           double    x,
+                                           double    y,
+                                           int      *xi,
+                                           int      *yi);
+void     ddisplay_untransform_coords      (DDisplay *ddisp,
+                                           int       xi,
+                                           int       yi,
+                                           double   *x,
+                                           double   *y);
+double   ddisplay_transform_length        (DDisplay *ddisp,
+                                           double    len);
+double   ddisplay_untransform_length      (DDisplay *ddisp,
+                                           double    len);
 void ddisplay_add_update_pixels(DDisplay *ddisp, Point *point,
 				       int pixel_width, int pixel_height);
 void ddisplay_add_update_all(DDisplay *ddisp);
-void ddisplay_add_update_with_border(DDisplay *ddisp, const Rectangle *rect,
+void ddisplay_add_update_with_border(DDisplay *ddisp, const DiaRectangle *rect,
 				     int pixel_border);
-void ddisplay_add_update(DDisplay *ddisp, const Rectangle *rect);
+void ddisplay_add_update(DDisplay *ddisp, const DiaRectangle *rect);
 void ddisplay_flush(DDisplay *ddisp);
 void ddisplay_update_scrollbars(DDisplay *ddisp);
-void ddisplay_set_origo(DDisplay *ddisp,
-			coord x, coord y);
-void ddisplay_zoom(DDisplay *ddisp, Point *point,
-		   real zoom_factor);
-void ddisplay_zoom_middle(DDisplay *ddisp, real magnify);
-
-void ddisplay_zoom_centered(DDisplay *ddisp, Point *point, real magnify);
+void     ddisplay_set_origo               (DDisplay *ddisp,
+                                           double    x,
+                                           double    y);
+void     ddisplay_zoom                    (DDisplay *ddisp,
+                                           Point    *point,
+                                           double    zoom_factor);
+void     ddisplay_zoom_middle             (DDisplay *ddisp,
+                                           double    magnify);
+void     ddisplay_zoom_centered           (DDisplay *ddisp,
+                                           Point    *point,
+                                           double    magnify);
 void ddisplay_set_snap_to_grid(DDisplay *ddisp, gboolean snap);
+void ddisplay_set_snap_to_guides(DDisplay *ddisp, gboolean snap);
 void ddisplay_set_snap_to_objects(DDisplay *ddisp, gboolean magnetic);
 void ddisplay_set_renderer(DDisplay *ddisp, int aa_renderer);
 void ddisplay_resize_canvas(DDisplay *ddisp,
 			    int width,
 			    int height);
 
-void ddisplay_render_pixmap(DDisplay *ddisp, Rectangle *update);
+void ddisplay_render_pixmap(DDisplay *ddisp, DiaRectangle *update);
 
 DDisplay *ddisplay_active(void);
 Diagram *ddisplay_active_diagram(void);
@@ -167,7 +191,7 @@ Point ddisplay_get_clicked_position(DDisplay *ddisp);
 gboolean display_get_rulers_showing(DDisplay *ddisp);
 void display_rulers_show (DDisplay *ddisp);
 void display_rulers_hide (DDisplay *ddisp);
-void ddisplay_update_rulers (DDisplay *ddisp, const Rectangle *extents, const Rectangle *visible);
+void ddisplay_update_rulers (DDisplay *ddisp, const DiaRectangle *extents, const DiaRectangle *visible);
 
 gboolean ddisplay_scroll(DDisplay *ddisp, Point *delta);
 gboolean ddisplay_autoscroll(DDisplay *ddisp, int x, int y);

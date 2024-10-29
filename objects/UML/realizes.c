@@ -16,13 +16,13 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 
-#include "intl.h"
 #include "object.h"
 #include "orth_conn.h"
 #include "diarenderer.h"
@@ -40,7 +40,7 @@ struct _Realizes {
   OrthConn orth;
 
   Point text_pos;
-  Alignment text_align;
+  DiaAlignment text_align;
   real text_width;
 
   Color text_color;
@@ -62,10 +62,14 @@ struct _Realizes {
 static real realizes_distance_from(Realizes *realize, Point *point);
 static void realizes_select(Realizes *realize, Point *clicked_point,
 			      DiaRenderer *interactive_renderer);
-static ObjectChange* realizes_move_handle(Realizes *realize, Handle *handle,
-					  Point *to, ConnectionPoint *cp,
-					  HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* realizes_move(Realizes *realize, Point *to);
+static DiaObjectChange *realizes_move_handle   (Realizes         *realize,
+                                                Handle           *handle,
+                                                Point            *to,
+                                                ConnectionPoint  *cp,
+                                                HandleMoveReason  reason,
+                                                ModifierKeys      modifiers);
+static DiaObjectChange *realizes_move          (Realizes         *realize,
+                                                Point            *to);
 static void realizes_draw(Realizes *realize, DiaRenderer *renderer);
 static DiaObject *realizes_create(Point *startpoint,
 				 void *user_data,
@@ -164,23 +168,26 @@ realizes_get_props(Realizes * realizes, GPtrArray *props)
                                 realizes_offsets,props);
 }
 
+
 static void
-realizes_set_props(Realizes *realizes, GPtrArray *props)
+realizes_set_props (Realizes *realizes, GPtrArray *props)
 {
-  object_set_props_from_offsets(&realizes->orth.object,
-                                realizes_offsets, props);
-  g_free(realizes->st_stereotype);
-  realizes->st_stereotype = NULL;
+  object_set_props_from_offsets (&realizes->orth.object,
+                                 realizes_offsets,
+                                 props);
+  g_clear_pointer (&realizes->st_stereotype, g_free);
   realizes_update_data(realizes);
 }
 
 
-static real
-realizes_distance_from(Realizes *realize, Point *point)
+static double
+realizes_distance_from (Realizes *realize, Point *point)
 {
   OrthConn *orth = &realize->orth;
-  return orthconn_distance_from(orth, point, realize->line_width);
+
+  return orthconn_distance_from (orth, point, realize->line_width);
 }
+
 
 static void
 realizes_select(Realizes *realize, Point *clicked_point,
@@ -189,35 +196,46 @@ realizes_select(Realizes *realize, Point *clicked_point,
   orthconn_update_data(&realize->orth);
 }
 
-static ObjectChange*
-realizes_move_handle(Realizes *realize, Handle *handle,
-		     Point *to, ConnectionPoint *cp,
-		     HandleMoveReason reason, ModifierKeys modifiers)
-{
-  ObjectChange *change;
-  assert(realize!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
 
-  change = orthconn_move_handle(&realize->orth, handle, to, cp, reason, modifiers);
-  realizes_update_data(realize);
+static DiaObjectChange *
+realizes_move_handle (Realizes         *realize,
+                      Handle           *handle,
+                      Point            *to,
+                      ConnectionPoint  *cp,
+                      HandleMoveReason  reason,
+                      ModifierKeys      modifiers)
+{
+  DiaObjectChange *change;
+
+  g_return_val_if_fail (realize != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
+
+  change = orthconn_move_handle (&realize->orth,
+                                 handle,
+                                 to,
+                                 cp,
+                                 reason,
+                                 modifiers);
+  realizes_update_data (realize);
 
   return change;
 }
 
-static ObjectChange*
-realizes_move(Realizes *realize, Point *to)
+
+static DiaObjectChange *
+realizes_move (Realizes *realize, Point *to)
 {
-  orthconn_move(&realize->orth, to);
-  realizes_update_data(realize);
+  orthconn_move (&realize->orth, to);
+  realizes_update_data (realize);
 
   return NULL;
 }
 
+
 static void
-realizes_draw(Realizes *realize, DiaRenderer *renderer)
+realizes_draw (Realizes *realize, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   OrthConn *orth = &realize->orth;
   Point *points;
   int n;
@@ -227,38 +245,42 @@ realizes_draw(Realizes *realize, DiaRenderer *renderer)
   points = &orth->points[0];
   n = orth->numpoints;
 
-  renderer_ops->set_linewidth(renderer, realize->line_width);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_DASHED, REALIZES_DASHLEN);
-  renderer_ops->set_linejoin(renderer, LINEJOIN_MITER);
-  renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
+  dia_renderer_set_linewidth (renderer, realize->line_width);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_DASHED, REALIZES_DASHLEN);
+  dia_renderer_set_linejoin (renderer, DIA_LINE_JOIN_MITER);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
 
   arrow.type = ARROW_HOLLOW_TRIANGLE;
   arrow.width = REALIZES_TRIANGLESIZE;
   arrow.length = REALIZES_TRIANGLESIZE;
-  renderer_ops->draw_polyline_with_arrows(renderer, points, n,
-					   realize->line_width,
-					   &realize->line_color,
-					   &arrow, NULL);
+  dia_renderer_draw_polyline_with_arrows (renderer,
+                                          points,
+                                          n,
+                                          realize->line_width,
+                                          &realize->line_color,
+                                          &arrow,
+                                          NULL);
 
-  renderer_ops->set_font(renderer, realize->font, realize->font_height);
+  dia_renderer_set_font (renderer, realize->font, realize->font_height);
   pos = realize->text_pos;
 
   if (realize->st_stereotype != NULL && realize->st_stereotype[0] != '\0') {
-    renderer_ops->draw_string(renderer,
-			       realize->st_stereotype,
-			       &pos, realize->text_align,
-			       &realize->text_color);
+    dia_renderer_draw_string (renderer,
+                              realize->st_stereotype,
+                              &pos,
+                              realize->text_align,
+                              &realize->text_color);
 
     pos.y += realize->font_height;
   }
 
   if (realize->name != NULL && realize->name[0] != '\0') {
-    renderer_ops->draw_string(renderer,
-			       realize->name,
-			       &pos, realize->text_align,
-			       &realize->text_color);
+    dia_renderer_draw_string (renderer,
+                              realize->name,
+                              &pos,
+                              realize->text_align,
+                              &realize->text_color);
   }
-
 }
 
 static void
@@ -268,7 +290,7 @@ realizes_update_data(Realizes *realize)
   DiaObject *obj = &orth->object;
   int num_segm, i;
   Point *points;
-  Rectangle rect;
+  DiaRectangle rect;
   PolyBBExtras *extra;
 
   orthconn_update_data(orth);
@@ -310,28 +332,31 @@ realizes_update_data(Realizes *realize)
   }
 
   switch (realize->orth.orientation[i]) {
-  case HORIZONTAL:
-    realize->text_align = ALIGN_CENTER;
-    realize->text_pos.x = 0.5*(points[i].x+points[i+1].x);
-    realize->text_pos.y = points[i].y;
-    if (realize->name)
-      realize->text_pos.y -=
-        dia_font_descent(realize->name,realize->font, realize->font_height);
-    break;
-  case VERTICAL:
-    realize->text_align = ALIGN_LEFT;
-    realize->text_pos.x = points[i].x + 0.1;
-    realize->text_pos.y = 0.5*(points[i].y+points[i+1].y);
-    if (realize->name)
-      realize->text_pos.y -=
-        dia_font_descent(realize->name, realize->font, realize->font_height);
-    break;
+    case HORIZONTAL:
+      realize->text_align = DIA_ALIGN_CENTRE;
+      realize->text_pos.x = 0.5*(points[i].x+points[i+1].x);
+      realize->text_pos.y = points[i].y;
+      if (realize->name)
+        realize->text_pos.y -=
+          dia_font_descent (realize->name,realize->font, realize->font_height);
+      break;
+    case VERTICAL:
+      realize->text_align = DIA_ALIGN_LEFT;
+      realize->text_pos.x = points[i].x + 0.1;
+      realize->text_pos.y = 0.5*(points[i].y+points[i+1].y);
+      if (realize->name)
+        realize->text_pos.y -=
+          dia_font_descent (realize->name, realize->font, realize->font_height);
+      break;
+    default:
+      g_return_if_reached ();
   }
 
   /* Add the text recangle to the bounding box: */
   rect.left = realize->text_pos.x;
-  if (realize->text_align == ALIGN_CENTER)
-    rect.left -= realize->text_width/2.0;
+  if (realize->text_align == DIA_ALIGN_CENTRE) {
+    rect.left -= realize->text_width / 2.0;
+  }
   rect.right = rect.left + realize->text_width;
   rect.top = realize->text_pos.y;
   if (realize->name)
@@ -341,21 +366,29 @@ realizes_update_data(Realizes *realize)
   rectangle_union(&obj->bounding_box, &rect);
 }
 
-static ObjectChange *
-realizes_add_segment_callback(DiaObject *obj, Point *clicked, gpointer data)
+
+static DiaObjectChange *
+realizes_add_segment_callback (DiaObject *obj, Point *clicked, gpointer data)
 {
-  ObjectChange *change;
-  change = orthconn_add_segment((OrthConn *)obj, clicked);
-  realizes_update_data((Realizes *)obj);
+  DiaObjectChange *change;
+
+  change = orthconn_add_segment ((OrthConn *) obj, clicked);
+  realizes_update_data ((Realizes *) obj);
+
   return change;
 }
 
-static ObjectChange *
-realizes_delete_segment_callback(DiaObject *obj, Point *clicked, gpointer data)
+
+static DiaObjectChange *
+realizes_delete_segment_callback (DiaObject *obj,
+                                  Point     *clicked,
+                                  gpointer   data)
 {
-  ObjectChange *change;
-  change = orthconn_delete_segment((OrthConn *)obj, clicked);
-  realizes_update_data((Realizes *)obj);
+  DiaObjectChange *change;
+
+  change = orthconn_delete_segment ((OrthConn *) obj, clicked);
+  realizes_update_data ((Realizes *) obj);
+
   return change;
 }
 
@@ -397,7 +430,7 @@ realizes_create(Point *startpoint,
   DiaObject *obj;
   PolyBBExtras *extra;
 
-  realize = g_malloc0(sizeof(Realizes));
+  realize = g_new0 (Realizes, 1);
   /* old defaults */
   realize->font_height = 0.8;
   realize->font =
@@ -435,15 +468,17 @@ realizes_create(Point *startpoint,
   return &realize->orth.object;
 }
 
+
 static void
-realizes_destroy(Realizes *realize)
+realizes_destroy (Realizes *realize)
 {
-  g_free(realize->name);
-  g_free(realize->stereotype);
-  g_free(realize->st_stereotype);
-  dia_font_unref(realize->font);
-  orthconn_destroy(&realize->orth);
+  g_clear_pointer (&realize->name, g_free);
+  g_clear_pointer (&realize->stereotype, g_free);
+  g_clear_pointer (&realize->st_stereotype, g_free);
+  g_clear_object (&realize->font);
+  orthconn_destroy (&realize->orth);
 }
+
 
 static DiaObject *
 realizes_load(ObjectNode obj_node, int version,DiaContext *ctx)

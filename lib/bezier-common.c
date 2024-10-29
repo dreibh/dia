@@ -22,7 +22,7 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include "config.h" 
+#include "config.h"
 
 #include "bezier-common.h"
 #include "diarenderer.h"
@@ -40,14 +40,16 @@ bezier_calc_corner_types (BezierCommon *bezier)
 {
   int i;
   int num = bezier->num_points;
-  const real tolerance = 0.00001; /* EPSILON */
+  const double tolerance = 0.00001; /* EPSILON */
 
   g_return_if_fail (bezier->num_points > 1);
 
-  bezier->corner_types = g_realloc (bezier->corner_types, bezier->num_points * sizeof(BezCornerType));
+  bezier->corner_types = g_renew (BezCornerType,
+                                  bezier->corner_types,
+                                  bezier->num_points);
   bezier->corner_types[0] = BEZ_CORNER_CUSP;
   bezier->corner_types[num-1] = BEZ_CORNER_CUSP;
-  
+
   for (i = 0; i < num - 2; ++i) {
     const Point *start = &bezier->points[i].p2;
     const Point *major = &bezier->points[i].p3;
@@ -59,22 +61,27 @@ bezier_calc_corner_types (BezierCommon *bezier)
       bezier->corner_types[i+1] = BEZ_CORNER_CUSP;
     else if (distance_line_point (start, end, 0, major) > tolerance)
       bezier->corner_types[i+1] = BEZ_CORNER_CUSP;
-    else if (fabs (   distance_point_point (start, major) 
-		   -  distance_point_point (end, major) > tolerance))
+    else if (fabs (   distance_point_point (start, major)
+                   -  distance_point_point (end, major)) > tolerance)
       bezier->corner_types[i+1] = BEZ_CORNER_SMOOTH;
     else
       bezier->corner_types[i+1] = BEZ_CORNER_SYMMETRIC;
   }
 }
 
-/** Set a bezier to use the given array of points.
+/**
+ * beziercommon_set_points:
+ * @bezier: A #BezierCommon to operate on
+ * @num_points: The number of points in the `points' array.
+ * @points: The new points that this bezier should be set to use.
+ *
+ * Set a bezier to use the given array of points.
  * This function does *not* set up handles
- * @param bezier A bezier to operate on
- * @param num_points The number of points in the `points' array.
- * @param points The new points that this bezier should be set to use.
  */
 void
-beziercommon_set_points (BezierCommon *bezier, int num_points, const BezPoint *points)
+beziercommon_set_points (BezierCommon   *bezier,
+                         int             num_points,
+                         const BezPoint *points)
 {
   int i;
 
@@ -82,14 +89,14 @@ beziercommon_set_points (BezierCommon *bezier, int num_points, const BezPoint *p
 
   bezier->num_points = num_points;
 
-  bezier->points = g_realloc(bezier->points, (bezier->num_points)*sizeof(BezPoint));
+  bezier->points = g_renew (BezPoint, bezier->points, bezier->num_points);
 
   for (i=0;i<bezier->num_points;i++) {
     /* to make editing in Dia more convenient we turn line-to to curve-to with cusp controls */
     if (points[i].type == BEZ_LINE_TO) {
       Point start = (points[i-1].type == BEZ_CURVE_TO) ? points[i-1].p3 : points[i-1].p1;
-      real dx = points[i].p1.x - start.x;
-      real dy = points[i].p1.y - start.y;
+      double dx = points[i].p1.x - start.x;
+      double dy = points[i].p1.y - start.y;
       bezier->points[i].p3 = points[i].p1;
       bezier->points[i].p1.x = start.x + dx / 3;
       bezier->points[i].p1.y = start.y + dy / 3;
@@ -130,19 +137,19 @@ beziercommon_copy (BezierCommon *from, BezierCommon *to)
  */
 int
 beziercommon_closest_segment (BezierCommon *bezier,
-			      const Point  *point,
-			      real          line_width)
+                              const Point  *point,
+                              double        line_width)
 {
   Point last;
   int i;
-  real dist = G_MAXDOUBLE;
+  double dist = G_MAXDOUBLE;
   int closest;
 
   closest = 0;
   last = bezier->points[0].p1;
   /* the first point is just move-to so there is no need to consider p2,p3 of it */
   for (i = 1; i < bezier->num_points; i++) {
-    real new_dist = distance_bez_seg_point(&last, &bezier->points[i], line_width, point);
+    double new_dist = distance_bez_seg_point(&last, &bezier->points[i], line_width, point);
     if (new_dist < dist) {
       dist = new_dist;
       closest = i - 1;
@@ -160,24 +167,24 @@ beziercommon_closest_segment (BezierCommon *bezier,
  */
 void
 bezier_draw_control_lines (int          num_points,
-			   BezPoint    *points,
-			   DiaRenderer *renderer)
+                           BezPoint    *points,
+                           DiaRenderer *renderer)
 {
   Color line_colour = { 0.0, 0.0, 0.6, 1.0 };
   Point startpoint;
   int i;
-  
+
   /* setup renderer ... */
-  DIA_RENDERER_GET_CLASS(renderer)->set_linewidth(renderer, 0);
-  DIA_RENDERER_GET_CLASS(renderer)->set_linestyle(renderer, LINESTYLE_DOTTED, 1);
-  DIA_RENDERER_GET_CLASS(renderer)->set_linejoin(renderer, LINEJOIN_MITER);
-  DIA_RENDERER_GET_CLASS(renderer)->set_linecaps(renderer, LINECAPS_BUTT);
+  dia_renderer_set_linewidth (renderer, 0);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_DOTTED, 1);
+  dia_renderer_set_linejoin (renderer, DIA_LINE_JOIN_MITER);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
 
   startpoint = points[0].p1;
   for (i = 1; i < num_points; i++) {
-    DIA_RENDERER_GET_CLASS(renderer)->draw_line(renderer, &startpoint, &points[i].p1, &line_colour);
+    dia_renderer_draw_line (renderer, &startpoint, &points[i].p1, &line_colour);
     if (points[i].type == BEZ_CURVE_TO) {
-      DIA_RENDERER_GET_CLASS(renderer)->draw_line(renderer, &points[i].p2, &points[i].p3, &line_colour);
+      dia_renderer_draw_line  (renderer, &points[i].p2, &points[i].p3, &line_colour);
       startpoint = points[i].p3;
     } else {
       startpoint = points[i].p1;

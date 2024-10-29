@@ -18,14 +18,14 @@
 
 /* DO NOT USE THIS OBJECT AS A BASIS FOR A NEW OBJECT. */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
 
-#include "intl.h"
 #include "object.h"
 #include "connection.h"
 #include "diarenderer.h"
@@ -33,7 +33,6 @@
 #include "arrows.h"
 #include "diamenu.h"
 #include "text.h"
-#include "connection.h"
 #include "properties.h"
 
 #include "pixmaps/flow.xpm"
@@ -67,11 +66,14 @@ struct _Flow {
 #define FLOW_ARROWWIDTH 0.5
 #define HANDLE_MOVE_TEXT (HANDLE_CUSTOM1)
 
-static ObjectChange* flow_move_handle(Flow *flow, Handle *handle,
-				      Point *to, ConnectionPoint *cp,
-				      HandleMoveReason reason,
-				      ModifierKeys modifiers);
-static ObjectChange* flow_move(Flow *flow, Point *to);
+static DiaObjectChange *flow_move_handle       (Flow             *flow,
+                                                Handle           *handle,
+                                                Point            *to,
+                                                ConnectionPoint  *cp,
+                                                HandleMoveReason  reason,
+                                                ModifierKeys      modifiers);
+static DiaObjectChange *flow_move              (Flow             *flow,
+                                                Point            *to);
 static void flow_select(Flow *flow, Point *clicked_point,
 			DiaRenderer *interactive_renderer);
 static void flow_draw(Flow *flow, DiaRenderer *renderer);
@@ -212,17 +214,21 @@ flow_select(Flow *flow, Point *clicked_point,
   connection_update_handles(&flow->connection);
 }
 
-static ObjectChange*
-flow_move_handle(Flow *flow, Handle *handle,
-		 Point *to, ConnectionPoint *cp,
-		 HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+flow_move_handle (Flow             *flow,
+                  Handle           *handle,
+                  Point            *to,
+                  ConnectionPoint  *cp,
+                  HandleMoveReason  reason,
+                  ModifierKeys      modifiers)
 {
   Point p1, p2;
   Point *endpoints;
 
-  assert(flow!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+  g_return_val_if_fail (flow != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
   if (handle->id == HANDLE_MOVE_TEXT) {
     flow->textpos = *to;
@@ -280,8 +286,9 @@ flow_move_handle(Flow *flow, Handle *handle,
   return NULL;
 }
 
-static ObjectChange*
-flow_move(Flow *flow, Point *to)
+
+static DiaObjectChange *
+flow_move (Flow *flow, Point *to)
 {
   Point start_to_end;
   Point *endpoints = &flow->connection.endpoints[0];
@@ -303,17 +310,17 @@ flow_move(Flow *flow, Point *to)
   return NULL;
 }
 
+
 static void
-flow_draw(Flow *flow, DiaRenderer *renderer)
+flow_draw (Flow *flow, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point *endpoints, p1, p2;
   Arrow arrow;
   int n1 = 1, n2 = 0;
   Color* render_color = NULL;
 
-  assert(flow != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (flow != NULL);
+  g_return_if_fail (renderer != NULL);
 
   arrow.type = ARROW_FILLED_TRIANGLE;
   arrow.width = FLOW_ARROWWIDTH;
@@ -321,35 +328,40 @@ flow_draw(Flow *flow, DiaRenderer *renderer)
 
   endpoints = &flow->connection.endpoints[0];
 
-  renderer_ops->set_linewidth(renderer, FLOW_WIDTH);
+  dia_renderer_set_linewidth (renderer, FLOW_WIDTH);
 
-  renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
 
   switch (flow->type) {
-  case FLOW_SIGNAL:
-    renderer_ops->set_linestyle(renderer, LINESTYLE_DASHED, FLOW_DASHLEN);
-    render_color = &flow_color_signal ;
-    break ;
-  case FLOW_MATERIAL:
-    renderer_ops->set_linewidth(renderer, FLOW_MATERIAL_WIDTH ) ;
-    renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
-    render_color = &flow_color_material ;
-    break ;
-  case FLOW_ENERGY:
-    render_color = &flow_color_energy ;
-    renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
+    case FLOW_SIGNAL:
+      dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_DASHED, FLOW_DASHLEN);
+      render_color = &flow_color_signal ;
+      break ;
+    case FLOW_MATERIAL:
+      dia_renderer_set_linewidth (renderer, FLOW_MATERIAL_WIDTH);
+      dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
+      render_color = &flow_color_material;
+      break ;
+    case FLOW_ENERGY:
+      render_color = &flow_color_energy;
+      dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
+      break;
+    default:
+      g_return_if_reached ();
   }
 
   p1 = endpoints[n1];
   p2 = endpoints[n2];
 
-  renderer_ops->draw_line_with_arrows(renderer,
-				       &p1, &p2,
-				       FLOW_WIDTH,
-				       render_color,
-				       &arrow, NULL);
+  dia_renderer_draw_line_with_arrows (renderer,
+                                      &p1,
+                                      &p2,
+                                      FLOW_WIDTH,
+                                      render_color,
+                                      &arrow,
+                                      NULL);
 
-  text_draw(flow->text, renderer);
+  text_draw (flow->text, renderer);
 }
 
 static DiaObject *
@@ -366,7 +378,7 @@ flow_create(Point *startpoint,
   Point n ;
   DiaFont *font;
 
-  flow = g_malloc0(sizeof(Flow));
+  flow = g_new0 (Flow, 1);
 
   conn = &flow->connection;
   conn->endpoints[0] = *startpoint;
@@ -398,10 +410,15 @@ flow_create(Point *startpoint,
   point_add( &p, &conn->endpoints[0] ) ;
   flow->textpos = p;
 
-  font = dia_font_new_from_style(DIA_FONT_SANS, FLOW_FONTHEIGHT);
+  font = dia_font_new_from_style (DIA_FONT_SANS, FLOW_FONTHEIGHT);
 
-  flow->text = new_text("", font, FLOW_FONTHEIGHT, &p, &color_black, ALIGN_CENTER);
-  dia_font_unref(font);
+  flow->text = new_text ("",
+                         font,
+                         FLOW_FONTHEIGHT,
+                         &p,
+                         &color_black,
+                         DIA_ALIGN_CENTRE);
+  g_clear_object (&font);
 
   flow->text_handle.id = HANDLE_MOVE_TEXT;
   flow->text_handle.type = HANDLE_MINOR_CONTROL;
@@ -438,7 +455,7 @@ flow_copy(Flow *flow)
 
   conn = &flow->connection;
 
-  newflow = g_malloc0(sizeof(Flow));
+  newflow = g_new0 (Flow, 1);
   newconn = &newflow->connection;
   newobj = &newconn->object;
 
@@ -461,7 +478,7 @@ flow_update_data(Flow *flow)
 {
   Connection *conn = &flow->connection;
   DiaObject *obj = &conn->object;
-  Rectangle rect;
+  DiaRectangle rect;
   Color* color = NULL;
 
   if (connpoint_is_autogap(flow->connection.endpoint_handles[0].connected_to) ||
@@ -471,17 +488,19 @@ flow_update_data(Flow *flow)
   obj->position = conn->endpoints[0];
 
   switch (flow->type) {
-  case FLOW_ENERGY:
-    color = &flow_color_energy ;
-    break ;
-  case FLOW_MATERIAL:
-    color = &flow_color_material ;
-    break ;
-  case FLOW_SIGNAL:
-    color = &flow_color_signal ;
-    break ;
+    case FLOW_ENERGY:
+      color = &flow_color_energy ;
+      break;
+    case FLOW_MATERIAL:
+      color = &flow_color_material ;
+      break;
+    case FLOW_SIGNAL:
+      color = &flow_color_signal ;
+      break;
+    default:
+      g_return_if_reached ();
   }
-  text_set_color( flow->text, color ) ;
+  text_set_color (flow->text, color);
 
   flow->text->position = flow->textpos;
   flow->text_handle.pos = flow->textpos;
@@ -517,7 +536,7 @@ flow_load(ObjectNode obj_node, int version, DiaContext *ctx)
   DiaObject *obj;
   LineBBExtras *extra;
 
-  flow = g_malloc0(sizeof(Flow));
+  flow = g_new0 (Flow, 1);
 
   conn = &flow->connection;
   obj = &conn->object;
@@ -535,10 +554,15 @@ flow_load(ObjectNode obj_node, int version, DiaContext *ctx)
   if (attr != NULL)
     flow->text = data_text(attribute_first_data(attr), ctx);
   else { /* pathologic */
-    DiaFont *font = dia_font_new_from_style(DIA_FONT_SANS, FLOW_FONTHEIGHT);
+    DiaFont *font = dia_font_new_from_style (DIA_FONT_SANS, FLOW_FONTHEIGHT);
 
-    flow->text = new_text("", font, FLOW_FONTHEIGHT, &obj->position, &color_black, ALIGN_CENTER);
-    dia_font_unref(font);
+    flow->text = new_text ("",
+                           font,
+                           FLOW_FONTHEIGHT,
+                           &obj->position,
+                           &color_black,
+                           DIA_ALIGN_CENTRE);
+    g_clear_object (&font);
   }
 
   attr = object_find_attribute(obj_node, "type");
@@ -563,62 +587,77 @@ flow_load(ObjectNode obj_node, int version, DiaContext *ctx)
   return &flow->connection.object;
 }
 
-struct TypeChange {
-  ObjectChange obj_change;
-  int old_type, new_type;
+
+#define DIA_FS_TYPE_FLOW_OBJECT_CHANGE dia_fs_flow_object_change_get_type ()
+G_DECLARE_FINAL_TYPE (DiaFSFlowObjectChange,
+                      dia_fs_flow_object_change,
+                      DIA_FS, FLOW_OBJECT_CHANGE,
+                      DiaObjectChange)
+
+
+struct _DiaFSFlowObjectChange {
+  DiaObjectChange obj_change;
+  int old_type;
+  int new_type;
 };
 
+
+DIA_DEFINE_OBJECT_CHANGE (DiaFSFlowObjectChange, dia_fs_flow_object_change)
+
+
 static void
-type_change_free(struct TypeChange *change)
+dia_fs_flow_object_change_free (DiaObjectChange *change)
 {
 }
 
+
 static void
-type_change_apply(struct TypeChange *change, DiaObject *obj)
+dia_fs_flow_object_change_apply (DiaObjectChange *self, DiaObject *obj)
 {
-  Flow *flow = (Flow*)obj;
+  DiaFSFlowObjectChange *change = DIA_FS_FLOW_OBJECT_CHANGE (self);
+  Flow *flow = (Flow *) obj;
 
   flow->type = change->new_type;
-  flow_update_data(flow);
+  flow_update_data (flow);
 }
+
 
 static void
-type_change_revert(struct TypeChange *change, DiaObject *obj)
+dia_fs_flow_object_change_revert (DiaObjectChange *self, DiaObject *obj)
 {
-  Flow *flow = (Flow*)obj;
+  DiaFSFlowObjectChange *change = DIA_FS_FLOW_OBJECT_CHANGE (self);
+  Flow *flow = (Flow*) obj;
 
   flow->type = change->old_type;
-  flow_update_data(flow);
+  flow_update_data (flow);
 }
 
-static ObjectChange *
-type_create_change(Flow *flow, int type)
+
+static DiaObjectChange *
+type_create_change (Flow *flow, int type)
 {
-  struct TypeChange *change;
+  DiaFSFlowObjectChange *change;
 
-  change = g_new0(struct TypeChange, 1);
-
-  change->obj_change.apply = (ObjectChangeApplyFunc) type_change_apply;
-  change->obj_change.revert = (ObjectChangeRevertFunc) type_change_revert;
-  change->obj_change.free = (ObjectChangeFreeFunc) type_change_free;
+  change = dia_object_change_new (DIA_FS_TYPE_FLOW_OBJECT_CHANGE);
 
   change->old_type = flow->type;
   change->new_type = type;
 
-  return (ObjectChange *)change;
+  return DIA_OBJECT_CHANGE (change);
 }
 
 
-static ObjectChange *
+static DiaObjectChange *
 flow_set_type_callback (DiaObject* obj, Point* clicked, gpointer data)
 {
-  ObjectChange *change;
+  DiaObjectChange *change;
 
-  change = type_create_change((Flow *)obj, GPOINTER_TO_INT(data));
-  change->apply(change, obj);
+  change = type_create_change ((Flow *) obj, GPOINTER_TO_INT (data));
+  dia_object_change_apply (change, obj);
 
   return change;
 }
+
 
 static DiaMenuItem flow_menu_items[] = {
   { N_("Energy"), flow_set_type_callback, (void*)FLOW_ENERGY, 1 },

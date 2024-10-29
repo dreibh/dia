@@ -24,7 +24,9 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include "geometry.h"
 #include "properties.h"
@@ -57,28 +59,28 @@ stdprops_init(void)
 PropNumData prop_std_line_width_data = { 0.0, 10.0, 0.01 };
 PropNumData prop_std_text_height_data = { 0.1, 10.0, 0.1 };
 PropEnumData prop_std_text_align_data[] = {
-  { N_("Left"), ALIGN_LEFT },
-  { N_("Center"), ALIGN_CENTER },
-  { N_("Right"), ALIGN_RIGHT },
+  { N_("Left"), DIA_ALIGN_LEFT },
+  { N_("Center"), DIA_ALIGN_CENTRE },
+  { N_("Right"), DIA_ALIGN_RIGHT },
   { NULL, 0 }
 };
 /* how the text box interacts with it's containing shape */
 PropEnumData prop_std_text_fitting_data[] = {
-  { N_("Never"), TEXTFIT_NEVER },
-  { N_("When Needed"), TEXTFIT_WHEN_NEEDED },
-  { N_("Always"), TEXTFIT_ALWAYS },
+  { N_("Never"), DIA_TEXT_FIT_NEVER },
+  { N_("When Needed"), DIA_TEXT_FIT_WHEN_NEEDED },
+  { N_("Always"), DIA_TEXT_FIT_ALWAYS },
   { NULL, 0 }
 };
 PropEnumData prop_std_line_join_data[] = {
-  { NC_("LineJoin", "Miter"), LINEJOIN_MITER },
-  { NC_("LineJoin", "Round"), LINEJOIN_ROUND },
-  { NC_("LineJoin", "Bevel"), LINEJOIN_BEVEL },
+  { NC_("LineJoin", "Miter"), DIA_LINE_JOIN_MITER },
+  { NC_("LineJoin", "Round"), DIA_LINE_JOIN_ROUND },
+  { NC_("LineJoin", "Bevel"), DIA_LINE_JOIN_BEVEL },
   { NULL, 0 }
 };
 PropEnumData prop_std_line_caps_data[] = {
-  { NC_("LineCap", "Butt"), LINECAPS_BUTT },
-  { NC_("LineCap", "Round"), LINECAPS_ROUND },
-  { NC_("LineCap", "Projecting"), LINECAPS_PROJECTING },
+  { NC_("LineCap", "Butt"), DIA_LINE_CAPS_BUTT },
+  { NC_("LineCap", "Round"), DIA_LINE_CAPS_ROUND },
+  { NC_("LineCap", "Projecting"), DIA_LINE_CAPS_PROJECTING },
   { NULL, 0 }
 };
 #endif

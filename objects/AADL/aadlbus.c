@@ -18,6 +18,9 @@
 * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 */
 
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include "aadl.h"
 #include "pixmaps/aadlbus.xpm"
@@ -26,15 +29,15 @@
  **               AADL BUS             **
  ***********************************************/
 
-static void aadlbus_draw_borders(Aadlbox *aadlbox, DiaRenderer *renderer)
+static void
+aadlbus_draw_borders (Aadlbox *aadlbox, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Element *elem;
   real x, y, w, h;
   Point points[10];
 
-  assert(aadlbox != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (aadlbox != NULL);
+  g_return_if_fail (renderer != NULL);
 
   elem = &aadlbox->element;
 
@@ -73,18 +76,22 @@ static void aadlbus_draw_borders(Aadlbox *aadlbox, DiaRenderer *renderer)
   points[9].x = x + w*AADL_BUS_ARROW_SIZE_FACTOR;
   points[9].y = y + h;
 
+  dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+  dia_renderer_set_linewidth (renderer, AADLBOX_BORDERWIDTH);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0.0);
 
-  renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
-  renderer_ops->set_linewidth(renderer, AADLBOX_BORDERWIDTH);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0.0);
-
-  renderer_ops->draw_polygon(renderer, points, 10, &aadlbox->fill_color, &aadlbox->line_color);
+  dia_renderer_draw_polygon (renderer,
+                             points,
+                             10,
+                             &aadlbox->fill_color,
+                             &aadlbox->line_color);
 }
 
-static void aadlbus_draw(Aadlbox *aadlbox, DiaRenderer *renderer)
+static void
+aadlbus_draw (Aadlbox *aadlbox, DiaRenderer *renderer)
 {
-  aadlbus_draw_borders(aadlbox, renderer);
-  aadlbox_draw(aadlbox, renderer);
+  aadlbus_draw_borders (aadlbox, renderer);
+  aadlbox_draw (aadlbox, renderer);
 }
 
 static void
@@ -97,18 +104,18 @@ aadlbus_project_point_on_nearest_border(Aadlbox *aadlbox,Point *p,
   real h = element->height;
 
   /* top left corner */
-  coord x1 = element->corner.x;
-  coord y1 = element->corner.y;
+  double x1 = element->corner.x;
+  double y1 = element->corner.y;
 
   /* bottom right corner */
-  coord x2 = element->corner.x + w;
-  coord y2 = element->corner.y + h;
+  double x2 = element->corner.x + w;
+  double y2 = element->corner.y + h;
 
 
   if ( p->x >= x1 + w*AADL_BUS_ARROW_SIZE_FACTOR
        && p->x <= x2 - w*AADL_BUS_ARROW_SIZE_FACTOR)
   {
-    Rectangle rectangle;
+    DiaRectangle rectangle;
 
     rectangle.left = x1 + w*AADL_BUS_ARROW_SIZE_FACTOR;
     rectangle.top  = y1 + h*AADL_BUS_HEIGHT_FACTOR;

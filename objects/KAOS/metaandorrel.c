@@ -26,16 +26,16 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
 
 #include <glib.h>
 
-#include "intl.h"
 #include "object.h"
 #include "connection.h"
 #include "diarenderer.h"
@@ -62,12 +62,11 @@ struct _Maor {
 
   Handle text_handle;
 
-  gchar *text;
+  char *text;
   Point text_pos;
   real text_width;
 
   MaorType type;
-  int init;
 };
 
 #define MAOR_WIDTH 0.1
@@ -85,10 +84,10 @@ struct _Maor {
 
 static DiaFont *maor_font = NULL;
 
-static ObjectChange* maor_move_handle(Maor *maor, Handle *handle,
+static DiaObjectChange* maor_move_handle(Maor *maor, Handle *handle,
 				   Point *to, ConnectionPoint *cp,
 				   HandleMoveReason reason, ModifierKeys modifiers);
-static ObjectChange* maor_move(Maor *maor, Point *to);
+static DiaObjectChange* maor_move(Maor *maor, Point *to);
 static void maor_select(Maor *maor, Point *clicked_point,
 			      DiaRenderer *interactive_renderer);
 static void maor_draw(Maor *maor, DiaRenderer *renderer);
@@ -125,7 +124,12 @@ DiaObjectType kaos_maor_type =
   "KAOS - maor",     /* name */
   0,              /* version */
   contributes_xpm, /* pixmap */
-  &maor_type_ops      /* ops */
+  &maor_type_ops,     /* ops */
+  NULL, /* pixmap_file */
+  NULL, /* default_user_data */
+  NULL, /* prop_descs */
+  NULL, /* prop_offsets */
+  DIA_OBJECT_HAS_VARIANTS /* flags */
 };
 
 static ObjectOps maor_ops = {
@@ -193,7 +197,6 @@ maor_get_props(Maor * maor, GPtrArray *props)
 static void
 maor_set_props(Maor *maor, GPtrArray *props)
 {
-  if (maor->init==-1) { maor->init++; return; }
   object_set_props_from_offsets(&maor->connection.object,maor_offsets, props);
   maor_update_data(maor);
 }
@@ -220,17 +223,21 @@ maor_select(Maor *maor, Point *clicked_point,
   connection_update_handles(&maor->connection);
 }
 
-static ObjectChange*
-maor_move_handle(Maor *maor, Handle *handle,
-		 Point *to, ConnectionPoint *cp,
-		 HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+maor_move_handle (Maor             *maor,
+                  Handle           *handle,
+                  Point            *to,
+                  ConnectionPoint  *cp,
+                  HandleMoveReason  reason,
+                  ModifierKeys      modifiers)
 {
   Point p1, p2;
   Point *endpoints;
 
-  assert(maor!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+  g_return_val_if_fail (maor != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
   if (handle->id == HANDLE_MOVE_TEXT) {
     maor->text_pos = *to;
@@ -250,7 +257,7 @@ maor_move_handle(Maor *maor, Handle *handle,
   return NULL;
 }
 
-static ObjectChange*
+static DiaObjectChange*
 maor_move(Maor *maor, Point *to)
 {
   Point start_to_end;
@@ -371,65 +378,66 @@ static void compute_oper(Point *p, double w, double h, Point *pl) {
 }
 
 static void
-draw_agent_icon(Maor *maor, double w, double h,
-		DiaRenderer *renderer)
+draw_agent_icon (Maor        *maor,
+                 double       w,
+                 double       h,
+                 DiaRenderer *renderer)
 {
-     DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
-     double rx,ry;
-     Point ref,c,p1,p2;
+  double rx,ry;
+  Point ref,c,p1,p2;
 
-     ref=maor->connection.endpoints[0];
-     rx=ref.x;
-     ry=ref.y-h*0.2;
+  ref=maor->connection.endpoints[0];
+  rx=ref.x;
+  ry=ref.y-h*0.2;
 
-     /* head */
-     c.x=rx;
-     c.y=ry;
-     renderer_ops->draw_ellipse(renderer,&c,h/5,h/5,&MAOR_FG_COLOR, NULL);
+  /* head */
+  c.x=rx;
+  c.y=ry;
+  dia_renderer_draw_ellipse (renderer,&c,h/5,h/5,&MAOR_FG_COLOR, NULL);
 
-     /* body */
-     p1.x=rx;
-     p1.y=ry;
-     p2.x=p1.x;
-     p2.y=p1.y+3.5*h/10;
-     renderer_ops->draw_line(renderer,&p1,&p2,&MAOR_FG_COLOR);
+  /* body */
+  p1.x=rx;
+  p1.y=ry;
+  p2.x=p1.x;
+  p2.y=p1.y+3.5*h/10;
+  dia_renderer_draw_line (renderer,&p1,&p2,&MAOR_FG_COLOR);
 
-     /* arms */
-     p1.x=rx-1.5*h/10;
-     p1.y=ry+2.2*h/10;
-     p2.x=rx+1.5*h/10;
-     p2.y=p1.y;
-     renderer_ops->draw_line(renderer,&p1,&p2,&MAOR_FG_COLOR);
+  /* arms */
+  p1.x=rx-1.5*h/10;
+  p1.y=ry+2.2*h/10;
+  p2.x=rx+1.5*h/10;
+  p2.y=p1.y;
+  dia_renderer_draw_line (renderer,&p1,&p2,&MAOR_FG_COLOR);
 
-     /* left leg */
-     p1.x=rx;
-     p1.y=ry+3.5*h/10;
-     p2.x=p1.x-h/10;
-     p2.y=p1.y+2*h/10;
-     renderer_ops->draw_line(renderer,&p1,&p2,&MAOR_FG_COLOR);
+  /* left leg */
+  p1.x=rx;
+  p1.y=ry+3.5*h/10;
+  p2.x=p1.x-h/10;
+  p2.y=p1.y+2*h/10;
+  dia_renderer_draw_line (renderer,&p1,&p2,&MAOR_FG_COLOR);
 
-     /* right leg */
-     p1.x=rx;
-     p1.y=ry+3.5*h/10;
-     p2.x=p1.x+h/10;
-     p2.y=p1.y+2*h/10;
-     renderer_ops->draw_line(renderer,&p1,&p2,&MAOR_FG_COLOR);
+  /* right leg */
+  p1.x=rx;
+  p1.y=ry+3.5*h/10;
+  p2.x=p1.x+h/10;
+  p2.y=p1.y+2*h/10;
+  dia_renderer_draw_line (renderer,&p1,&p2,&MAOR_FG_COLOR);
 }
+
 
 /* drawing here -- TBD inverse flow ??  */
 static void
-maor_draw(Maor *maor, DiaRenderer *renderer)
+maor_draw (Maor *maor, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point *endpoints, p1, p2;
   Arrow arrow;
   BezPoint bpl[6];
   Point pl[7];
-  gchar *mname = g_strdup(maor->text);
+  char *mname = g_strdup (maor->text);
 
   /* some asserts */
-  assert(maor != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (maor != NULL);
+  g_return_if_fail (renderer != NULL);
 
   /* arrow type */
   arrow.type = ARROW_FILLED_TRIANGLE;
@@ -443,57 +451,71 @@ maor_draw(Maor *maor, DiaRenderer *renderer)
   p2 = endpoints[1];
 
   /** drawing directed line **/
-  renderer_ops->set_linewidth(renderer, MAOR_WIDTH);
-  renderer_ops->set_linecaps(renderer, LINECAPS_BUTT);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0);
-  renderer_ops->draw_line_with_arrows(renderer,&p1,&p2,MAOR_WIDTH,&MAOR_FG_COLOR,NULL,&arrow);
+  dia_renderer_set_linewidth (renderer, MAOR_WIDTH);
+  dia_renderer_set_linecaps (renderer, DIA_LINE_CAPS_BUTT);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0);
+  dia_renderer_draw_line_with_arrows (renderer,
+                                      &p1,
+                                      &p2,
+                                      MAOR_WIDTH,
+                                      &MAOR_FG_COLOR,
+                                      NULL,
+                                      &arrow);
 
   /** drawing vector decoration  **/
   /* and ref */
   switch (maor->type) {
     case MAOR_AND_REF:
-      compute_and(&p1,MAOR_REF_WIDTH,MAOR_REF_HEIGHT,bpl);
-      renderer_ops->draw_beziergon(renderer,bpl,6,&MAOR_BG_COLOR,&MAOR_FG_COLOR);
+      compute_and (&p1,MAOR_REF_WIDTH,MAOR_REF_HEIGHT,bpl);
+      dia_renderer_draw_beziergon (renderer,bpl,6,&MAOR_BG_COLOR,&MAOR_FG_COLOR);
       break;
 
     case MAOR_AND_COMP_REF:
-      compute_and(&p1,MAOR_REF_WIDTH,MAOR_REF_HEIGHT,bpl);
-      renderer_ops->draw_beziergon(renderer,bpl,6,&MAOR_FG_COLOR,NULL);
+      compute_and (&p1,MAOR_REF_WIDTH,MAOR_REF_HEIGHT,bpl);
+      dia_renderer_draw_beziergon (renderer,bpl,6,&MAOR_FG_COLOR,NULL);
       break;
 
     case MAOR_OR_REF:
-      compute_or(&p1,MAOR_REF_WIDTH,MAOR_REF_HEIGHT,bpl);
-      renderer_ops->draw_beziergon(renderer,bpl,4,&MAOR_BG_COLOR,&MAOR_FG_COLOR);
+      compute_or (&p1,MAOR_REF_WIDTH,MAOR_REF_HEIGHT,bpl);
+      dia_renderer_draw_beziergon (renderer,bpl,4,&MAOR_BG_COLOR,&MAOR_FG_COLOR);
       break;
 
     case MAOR_OR_COMP_REF:
-      compute_or(&p1,MAOR_REF_WIDTH,MAOR_REF_HEIGHT,bpl);
-      renderer_ops->draw_beziergon(renderer,bpl,4,&MAOR_FG_COLOR,NULL);
+      compute_or (&p1,MAOR_REF_WIDTH,MAOR_REF_HEIGHT,bpl);
+      dia_renderer_draw_beziergon (renderer,bpl,4,&MAOR_FG_COLOR,NULL);
       break;
 
     case MAOR_OPER_REF:
-      compute_oper(&p1,MAOR_REF_WIDTH,MAOR_REF_HEIGHT,pl);
-      renderer_ops->draw_polygon(renderer,pl,7,&MAOR_BG_COLOR,&MAOR_FG_COLOR);
-      draw_agent_icon(maor,MAOR_REF_WIDTH,MAOR_REF_HEIGHT,renderer);
+      compute_oper (&p1,MAOR_REF_WIDTH,MAOR_REF_HEIGHT,pl);
+      dia_renderer_draw_polygon (renderer,pl,7,&MAOR_BG_COLOR,&MAOR_FG_COLOR);
+      draw_agent_icon (maor,MAOR_REF_WIDTH,MAOR_REF_HEIGHT,renderer);
       break;
+
+    default:
+      g_return_if_reached ();
   }
 
   /** writing text on arrow (maybe not a good idea) **/
-  renderer_ops->set_font(renderer,maor_font,MAOR_FONTHEIGHT);
+  dia_renderer_set_font (renderer, maor_font, MAOR_FONTHEIGHT);
 
-  if (mname && strlen(mname) != 0)
-      renderer_ops->draw_string(renderer,mname,&maor->text_pos, ALIGN_CENTER,&color_black);
+  if (mname && strlen (mname) != 0) {
+    dia_renderer_draw_string (renderer,
+                              mname,
+                              &maor->text_pos,
+                              DIA_ALIGN_CENTRE,
+                              &color_black);
+  }
 
-  if (mname) g_free(mname);
-
+  g_clear_pointer (&mname, g_free);
 }
+
 
 /* creation here */
 static DiaObject *
-maor_create(Point *startpoint,
-		  void *user_data,
-		  Handle **handle1,
-		  Handle **handle2)
+maor_create (Point   *startpoint,
+             void    *user_data,
+             Handle **handle1,
+             Handle **handle2)
 {
   Maor *maor;
   Connection *conn;
@@ -502,10 +524,10 @@ maor_create(Point *startpoint,
 
   if (maor_font == NULL) {
     maor_font =
-      dia_font_new_from_style(DIA_FONT_SANS, MAOR_FONTHEIGHT);
+      dia_font_new_from_style (DIA_FONT_SANS, MAOR_FONTHEIGHT);
   }
 
-  maor = g_malloc0(sizeof(Maor));
+  maor = g_new0 (Maor, 1);
 
   conn = &maor->connection;
   conn->endpoints[0] = *startpoint;
@@ -554,9 +576,6 @@ maor_create(Point *startpoint,
   *handle1 = obj->handles[0];
   *handle2 = obj->handles[1];
 
-  /* bug workaround */
-  if (GPOINTER_TO_INT(user_data)!=0) maor->init=-1; else maor->init=0;
-
   return &maor->connection.object;
 }
 
@@ -565,7 +584,7 @@ maor_destroy(Maor *maor)
 {
   connection_destroy(&maor->connection);
 
-  g_free(maor->text);
+  g_clear_pointer (&maor->text, g_free);
 }
 
 static void
@@ -573,7 +592,7 @@ maor_update_data(Maor *maor)
 {
   Connection *conn = &maor->connection;
   DiaObject *obj = &conn->object;
-  Rectangle rect;
+  DiaRectangle rect;
   Point p1,p2,p3,p4;
 
   if (connpoint_is_autogap(conn->endpoint_handles[0].connected_to) ||

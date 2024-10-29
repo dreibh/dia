@@ -22,15 +22,17 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <config.h>
+
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <glib.h>
-#undef GTK_DISABLE_DEPRECATED /* GtkList */
 #include <gtk/gtk.h>
 #define WIDGET GtkWidget
-#include "widgets.h"
 #include "properties.h"
 #include "propinternals.h"
+#include "dia-simple-list.h"
 
 /******************************/
 /* The STATIC property type.  */
@@ -98,74 +100,33 @@ static const PropertyOps buttonprop_ops = {
 /* The FRAME_BEGIN and FRAME_END property types.  */
 /**************************************************/
 
-struct FoldButtonInfo {
-  GtkWidget *unfoldbutton;
-  GtkWidget *frame;
-};
-
-static void
-frame_fold_unfold(GtkWidget *button1, gpointer userdata)
+static GtkWidget *
+frame_beginprop_get_widget (FrameProperty *prop, PropDialog *dialog)
 {
-  struct FoldButtonInfo *info = (struct FoldButtonInfo *)userdata;
+  GtkWidget *frame = gtk_expander_new (_(prop->common.descr->description));
+  GtkWidget *vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 2);
 
-  if (button1 == info->unfoldbutton) {
-    gtk_widget_set_sensitive (info->unfoldbutton, FALSE);
-    gtk_widget_hide(info->unfoldbutton);
-    gtk_widget_show(info->frame);
-  } else {
-    gtk_widget_hide(info->frame);
-    gtk_widget_show(info->unfoldbutton);
-    gtk_widget_set_sensitive (info->unfoldbutton, TRUE);
-  }
-}
+  gtk_expander_set_expanded (GTK_EXPANDER (frame), TRUE);
+  gtk_widget_show (frame);
 
-static WIDGET *
-frame_beginprop_get_widget(FrameProperty *prop, PropDialog *dialog)
-{
-  gchar *foldstring = g_strdup_printf("%s <<<", _(prop->common.descr->description));
-  gchar *unfoldstring = g_strdup_printf("%s >>>", _(prop->common.descr->description));
-  GtkWidget *frame = gtk_frame_new(NULL);
-  GtkWidget *vbox = gtk_vbox_new(FALSE,2);
-  GtkWidget *foldbutton = gtk_button_new_with_label(foldstring);
-  GtkWidget *unfoldbutton = gtk_button_new_with_label(unfoldstring);
+  gtk_container_add (GTK_CONTAINER (frame), vbox);
+  gtk_widget_show (vbox);
 
-  struct FoldButtonInfo *info = g_new(struct FoldButtonInfo, 1);
+  prop_dialog_add_raw (dialog, frame);
 
-  g_free(foldstring);
-  g_free(unfoldstring);
-
-  info->frame = frame;
-  info->unfoldbutton = unfoldbutton;
-
-  gtk_frame_set_label_widget(GTK_FRAME(frame), foldbutton);
-
-  gtk_container_set_border_width (GTK_CONTAINER(frame), 2);
-  gtk_container_add(GTK_CONTAINER(frame),vbox);
-  gtk_widget_set_sensitive (unfoldbutton, FALSE);
-  gtk_widget_show(foldbutton);
-  gtk_widget_show(frame);
-  gtk_widget_show(vbox);
-
-  prop_dialog_add_raw(dialog, frame);
-
-  prop_dialog_add_raw_with_flags(dialog, unfoldbutton, FALSE, FALSE);
-
-  g_signal_connect(G_OBJECT (foldbutton), "clicked",
-		   G_CALLBACK (frame_fold_unfold), info);
-  g_signal_connect(G_OBJECT (unfoldbutton), "clicked",
-		   G_CALLBACK (frame_fold_unfold), info);
-
-  prop_dialog_container_push(dialog,vbox);
+  prop_dialog_container_push (dialog, vbox);
 
   return NULL; /* there is no single widget to add with a label next to it. */
 }
 
-static WIDGET *
-frame_endprop_get_widget(FrameProperty *prop, PropDialog *dialog)
+
+static GtkWidget *
+frame_endprop_get_widget (FrameProperty *prop, PropDialog *dialog)
 {
-  prop_dialog_container_pop(dialog);
+  prop_dialog_container_pop (dialog);
   return NULL;
 }
+
 
 static const PropertyOps frame_beginprop_ops = {
   (PropertyType_New) noopprop_new,
@@ -204,7 +165,7 @@ static const PropertyOps frame_endprop_ops = {
 static WIDGET *
 multicol_beginprop_get_widget(MulticolProperty *prop, PropDialog *dialog)
 {
-  GtkWidget *multicol = gtk_hbox_new(FALSE,1);
+  GtkWidget *multicol = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 1);
 
   gtk_container_set_border_width (GTK_CONTAINER(multicol), 2);
   gtk_widget_show(multicol);
@@ -220,7 +181,7 @@ multicol_beginprop_get_widget(MulticolProperty *prop, PropDialog *dialog)
 static WIDGET *
 multicol_columnprop_get_widget(MulticolProperty *prop, PropDialog *dialog)
 {
-  GtkWidget *col = gtk_vbox_new(FALSE,1);
+  GtkWidget *col = gtk_box_new(GTK_ORIENTATION_VERTICAL, 1);
 
   gtk_container_set_border_width (GTK_CONTAINER(col), 2);
   gtk_widget_show(col);
@@ -312,7 +273,7 @@ notebook_beginprop_get_widget(NotebookProperty *prop, PropDialog *dialog)
 static WIDGET *
 notebook_pageprop_get_widget(NotebookProperty *prop, PropDialog *dialog)
 {
-  GtkWidget *page = gtk_vbox_new(FALSE,1);
+  GtkWidget *page = gtk_box_new(GTK_ORIENTATION_VERTICAL, 1);
   GtkWidget *label = gtk_label_new(_(prop->common.descr->description));
 
   gtk_container_set_border_width (GTK_CONTAINER(page), 2);
@@ -387,122 +348,118 @@ static const PropertyOps notebook_endprop_ops = {
 /****************************/
 
 static void
-listprop_emptylines_realloc(ListProperty *prop,guint new_size) {
+listprop_emptylines_realloc (ListProperty *prop, guint new_size) {
   guint i;
 
-  for (i = 0; i < prop->lines->len; i++)
-    g_free(g_ptr_array_index(prop->lines,i));
-  g_ptr_array_set_size(prop->lines,new_size);
+  for (i = 0; i < prop->lines->len; i++) {
+    g_clear_pointer (&g_ptr_array_index (prop->lines, i), g_free);
+  }
+  g_ptr_array_set_size (prop->lines,new_size);
 }
+
 
 static void
-listprop_copylines(ListProperty *prop, GPtrArray *src) {
+listprop_copylines (ListProperty *prop, GPtrArray *src) {
   guint i;
 
-  listprop_emptylines_realloc(prop,src->len);
+  listprop_emptylines_realloc (prop, src->len);
 
-  for (i = 0; i < src->len; i++)
-    g_ptr_array_index(prop->lines,i) = g_strdup(g_ptr_array_index(src,i));
+  for (i = 0; i < src->len; i++) {
+    g_ptr_array_index (prop->lines, i) = g_strdup (g_ptr_array_index (src, i));
+  }
 }
 
+
 static ListProperty *
-listprop_new(const PropDescription *pdesc, PropDescToPropPredicate reason)
+listprop_new (const PropDescription *pdesc, PropDescToPropPredicate reason)
 {
-  ListProperty *prop = g_new0(ListProperty,1);
-  initialize_property(&prop->common,pdesc,reason);
+  ListProperty *prop = g_new0 (ListProperty,1);
+  initialize_property (&prop->common, pdesc, reason);
   prop->selected = -1;
-  prop->w_selected = -1;
-  prop->lines = g_ptr_array_new();
+  prop->lines = g_ptr_array_new ();
   return prop;
 }
 
+
 static void
-listprop_free(ListProperty *prop)
+listprop_free (ListProperty *prop)
 {
-  listprop_emptylines_realloc(prop,-1);
-  g_ptr_array_free(prop->lines,TRUE);
+  listprop_emptylines_realloc (prop,-1);
+  g_ptr_array_free (prop->lines,TRUE);
 }
 
+
 static ListProperty *
-listprop_copy(ListProperty *src)
+listprop_copy (ListProperty *src)
 {
   ListProperty *prop =
-    (ListProperty *)src->common.ops->new_prop(src->common.descr,
-                                               src->common.reason);
+    (ListProperty *) src->common.ops->new_prop (src->common.descr,
+                                                src->common.reason);
 
-  copy_init_property(&prop->common,&src->common);
+  copy_init_property (&prop->common,&src->common);
   prop->selected = src->selected;
-  prop->w_selected = src->w_selected;
-  listprop_copylines(prop,src->lines);
+  listprop_copylines (prop,src->lines);
 
   return prop;
 }
 
-static void
-listprop_select_child_signal(GtkList *list,
-                             GtkWidget *child,
-                             ListProperty *prop)
+
+static GtkWidget *
+listprop_get_widget (ListProperty *prop, PropDialog *dialog)
 {
-  prop->w_selected = gtk_list_child_position(list,child);
-}
+  GtkWidget *ret = dia_simple_list_new ();
 
-static WIDGET *
-listprop_get_widget(ListProperty *prop, PropDialog *dialog)
-{
-  GtkWidget *ret = gtk_list_new();
+  prophandler_connect (&prop->common, G_OBJECT(ret), "selection-changed");
 
-  gtk_list_set_selection_mode(GTK_LIST(ret),GTK_SELECTION_BROWSE);
-  gtk_list_unselect_all(GTK_LIST(ret));
-
-  g_signal_connect(G_OBJECT(ret), "select-child",
-                   G_CALLBACK (listprop_select_child_signal), prop);
-
-  prophandler_connect(&prop->common, G_OBJECT(ret), "selection-changed");
   return ret;
 }
 
-static GtkWidget *
-make_item(const gchar *line) {
-  GtkWidget *item = gtk_list_item_new_with_label(line);
-  gtk_widget_show(item);
-  return item;
-}
 
 static void
-listprop_reset_widget(ListProperty *prop, WIDGET *widget)
+listprop_reset_widget (ListProperty *prop, GtkWidget *widget)
 {
   guint i;
-  GList *items = NULL;
-  gtk_list_clear_items(GTK_LIST(widget),0,-1);
+
+  g_return_if_fail (DIA_IS_SIMPLE_LIST (widget));
+
+  dia_simple_list_empty (DIA_SIMPLE_LIST (widget));
 
   for (i = 0; i < prop->lines->len; i++) {
-    items = g_list_append(items, make_item(g_ptr_array_index(prop->lines,i)));
+    dia_simple_list_append (DIA_SIMPLE_LIST (widget),
+                            g_ptr_array_index (prop->lines, i));
   }
-  gtk_list_append_items(GTK_LIST(widget),items);
-  prop->w_selected = prop->selected;
-  gtk_list_select_item(GTK_LIST(widget),prop->selected);
+
+  dia_simple_list_select (DIA_SIMPLE_LIST (widget), prop->selected);
 }
 
-static void
-listprop_set_from_widget(ListProperty *prop, WIDGET *widget)
-{
-  prop->selected = prop->w_selected;
-}
 
 static void
-listprop_get_from_offset(ListProperty *prop,
-                         void *base, guint offset, guint offset2)
+listprop_set_from_widget (ListProperty *prop, WIDGET *widget)
 {
-  listprop_copylines(prop,struct_member(base,offset, GPtrArray *));
-  prop->selected = struct_member(base,offset2,gint);
+  prop->selected = dia_simple_list_get_selected (DIA_SIMPLE_LIST (widget));
 }
 
+
 static void
-listprop_set_from_offset(ListProperty *prop,
-                         void *base, guint offset, guint offset2)
+listprop_get_from_offset (ListProperty *prop,
+                          void         *base,
+                          guint         offset,
+                          guint         offset2)
 {
-  struct_member(base,offset2,gint) = prop->selected;
+  listprop_copylines (prop, struct_member (base,offset, GPtrArray *));
+  prop->selected = struct_member (base,offset2,gint);
 }
+
+
+static void
+listprop_set_from_offset (ListProperty *prop,
+                          void         *base,
+                          guint         offset,
+                          guint         offset2)
+{
+  struct_member (base, offset2, gint) = prop->selected;
+}
+
 
 static const PropertyOps listprop_ops = {
   (PropertyType_New) listprop_new,

@@ -16,21 +16,21 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
-#include <config.h>
+#define G_LOG_DOMAIN "Dia"
+
+#include "config.h"
+
+#include <glib/gi18n-lib.h>
 
 #include <gtk/gtk.h>
-
-/* this file should be the only place to include it */
-#ifdef HAVE_MAC_INTEGRATION
-#include <gtkosxapplication.h>
-#endif
 
 #include <stdio.h>
 #include <string.h>
 
+#include "dia-canvas.h"
 #include "diagram.h"
 #include "object.h"
-#include "layer_dialog.h"
+#include "layer-editor/layer_dialog.h"
 #include "interface.h"
 #include "display.h"
 #include "disp_callbacks.h"
@@ -38,100 +38,137 @@
 #include "toolbox.h"
 #include "commands.h"
 #include "dia_dirs.h"
-#include "intl.h"
 #include "navigation.h"
 #include "persistence.h"
 #include "widgets.h"
 #include "message.h"
 #include "ruler.h"
+#include "diainteractiverenderer.h"
+#include "dia-version-info.h"
 
 #include <gdk-pixbuf/gdk-pixbuf.h>
 
-static void
+#include "dia-guide-tool.h"
+
+#include <glib/gprintf.h>
+
+static gboolean _ddisplay_hruler_button_press (GtkWidget *widget,
+        GdkEventButton *bevent,
+        DDisplay *ddisp);
+
+static gboolean _ddisplay_vruler_button_press (GtkWidget *widget,
+        GdkEventButton *bevent,
+        DDisplay *ddisp);
+
+static gboolean _ddisplay_ruler_button_press (GtkWidget *widget,
+        GdkEventButton *event,
+        DDisplay *ddisp,
+        GtkOrientation orientation);
+
+static gboolean _ddisplay_ruler_button_release (GtkWidget *widget,
+        GdkEventButton *bevent,
+        DDisplay *ddisp);
+
+static gboolean _ddisplay_hruler_motion_notify (GtkWidget *widget,
+        GdkEventMotion *event,
+        DDisplay *ddisp);
+
+static gboolean _ddisplay_vruler_motion_notify (GtkWidget *widget,
+        GdkEventMotion *event,
+        DDisplay *ddisp);
+
+
+void
 dia_dnd_file_drag_data_received (GtkWidget        *widget,
                                  GdkDragContext   *context,
-                                 gint              x,
-                                 gint              y,
+                                 int               x,
+                                 int               y,
                                  GtkSelectionData *data,
                                  guint             info,
                                  guint             time,
                                  DDisplay         *ddisp)
 {
-  switch (gdk_drag_context_get_selected_action(context))
-    {
+  switch (gdk_drag_context_get_selected_action (context)) {
     case GDK_ACTION_DEFAULT:
     case GDK_ACTION_COPY:
     case GDK_ACTION_MOVE:
     case GDK_ACTION_LINK:
     case GDK_ACTION_ASK:
+    case GDK_ACTION_PRIVATE:
     default:
       {
         Diagram *diagram = NULL;
         gchar *sPath = NULL, *pFrom, *pTo;
 
-        pFrom = strstr((gchar *) gtk_selection_data_get_data(data), "file:");
+        pFrom = strstr ((gchar *) gtk_selection_data_get_data (data), "file:");
         while (pFrom) {
           GError *error = NULL;
 
           pTo = pFrom;
           while (*pTo != 0 && *pTo != 0xd && *pTo != 0xa) pTo ++;
-          sPath = g_strndup(pFrom, pTo - pFrom);
+          sPath = g_strndup (pFrom, pTo - pFrom);
 
           /* format changed with Gtk+2.0, use conversion */
           pFrom = g_filename_from_uri (sPath, NULL, &error);
-	  if (!ddisp)
+          if (!ddisp) {
             diagram = diagram_load (pFrom, NULL);
-	  else {
-	    diagram = ddisp->diagram;
-	    if (!diagram_load_into (diagram, pFrom, NULL)) {
-	      /* the import filter is supposed to show the error message */
+          } else {
+            diagram = ddisp->diagram;
+            if (!diagram_load_into (diagram, pFrom, NULL)) {
+              /* the import filter is supposed to show the error message */
               gtk_drag_finish (context, TRUE, FALSE, time);
-	      break;
-	    }
-	  }
+              break;
+            }
+          }
 
-          g_free (pFrom);
-          g_free(sPath);
+          g_clear_pointer (&pFrom, g_free);
+          g_clear_pointer (&sPath, g_free);
 
           if (diagram != NULL) {
             diagram_update_extents(diagram);
             layer_dialog_set_diagram(diagram);
 
-	    if (diagram->displays == NULL) {
-	      new_display(diagram);
-	    }
+            if (diagram->displays == NULL) {
+              new_display (diagram);
+            }
           }
 
-          pFrom = strstr(pTo, "file:");
+          pFrom = strstr (pTo, "file:");
         } /* while */
         gtk_drag_finish (context, TRUE, FALSE, time);
       }
       break;
-    }
-  return;
+  }
 }
+
 
 static GtkWidget *toolbox_shell = NULL;
 
-static struct
-{
-    GtkWindow    * main_window;
-    GtkToolbar   * toolbar;
-    GtkNotebook  * diagram_notebook;
-    GtkStatusbar * statusbar;
-    GtkWidget    * layer_view;
+static struct {
+  GtkWindow    *main_window;
+  GtkToolbar   *toolbar;
+  GtkNotebook  *diagram_notebook;
+  GtkStatusbar *statusbar;
+  GtkWidget    *layer_view;
 } ui;
 
+
 /**
- * Used to determine if the current user interface is the integrated interface or
- * the distributed interface.  This cannot presently be determined by the preferences
- * setting because changing that setting at run time does not change the interface.
- * @return Non-zero if the integrated interface is present, else zero.
+ * is_integrated_ui:
+ *
+ * Used to determine if the current user interface is the integrated interface
+ * or the distributed interface.  This cannot presently be determined by the
+ * preferences setting because changing that setting at run time does not
+ * change the interface.
+ *
+ * Returns: %TRUE if the integrated interface is present, else %FALSE.
  */
-int is_integrated_ui (void)
+int
+is_integrated_ui (void)
 {
-  return ui.main_window == NULL? 0 : 1;
+  return ui.main_window == NULL ? FALSE : TRUE;
 }
+
 
 static void
 grid_toggle_snap(GtkWidget *widget, gpointer data)
@@ -151,8 +188,20 @@ interface_toggle_mainpoint_magnetism(GtkWidget *widget, gpointer data)
   ddisplay_flush(ddisp);
 }
 
-static gint
-origin_button_press(GtkWidget *widget, GdkEventButton *event, gpointer data)
+
+static void
+interface_toggle_snap_to_guides (GtkWidget *widget, gpointer data)
+{
+  DDisplay *ddisp = (DDisplay *) data;
+  ddisplay_set_snap_to_guides (ddisp,
+                               gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (widget)));
+  ddisplay_add_update_all (ddisp);
+  ddisplay_flush (ddisp);
+}
+
+
+static int
+origin_button_press (GtkWidget *widget, GdkEventButton *event, gpointer data)
 {
   DDisplay *ddisp = (DDisplay *)data;
 
@@ -166,45 +215,51 @@ origin_button_press(GtkWidget *widget, GdkEventButton *event, gpointer data)
   return FALSE;
 }
 
+
 void
-view_zoom_set (float factor)
+view_zoom_set (double factor)
 {
   DDisplay *ddisp;
-  real scale;
+  double scale;
 
   ddisp = ddisplay_active();
-  if (!ddisp) return;
+  g_return_if_fail (ddisp != NULL);
 
-  scale = ((real) factor)/1000.0 * DDISPLAY_NORMAL_ZOOM;
+  scale = ((double) factor) / 1000.0 * DDISPLAY_NORMAL_ZOOM;
 
-  ddisplay_zoom_middle(ddisp, scale / ddisp->zoom_factor);
+  ddisplay_zoom_middle (ddisp, scale / ddisp->zoom_factor);
 }
 
+
 static void
-zoom_activate_callback(GtkWidget *item, gpointer user_data)
+zoom_activate_callback (GtkWidget *item, gpointer user_data)
 {
-  DDisplay *ddisp = (DDisplay *)user_data;
+  DDisplay *ddisp = (DDisplay *) user_data;
   const gchar *zoom_text =
-      gtk_entry_get_text(GTK_ENTRY(g_object_get_data(G_OBJECT(ddisp->zoom_status), "user_data")));
-  float zoom_amount, magnify;
-  gchar *zoomamount = g_object_get_data(G_OBJECT(item), "zoomamount");
+      gtk_entry_get_text (GTK_ENTRY (g_object_get_data (G_OBJECT (ddisp->zoom_status), "user_data")));
+  double zoom_amount, magnify;
+  char *zoomamount = g_object_get_data (G_OBJECT (item), "zoomamount");
   if (zoomamount != NULL) {
     zoom_text = zoomamount;
   }
 
-  if (sscanf(zoom_text, "%f", &zoom_amount) == 1) {
+  zoom_amount = parse_zoom (zoom_text);
+
+  if (zoom_amount > 0) {
     /* Set limits to avoid crashes, see bug #483384 */
     if (zoom_amount < .1) {
       zoom_amount = .1;
     } else if (zoom_amount > 1e4) {
       zoom_amount = 1e4;
     }
-    zoomamount = g_strdup_printf("%f%%\n", zoom_amount);
-    gtk_entry_set_text(GTK_ENTRY(g_object_get_data(G_OBJECT(ddisp->zoom_status), "user_data")), zoomamount);
-    g_free(zoomamount);
+
+    // Translators: Current zoom level
+    zoomamount = g_strdup_printf (_("%f%%"), zoom_amount);
+    gtk_entry_set_text (GTK_ENTRY (g_object_get_data (G_OBJECT (ddisp->zoom_status), "user_data")), zoomamount);
+    g_clear_pointer (&zoomamount, g_free);
     magnify = (zoom_amount*DDISPLAY_NORMAL_ZOOM/100.0)/ddisp->zoom_factor;
-    if (fabs(magnify - 1.0) > 0.000001) {
-      ddisplay_zoom_middle(ddisp, magnify);
+    if (fabs (magnify - 1.0) > 0.000001) {
+      ddisplay_zoom_middle (ddisp, magnify);
     }
   }
 }
@@ -242,7 +297,7 @@ create_zoom_widget(DDisplay *ddisp) {
   GtkWidget *button;
   GtkWidget *arrow;
 
-  combo = gtk_hbox_new(FALSE, 0);
+  combo = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
   entry = gtk_entry_new();
   g_signal_connect (G_OBJECT (entry), "activate",
                     G_CALLBACK (zoom_activate_callback),
@@ -277,210 +332,82 @@ create_zoom_widget(DDisplay *ddisp) {
   return combo;
 }
 
-static gboolean
-display_drop_callback(GtkWidget *widget, GdkDragContext *context,
-		      gint x, gint y, guint time)
-{
-  if (gtk_drag_get_source_widget(context) != NULL) {
-    /* we only accept drops from the same instance of the application,
-     * as the drag data is a pointer in our address space */
-    return TRUE;
-  }
-  gtk_drag_finish (context, FALSE, FALSE, time);
-  return FALSE;
-}
-
-static void
-display_data_received_callback (GtkWidget *widget,
-				GdkDragContext *context,
-				gint x,
-				gint y,
-				GtkSelectionData *data,
-				guint info,
-				guint time,
-				DDisplay *ddisp)
-{
-  if (gtk_selection_data_get_format(data) == 8 &&
-      gtk_selection_data_get_length(data) == sizeof(ToolButtonData *) &&
-      gtk_drag_get_source_widget(context) != NULL) {
-    ToolButtonData *tooldata = *(ToolButtonData **)gtk_selection_data_get_data(data);
-    /* g_message("Tool drop %s at (%d, %d)", (gchar *)tooldata->extra_data, x, y);*/
-    ddisplay_drop_object(ddisp, x, y,
-			 object_get_type((gchar *)tooldata->extra_data),
-			 tooldata->user_data);
-
-    gtk_drag_finish (context, TRUE, FALSE, time);
-  } else {
-    dia_dnd_file_drag_data_received (widget, context, x, y, data, info, time, ddisp);
-  }
-  /* ensure the right window has the focus for text editing */
-  gtk_window_present(GTK_WINDOW(ddisp->shell));
-}
 
 /**
- * @param button The notebook close button.
- * @param user_data Container widget (e.g. VBox).
+ * close_notebook_page_callback:
+ * @button: The notebook close button.
+ * @user_data: Container widget (e.g. Box).
+ *
+ * Since: dawn-of-time
  */
 void
 close_notebook_page_callback (GtkButton *button,
                               gpointer   user_data)
 {
-  GtkBox      *page     = user_data;
-  DDisplay    *ddisp    = g_object_get_data (G_OBJECT (page), "DDisplay");
+  GtkBox *page = user_data;
+  DDisplay *ddisp = g_object_get_data (G_OBJECT (page), "DDisplay");
 
   /* When the page widget is destroyed it removes itself from the notebook */
   ddisplay_close (ddisp);
 }
 
-/*!
- * Called when the widget's window "size, position or stacking"
- * changes. Needs GDK_STRUCTURE_MASK set.
- */
-static gboolean
-canvas_configure_event (GtkWidget         *widget,
-			GdkEventConfigure *cevent,
-			DDisplay          *ddisp)
+
+static void
+notebook_switch_page (GtkNotebook *notebook,
+                      GtkWidget   *page,
+                      guint        page_num,
+                      gpointer     user_data)
 {
-  gboolean new_size = FALSE;
-  int width, height;
+  DDisplay *ddisp = g_object_get_data (G_OBJECT (page), "DDisplay");
 
-  g_return_val_if_fail (widget == ddisp->canvas, FALSE);
+  g_return_if_fail (ddisp != NULL);
 
+  display_set_active (ddisp);
 
-  if (ddisp->renderer) {
-    width = dia_renderer_get_width_pixels (ddisp->renderer);
-    height = dia_renderer_get_height_pixels (ddisp->renderer);
-  } else {
-    /* We can continue even without a renderer here because
-     * ddisplay_resize_canvas () does the setup for us.
-     */
-    width = height = 0;
-  }
-
-  /* Only do this when size is really changing */
-  if (width != cevent->width || height != cevent->height) {
-    g_print ("Canvas size change...\n");
-    ddisplay_resize_canvas (ddisp, cevent->width, cevent->height);
-    ddisplay_update_scrollbars(ddisp);
-    /* on resize stop further propagation - does not help */
-    new_size = TRUE;
-  }
-
-  /* If the UI is not integrated, resizing should set the resized
-   * window as active.  With integrated UI, there is only one window.
-   */
-  if (is_integrated_ui () == 0)
-    display_set_active(ddisp);
-
-  /* continue propagation with FALSE */
-  return new_size;
-}
-
-static gboolean
-canvas_expose_event (GtkWidget      *widget,
-                     GdkEventExpose *event,
-                     DDisplay       *ddisp)
-{
-  GSList *l;
-  Rectangle *r, totrect;
-  DiaInteractiveRendererInterface *renderer;
-  GtkAllocation alloc;
-  cairo_t *ctx;
-
-  ctx = gdk_cairo_create (gtk_widget_get_window (widget));
-
-  g_return_val_if_fail (ddisp->renderer != NULL, FALSE);
-
-  /* Renders updates to pixmap + copies display_areas to canvas(screen) */
-  renderer = DIA_GET_INTERACTIVE_RENDERER_INTERFACE (ddisp->renderer);
-
-  /* Only update if update_areas exist */
-  l = ddisp->update_areas;
-  if (l != NULL)
-  {
-    totrect = *(Rectangle *) l->data;
-
-    g_return_val_if_fail (   renderer->clip_region_clear != NULL
-                          && renderer->clip_region_add_rect != NULL, FALSE);
-
-    renderer->clip_region_clear (ddisp->renderer);
-
-    while(l!=NULL) {
-      r = (Rectangle *) l->data;
-
-      rectangle_union(&totrect, r);
-      renderer->clip_region_add_rect (ddisp->renderer, r);
-
-      l = g_slist_next(l);
-    }
-    /* Free update_areas list: */
-    l = ddisp->update_areas;
-    while(l!=NULL) {
-      g_free(l->data);
-      l = g_slist_next(l);
-    }
-    g_slist_free(ddisp->update_areas);
-    ddisp->update_areas = NULL;
-
-    totrect.left -= 0.1;
-    totrect.right += 0.1;
-    totrect.top -= 0.1;
-    totrect.bottom += 0.1;
-
-    ddisplay_render_pixmap(ddisp, &totrect);
-  }
-
-  gtk_widget_get_allocation (widget, &alloc);
-
-  dia_interactive_renderer_paint (ddisp->renderer, ctx,
-                                  alloc.width, alloc.height);
-
-  return FALSE;
-}
-
-static GtkWidget *
-create_canvas (DDisplay *ddisp)
-{
-  GtkWidget *canvas = gtk_drawing_area_new();
-
-  gtk_widget_set_events (canvas,
-                         GDK_EXPOSURE_MASK |
-                         GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK |
-                         GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK |
-                         GDK_STRUCTURE_MASK | GDK_ENTER_NOTIFY_MASK |
-                         GDK_KEY_PRESS_MASK | GDK_KEY_RELEASE_MASK);
-  g_signal_connect (G_OBJECT (canvas), "configure-event",
-                    G_CALLBACK (canvas_configure_event), ddisp);
-  g_signal_connect (G_OBJECT (canvas), "expose-event",
-                    G_CALLBACK (canvas_expose_event), ddisp);
-  gtk_widget_set_can_focus (canvas, TRUE);
-  g_signal_connect (G_OBJECT (canvas), "event",
-                    G_CALLBACK (ddisplay_canvas_events), ddisp);
-
-  canvas_setup_drag_dest (canvas);
-  g_signal_connect (G_OBJECT (canvas), "drag_drop",
-                    G_CALLBACK (display_drop_callback), NULL);
-  g_signal_connect (G_OBJECT (canvas), "drag_data_received",
-                    G_CALLBACK (display_data_received_callback), ddisp);
-  g_object_set_data (G_OBJECT (canvas), "user_data", (gpointer) ddisp);
-
-  return canvas;
+  gtk_widget_grab_focus (ddisp->canvas);
 }
 
 /* Shared helper functions for both UI cases
  */
 static void
-_ddisplay_setup_rulers (DDisplay *ddisp, GtkWidget *shell, GtkWidget *table)
+_ddisplay_setup_rulers (DDisplay *ddisp, GtkWidget *shell, GtkWidget *grid)
 {
   ddisp->hrule = dia_ruler_new (GTK_ORIENTATION_HORIZONTAL, shell, ddisp);
   ddisp->vrule = dia_ruler_new (GTK_ORIENTATION_VERTICAL, shell, ddisp);
 
-  /* harder to change position in the table, but we did not do it for years ;) */
-  gtk_table_attach (GTK_TABLE (table), ddisp->hrule, 1, 2, 0, 1,
-                    GTK_EXPAND | GTK_SHRINK | GTK_FILL, GTK_FILL, 0, 0);
-  gtk_table_attach (GTK_TABLE (table), ddisp->vrule, 0, 1, 1, 2,
-                    GTK_FILL, GTK_EXPAND | GTK_SHRINK | GTK_FILL, 0, 0);
+  /* Callbacks for adding guides - horizontal ruler. */
+  g_signal_connect (ddisp->hrule, "button-press-event",
+                    G_CALLBACK (_ddisplay_hruler_button_press),
+                    ddisp);
+
+  g_signal_connect (ddisp->hrule, "button_release_event",
+                    G_CALLBACK (_ddisplay_ruler_button_release),
+                    ddisp);
+
+  g_signal_connect (ddisp->hrule, "motion_notify_event",
+                    G_CALLBACK (_ddisplay_hruler_motion_notify),
+                    ddisp);
+
+  /* Callbacks for adding guides - vertical ruler. */
+  g_signal_connect (ddisp->vrule, "button-press-event",
+                    G_CALLBACK (_ddisplay_vruler_button_press),
+                    ddisp);
+
+  g_signal_connect (ddisp->vrule, "button_release_event",
+                    G_CALLBACK (_ddisplay_ruler_button_release),
+                    ddisp);
+
+  g_signal_connect (ddisp->vrule, "motion_notify_event",
+                    G_CALLBACK (_ddisplay_vruler_motion_notify),
+                    ddisp);
+
+  /* harder to change position in the grid, but we did not do it for years ;) */
+  gtk_grid_attach (GTK_GRID (grid), ddisp->hrule, 1, 0, 1, 1);
+  gtk_widget_set_hexpand (ddisp->hrule, TRUE);
+  gtk_grid_attach (GTK_GRID (grid), ddisp->vrule, 0, 1, 1, 1);
+  gtk_widget_set_vexpand (ddisp->vrule, TRUE);
 }
+
 static void
 _ddisplay_setup_events (DDisplay *ddisp, GtkWidget *shell)
 {
@@ -489,25 +416,34 @@ _ddisplay_setup_events (DDisplay *ddisp, GtkWidget *shell)
                          GDK_POINTER_MOTION_HINT_MASK |
                          GDK_FOCUS_CHANGE_MASK);
 
-  g_signal_connect (G_OBJECT (shell), "focus_out_event",
-		    G_CALLBACK (ddisplay_focus_out_event), ddisp);
-  g_signal_connect (G_OBJECT (shell), "focus_in_event",
-		    G_CALLBACK (ddisplay_focus_in_event), ddisp);
-  g_signal_connect (G_OBJECT (shell), "realize",
-		    G_CALLBACK (ddisplay_realize), ddisp);
-  g_signal_connect (G_OBJECT (shell), "unrealize",
-		    G_CALLBACK (ddisplay_unrealize), ddisp);
+  g_signal_connect (G_OBJECT (shell),
+                    "focus_out_event",
+                    G_CALLBACK (ddisplay_focus_out_event),
+                    ddisp);
+  g_signal_connect (G_OBJECT (shell),
+                    "focus_in_event",
+                    G_CALLBACK (ddisplay_focus_in_event),
+                    ddisp);
+  g_signal_connect (G_OBJECT (shell),
+                    "realize",
+                    G_CALLBACK (ddisplay_realize),
+                    ddisp);
+  g_signal_connect (G_OBJECT (shell),
+                    "unrealize",
+                    G_CALLBACK (ddisplay_unrealize),
+                    ddisp);
 }
+
 static void
-_ddisplay_setup_scrollbars (DDisplay *ddisp, GtkWidget *table, int width, int height)
+_ddisplay_setup_scrollbars (DDisplay *ddisp, GtkWidget *grid, int width, int height)
 {
   /*  The adjustment datums  */
   ddisp->hsbdata = GTK_ADJUSTMENT (gtk_adjustment_new (0, 0, width, 1, (width-1)/4, width-1));
   ddisp->vsbdata = GTK_ADJUSTMENT (gtk_adjustment_new (0, 0, height, 1, (height-1)/4, height-1));
 
-  ddisp->hsb = gtk_hscrollbar_new (ddisp->hsbdata);
+  ddisp->hsb = gtk_scrollbar_new (GTK_ORIENTATION_HORIZONTAL, ddisp->hsbdata);
   gtk_widget_set_can_focus (ddisp->hsb, FALSE);
-  ddisp->vsb = gtk_vscrollbar_new (ddisp->vsbdata);
+  ddisp->vsb = gtk_scrollbar_new (GTK_ORIENTATION_VERTICAL, ddisp->vsbdata);
   gtk_widget_set_can_focus (ddisp->vsb, FALSE);
 
   /*  set up the scrollbar observers  */
@@ -516,17 +452,17 @@ _ddisplay_setup_scrollbars (DDisplay *ddisp, GtkWidget *table, int width, int he
   g_signal_connect (G_OBJECT (ddisp->vsbdata), "value_changed",
                     G_CALLBACK (ddisplay_vsb_update), ddisp);
 
-  /* harder to change position in the table, but we did not do it for years ;) */
-  gtk_table_attach (GTK_TABLE (table), ddisp->hsb, 0, 2, 2, 3,
-                    GTK_EXPAND | GTK_SHRINK | GTK_FILL, GTK_FILL, 0, 0);
-  gtk_table_attach (GTK_TABLE (table), ddisp->vsb, 2, 3, 0, 2,
-                    GTK_FILL, GTK_EXPAND | GTK_SHRINK | GTK_FILL, 0, 0);
+  /* harder to change position in the grid, but we did not do it for years ;) */
+  gtk_grid_attach (GTK_GRID (grid), ddisp->hsb, 0, 2, 2, 1);
+  gtk_widget_set_hexpand(ddisp->hsb, TRUE);
+  gtk_grid_attach (GTK_GRID (grid), ddisp->vsb, 2, 0, 1, 2);
+  gtk_widget_set_vexpand(ddisp->vsb, TRUE);
 
   gtk_widget_show (ddisp->hsb);
   gtk_widget_show (ddisp->vsb);
 }
 static void
-_ddisplay_setup_navigation (DDisplay *ddisp, GtkWidget *table, gboolean top_left)
+_ddisplay_setup_navigation (DDisplay *ddisp, GtkWidget *grid, gboolean top_left)
 {
   GtkWidget *navigation_button;
 
@@ -536,58 +472,61 @@ _ddisplay_setup_navigation (DDisplay *ddisp, GtkWidget *table, gboolean top_left
                        _("Pops up the Navigation window."));
   gtk_widget_show(navigation_button);
 
-  /* harder to change position in the table, but we did not do it for years ;) */
+  /* harder to change position in the grid, but we did not do it for years ;) */
   if (top_left)
-    gtk_table_attach (GTK_TABLE (table), navigation_button, 0, 1, 0, 1,
-                      GTK_FILL, GTK_FILL, 0, 0);
+    gtk_grid_attach (GTK_GRID (grid), navigation_button, 0, 0, 1, 1);
   else
-    gtk_table_attach (GTK_TABLE (table), navigation_button, 2, 3, 2, 3,
-                      GTK_FILL, GTK_FILL, 0, 0);
+    gtk_grid_attach (GTK_GRID (grid), navigation_button, 2, 2, 1, 1);
   if (!ddisp->origin)
     ddisp->origin = g_object_ref (navigation_button);
 }
+
+
 /**
- * @param ddisp The diagram display object that a window is created for
- * @param title
+ * use_integrated_ui_for_display_shell:
+ * @ddisp: The diagram #DDisplay object that a window is created for
+ * @title: the title
+ *
+ * Since: dawn-of-time
  */
 static void
-use_integrated_ui_for_display_shell(DDisplay *ddisp, char *title)
+use_integrated_ui_for_display_shell (DDisplay *ddisp, char *title)
 {
-  GtkWidget *table;
+  GtkWidget *grid;
   GtkWidget *label;                /* Text label for the notebook page */
   GtkWidget *tab_label_container;  /* Container to hold text label & close button */
   int width, height;               /* Width/Heigth of the diagram */
   GtkWidget *image;
   GtkWidget *close_button;         /* Close button for the notebook page */
-  GtkRcStyle *rcstyle;
-  gint       notebook_page_index;
+  int notebook_page_index;
 
   ddisp->is_standalone_window = FALSE;
 
   ddisp->shell = GTK_WIDGET (ui.main_window);
   ddisp->modified_status = GTK_WIDGET (ui.statusbar);
 
-  tab_label_container = gtk_hbox_new(FALSE,3);
+  tab_label_container = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 3);
   label = gtk_label_new( title );
   gtk_box_pack_start( GTK_BOX(tab_label_container), label, FALSE, FALSE, 0 );
   gtk_widget_show (label);
   /* Create a new tab page */
-  ddisp->container = gtk_vbox_new(FALSE, 0);
+  ddisp->container = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 
   /* <from GEdit> */
   /* don't allow focus on the close button */
-  close_button = gtk_button_new();
+  close_button = gtk_button_new ();
+  gtk_widget_set_tooltip_text (close_button, _("Close"));
   gtk_button_set_relief (GTK_BUTTON (close_button), GTK_RELIEF_NONE);
   gtk_button_set_focus_on_click (GTK_BUTTON (close_button), FALSE);
 
   /* make it as small as possible */
-  rcstyle = gtk_rc_style_new ();
-  rcstyle->xthickness = rcstyle->ythickness = 0;
-  gtk_widget_modify_style (close_button, rcstyle);
-  g_object_unref (rcstyle),
+  // Gtk3 disabled -- Hub
+  // rcstyle = gtk_rc_style_new ();
+  // rcstyle->xthickness = rcstyle->ythickness = 0;
+  // gtk_widget_modify_style (close_button, rcstyle);
+  // g_clear_object (&rcstyle);
 
-  image = gtk_image_new_from_stock (GTK_STOCK_CLOSE,
-                                    GTK_ICON_SIZE_MENU);
+  image = gtk_image_new_from_icon_name ("window-close-symbolic", GTK_ICON_SIZE_MENU);
 
   gtk_container_add (GTK_CONTAINER(close_button), image);
   g_signal_connect (G_OBJECT (close_button), "clicked",
@@ -601,41 +540,35 @@ use_integrated_ui_for_display_shell(DDisplay *ddisp, char *title)
   /* Set events for new tab page */
   _ddisplay_setup_events (ddisp, ddisp->container);
 
-  notebook_page_index = gtk_notebook_append_page (GTK_NOTEBOOK(ui.diagram_notebook),
-                                                  ddisp->container,
-                                                  tab_label_container);
-
   g_object_set_data (G_OBJECT (ddisp->container), "DDisplay",  ddisp);
   g_object_set_data (G_OBJECT (ddisp->container), "tab-label", label);
   g_object_set_data (G_OBJECT (ddisp->container), "window",    ui.main_window);
 
-  /*  the table containing all widgets  */
-  table = gtk_table_new (3, 3, FALSE);
-  gtk_table_set_col_spacing (GTK_TABLE (table), 0, 1);
-  gtk_table_set_col_spacing (GTK_TABLE (table), 1, 2);
-  gtk_table_set_row_spacing (GTK_TABLE (table), 0, 1);
-  gtk_table_set_row_spacing (GTK_TABLE (table), 1, 2);
-  gtk_container_set_border_width (GTK_CONTAINER (table), 2);
+  /*  the grid containing all widgets  */
+  grid = gtk_grid_new ();
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 2);
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 2);
+  gtk_container_set_border_width (GTK_CONTAINER (grid), 2);
 
-  gtk_box_pack_start( GTK_BOX(ddisp->container), table, TRUE, TRUE, 0 );
+  gtk_box_pack_start( GTK_BOX(ddisp->container), grid, TRUE, TRUE, 0 );
 
   /*  scrollbars, rulers, canvas, menu popup button  */
   ddisp->origin = NULL;
-  _ddisplay_setup_rulers (ddisp, ddisp->container, table);
+  _ddisplay_setup_rulers (ddisp, ddisp->container, grid);
 
   /* Get the width/height of the Notebook child area */
   /* TODO: Fix width/height hardcoded values */
   width = 100;
   height = 100;
-  _ddisplay_setup_scrollbars (ddisp, table, width, height);
-  _ddisplay_setup_navigation (ddisp, table, TRUE);
+  _ddisplay_setup_scrollbars (ddisp, grid, width, height);
+  _ddisplay_setup_navigation (ddisp, grid, TRUE);
 
-  ddisp->canvas = create_canvas (ddisp);
+  ddisp->canvas = dia_canvas_new (ddisp);
 
   /*  place all remaining widgets (no 'origin' anymore, since navigation is top-left */
-  gtk_table_attach (GTK_TABLE (table), ddisp->canvas, 1, 2, 1, 2,
-                    GTK_EXPAND | GTK_SHRINK | GTK_FILL,
-                    GTK_EXPAND | GTK_SHRINK | GTK_FILL, 0, 0);
+  gtk_grid_attach (GTK_GRID (grid), ddisp->canvas, 1, 1, 1, 1);
+  gtk_widget_set_hexpand (ddisp->canvas, TRUE);
+  gtk_widget_set_vexpand (ddisp->canvas, TRUE);
 
   ddisp->common_toolbar = ui.toolbar;
   /* Stand-alone window menubar */
@@ -648,37 +581,48 @@ use_integrated_ui_for_display_shell(DDisplay *ddisp, char *title)
   ddisp->mainpoint_status = NULL;
 
   gtk_widget_show (ddisp->container);
-  gtk_widget_show (table);
+  gtk_widget_show (grid);
   display_rulers_show (ddisp);
   gtk_widget_show (ddisp->canvas);
 
   /* Show new page */
+  notebook_page_index = gtk_notebook_append_page (GTK_NOTEBOOK (ui.diagram_notebook),
+                                                  ddisp->container,
+                                                  tab_label_container);
   gtk_notebook_set_current_page (ui.diagram_notebook, notebook_page_index);
 
   integrated_ui_toolbar_grid_snap_synchronize_to_display (ddisp);
   integrated_ui_toolbar_object_snap_synchronize_to_display (ddisp);
+  integrated_ui_toolbar_guides_snap_synchronize_to_display (ddisp);
 
   /*  set the focus to the canvas area  */
   gtk_widget_grab_focus (ddisp->canvas);
 }
 
+
 /**
- * @param ddisp The diagram display object that a window is created for
- * @param width Diagram widgth
- * @param height Diagram Height
- * @param title Window title
- * @param use_mbar Flag to indicate whether to add a menubar to the window
+ * create_display_shell:
+ * @ddisp: The diagram display object that a window is created for
+ * @width: Diagram width
+ * @height: Diagram Height
+ * @title: Window title
+ * @use_mbar: Flag to indicate whether to add a menubar to the window
+ *
+ * Since: dawn-of-time
  */
 void
-create_display_shell(DDisplay *ddisp,
-		     int width, int height,
-		     char *title, int use_mbar)
+create_display_shell (DDisplay *ddisp,
+                      int       width,
+                      int       height,
+                      char     *title,
+                      int       use_mbar)
 {
-  GtkWidget *table, *widget;
+  GtkWidget *grid, *widget;
   GtkWidget *status_hbox;
   GtkWidget *root_vbox = NULL;
   GtkWidget *zoom_hbox, *zoom_label;
   int s_width, s_height;
+  GtkAllocation alloc;
 
   if (app_is_interactive() && is_integrated_ui())
   {
@@ -711,22 +655,20 @@ create_display_shell(DDisplay *ddisp,
   g_signal_connect (G_OBJECT (ddisp->shell), "destroy",
 		    G_CALLBACK (ddisplay_destroy), ddisp);
 
-  /*  the table containing all widgets  */
-  table = gtk_table_new (4, 3, FALSE);
-  gtk_table_set_col_spacing (GTK_TABLE (table), 0, 1);
-  gtk_table_set_col_spacing (GTK_TABLE (table), 1, 2);
-  gtk_table_set_row_spacing (GTK_TABLE (table), 0, 1);
-  gtk_table_set_row_spacing (GTK_TABLE (table), 1, 2);
-  gtk_container_set_border_width (GTK_CONTAINER (table), 2);
+  /*  the grid containing all widgets  */
+  grid = gtk_grid_new ();
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 2);
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 2);
+  gtk_container_set_border_width (GTK_CONTAINER (grid), 2);
   if (use_mbar)
   {
-      root_vbox = gtk_vbox_new (FALSE, 1);
+      root_vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 1);
       gtk_container_add (GTK_CONTAINER (ddisp->shell), root_vbox);
-      gtk_box_pack_end (GTK_BOX (root_vbox), table, TRUE, TRUE, 0);
+      gtk_box_pack_end (GTK_BOX (root_vbox), grid, TRUE, TRUE, 0);
   }
   else
   {
-      gtk_container_add (GTK_CONTAINER (ddisp->shell), table);
+      gtk_container_add (GTK_CONTAINER (ddisp->shell), grid);
   }
 
 
@@ -746,18 +688,17 @@ create_display_shell(DDisplay *ddisp,
       gtk_frame_set_shadow_type (GTK_FRAME (ddisp->origin), GTK_SHADOW_OUT);
   }
 
-  _ddisplay_setup_rulers (ddisp, ddisp->shell, table);
-  _ddisplay_setup_scrollbars (ddisp, table, width, height);
-  _ddisplay_setup_navigation (ddisp, table, FALSE);
+  _ddisplay_setup_rulers (ddisp, ddisp->shell, grid);
+  _ddisplay_setup_scrollbars (ddisp, grid, width, height);
+  _ddisplay_setup_navigation (ddisp, grid, FALSE);
 
-  ddisp->canvas = create_canvas (ddisp);
+  ddisp->canvas = dia_canvas_new (ddisp);
 
   /*  pack all remaining widgets  */
-  gtk_table_attach (GTK_TABLE (table), ddisp->origin, 0, 1, 0, 1,
-                    GTK_FILL, GTK_FILL, 0, 0);
-  gtk_table_attach (GTK_TABLE (table), ddisp->canvas, 1, 2, 1, 2,
-                    GTK_EXPAND | GTK_SHRINK | GTK_FILL,
-                    GTK_EXPAND | GTK_SHRINK | GTK_FILL, 0, 0);
+  gtk_grid_attach (GTK_GRID (grid), ddisp->origin, 0, 0, 1, 1);
+  gtk_grid_attach (GTK_GRID (grid), ddisp->canvas, 1, 1, 1, 1);
+  gtk_widget_set_vexpand(ddisp->canvas, TRUE);
+  gtk_widget_set_hexpand(ddisp->canvas, TRUE);
 
   /* TODO rob use per window accel */
   ddisp->accel_group = menus_get_display_accels ();
@@ -770,11 +711,11 @@ create_display_shell(DDisplay *ddisp,
   }
 
   /* the statusbars */
-  status_hbox = gtk_hbox_new (FALSE, 2);
+  status_hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 2);
 
   /* Zoom status pseudo-optionmenu */
   ddisp->zoom_status = create_zoom_widget(ddisp);
-  zoom_hbox = gtk_hbox_new(FALSE, 0);
+  zoom_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
   zoom_label = gtk_label_new(_("Zoom"));
   gtk_box_pack_start (GTK_BOX(zoom_hbox), zoom_label,
 		      FALSE, FALSE, 0);
@@ -805,6 +746,16 @@ create_display_shell(DDisplay *ddisp,
   gtk_box_pack_start (GTK_BOX (status_hbox), ddisp->mainpoint_status,
 		      FALSE, FALSE, 0);
 
+  ddisp->guide_snap_status = dia_toggle_button_new_with_icon_names ("dia-guides-snap-on",
+                                                                    "dia-guides-snap-off");
+
+  g_signal_connect(G_OBJECT(ddisp->guide_snap_status), "toggled",
+           G_CALLBACK (interface_toggle_snap_to_guides), ddisp);
+  gtk_widget_set_tooltip_text(ddisp->guide_snap_status,
+               _("Toggles snap-to-guides for this window."));
+  gtk_box_pack_start (GTK_BOX (status_hbox), ddisp->guide_snap_status,
+              FALSE, FALSE, 0);
+
 
   /* Statusbar */
   ddisp->modified_status = gtk_statusbar_new ();
@@ -812,8 +763,7 @@ create_display_shell(DDisplay *ddisp,
   gtk_box_pack_start (GTK_BOX (status_hbox), ddisp->modified_status,
 		      TRUE, TRUE, 0);
 
-  gtk_table_attach (GTK_TABLE (table), status_hbox, 0, 3, 3, 4,
-                    GTK_FILL, GTK_FILL, 0, 0);
+  gtk_grid_attach (GTK_GRID (grid), status_hbox, 0, 3, 3, 1);
 
   display_rulers_show (ddisp);
   gtk_widget_show (ddisp->zoom_status);
@@ -821,9 +771,10 @@ create_display_shell(DDisplay *ddisp,
   gtk_widget_show (zoom_label);
   gtk_widget_show (ddisp->grid_status);
   gtk_widget_show (ddisp->mainpoint_status);
+  gtk_widget_show (ddisp->guide_snap_status);
   gtk_widget_show (ddisp->modified_status);
   gtk_widget_show (status_hbox);
-  gtk_widget_show (table);
+  gtk_widget_show (grid);
   if (use_mbar)
   {
       gtk_widget_show (ddisp->menu_bar);
@@ -831,9 +782,10 @@ create_display_shell(DDisplay *ddisp,
   }
   gtk_widget_show (ddisp->shell);
 
+  gtk_widget_get_allocation (ddisp->hrule, &alloc);
+
   /* before showing up, checking canvas's REAL size */
-  if (use_mbar && ddisp->hrule->allocation.width > width)
-  {
+  if (use_mbar && alloc.width > width) {
     /* The menubar is not shrinkable, so the shell will have at least
      * the menubar's width. If the diagram's requested width is smaller,
      * the canvas will be enlarged to fit the place. In this case, we
@@ -841,7 +793,7 @@ create_display_shell(DDisplay *ddisp,
      * that will be allocated, which the same as the hrule got.
      */
 
-    width = ddisp->hrule->allocation.width;
+    width = alloc.width;
 
     gtk_adjustment_set_upper (ddisp->hsbdata, width);
     gtk_adjustment_set_page_increment (ddisp->hsbdata, (width - 1) / 4);
@@ -855,27 +807,34 @@ create_display_shell(DDisplay *ddisp,
   gtk_widget_grab_focus (ddisp->canvas);
 }
 
+
 /**
+ * ddisplay_update_rulers:
+ * @ddisp: The #DDisplay to hide the rulers on.
+ * @extents: the diagram extents
+ * @visible: the visible area
+ *
  * Adapt the rulers to current field of view
  *
- * @param ddisp The display to hide the rulers on.
+ * Since: dawn-of-time
  */
 void
-ddisplay_update_rulers (DDisplay        *ddisp,
-                        const Rectangle *extents,
-		        const Rectangle *visible)
+ddisplay_update_rulers (DDisplay           *ddisp,
+                        const DiaRectangle *extents,
+                        const DiaRectangle *visible)
 {
-  dia_ruler_set_range  (ddisp->hrule,
-			visible->left,
-			visible->right,
-			0.0f /* position*/,
-			MAX(extents->right, visible->right)/* max_size*/);
-  dia_ruler_set_range  (ddisp->vrule,
-			visible->top,
-			visible->bottom,
-			0.0f /*        position*/,
-			MAX(extents->bottom, visible->bottom)/* max_size*/);
+  dia_ruler_set_range (ddisp->hrule,
+                       visible->left,
+                       visible->right,
+                       0.0f /* position*/,
+                       MAX (extents->right, visible->right)/* max_size*/);
+  dia_ruler_set_range (ddisp->vrule,
+                       visible->top,
+                       visible->bottom,
+                       0.0f /*        position*/,
+                       MAX (extents->bottom, visible->bottom)/* max_size*/);
 }
+
 
 static void
 toolbox_destroy (GtkWidget *widget, gpointer data)
@@ -897,66 +856,13 @@ toolbox_delete (GtkWidget *widget, GdkEvent *event, gpointer data)
   return (!app_exit());
 }
 
-#ifdef HAVE_MAC_INTEGRATION
-static gboolean
-_osx_app_exit (GtkosxApplication *app,
-	       gpointer           user_data)
-{
-  return !app_exit ();
-}
-static void
-_create_mac_integration (GtkWidget *menubar)
-{
-  GtkosxApplication *theOsxApp = g_object_new(GTKOSX_TYPE_APPLICATION, NULL);
-
-  /* from control-x to command-x in one call? Does _not_ work as advertized */
-  gtkosx_application_set_use_quartz_accelerators (theOsxApp, TRUE);
-
-  if (menubar) {
-    /* hijack the menubar */
-    gtkosx_application_set_menu_bar(theOsxApp, GTK_MENU_SHELL(menubar));
-    /* move some items to the dia menu - apparently must be _after_ hijack */
-    {
-      GtkWidget *item;
-
-      item = menus_get_widget (INTEGRATED_MENU "/Help/HelpAbout");
-      if (GTK_IS_MENU_ITEM (item))
-        gtkosx_application_insert_app_menu_item (theOsxApp, item, 0);
-      gtkosx_application_insert_app_menu_item (theOsxApp, gtk_separator_menu_item_new (), 1);
-      item = menus_get_widget (INTEGRATED_MENU "/File/FilePrefs");
-      if (GTK_IS_MENU_ITEM (item))
-        gtkosx_application_insert_app_menu_item (theOsxApp, item, 2);
-      item = menus_get_widget (INTEGRATED_MENU "/File/FilePlugins");
-      if (GTK_IS_MENU_ITEM (item))
-        gtkosx_application_insert_app_menu_item (theOsxApp, item, 3);
-#if 0 /* not sure if we should move these, too */
-      item = menus_get_widget (INTEGRATED_MENU "/File/FileTree");
-      if (GTK_IS_MENU_ITEM (item))
-        gtkosx_application_insert_app_menu_item (theOsxApp, item, 4);
-      item = menus_get_widget (INTEGRATED_MENU "/File/FileSheets");
-      if (GTK_IS_MENU_ITEM (item))
-        gtkosx_application_insert_app_menu_item (theOsxApp, item, 5);
-#endif
-      /* remove Quit from File menu */
-      item = menus_get_widget (INTEGRATED_MENU "/File/FileQuit");
-      if (GTK_IS_MENU_ITEM (item))
-        gtk_widget_hide (item);
-    }
-    gtk_widget_hide (menubar); /* not working, it's shown elsewhere */
-    /* setup the dock icon */
-    gtkosx_application_set_dock_icon_pixbuf (theOsxApp,
-	gdk_pixbuf_new_from_inline (-1, dia_app_icon, FALSE, NULL));
-  }
-  /* Don't quit without asking to save files first */
-  g_signal_connect (theOsxApp, "NSApplicationBlockTermination",
-		    G_CALLBACK (_osx_app_exit), NULL);
-  /* without this all the above wont have any effect */
-  gtkosx_application_ready(theOsxApp);
-}
-#endif
 
 /**
+ * create_integrated_ui:
+ *
  * Create integrated user interface
+ *
+ * Since: dawn-of-time
  */
 void
 create_integrated_ui (void)
@@ -970,12 +876,16 @@ create_integrated_ui (void)
   GtkWidget *notebook;
   GtkWidget *statusbar;
   GtkAccelGroup *accel_group;
+  gchar *version;
 
   GtkWidget *layer_view;
 
   window = gtk_window_new (GTK_WINDOW_TOPLEVEL);
   g_object_ref (window);
-  gtk_window_set_title (GTK_WINDOW (window), "Dia v" VERSION);
+
+  version = g_strdup_printf ("Dia v%s", dia_version_string ());
+  gtk_window_set_title (GTK_WINDOW (window), version);
+  g_clear_pointer (&version, g_free);
 
   /* hint to window manager on X so the wm can put the window in the same
      as it was when the application shut down                             */
@@ -991,16 +901,16 @@ create_integrated_ui (void)
 		    G_CALLBACK (toolbox_destroy),
 		      window);
 
-  main_vbox = gtk_vbox_new (FALSE, 1);
+  main_vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 1);
   gtk_container_set_border_width (GTK_CONTAINER (main_vbox), 1);
   gtk_container_add (GTK_CONTAINER (window), main_vbox);
   gtk_widget_show (main_vbox);
 
-  /* Applicatioon Statusbar */
+  /* Application Statusbar */
   statusbar = gtk_statusbar_new ();
   gtk_box_pack_end (GTK_BOX (main_vbox), statusbar, FALSE, TRUE, 0);
   /* HBox for everything below the menubar and toolbars */
-  hbox = gtk_hbox_new(FALSE, 0);
+  hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
   gtk_box_pack_end (GTK_BOX (main_vbox), hbox, TRUE, TRUE, 0);
   gtk_widget_show (hbox);
 
@@ -1012,6 +922,12 @@ create_integrated_ui (void)
   notebook = gtk_notebook_new ();
   gtk_box_pack_end (GTK_BOX (hbox), notebook, TRUE, TRUE, 0);
   gtk_notebook_set_scrollable (GTK_NOTEBOOK (notebook), TRUE);
+
+  g_signal_connect (G_OBJECT (notebook),
+                    "switch-page",
+                    G_CALLBACK (notebook_switch_page),
+                    NULL);
+
   gtk_widget_show (notebook);
 
   /* Toolbox widget */
@@ -1032,11 +948,7 @@ create_integrated_ui (void)
   menus_get_integrated_ui_menubar(&menubar, &toolbar, &accel_group);
   gtk_window_add_accel_group (GTK_WINDOW (window), accel_group);
   gtk_widget_show (menubar);
-#  ifdef HAVE_MAC_INTEGRATION
-  _create_mac_integration (menubar);
-#  else
   gtk_box_pack_start (GTK_BOX (main_vbox), menubar, FALSE, TRUE, 0);
-#  endif
 
   /* Toolbar */
   /* TODO: maybe delete set_style(toolbar,ICONS) */
@@ -1064,11 +976,16 @@ create_integrated_ui (void)
   toolbox_shell = window;
 }
 
+
 /**
+ * create_toolbox:
+ *
  * Create toolbox component for distributed user interface
+ *
+ * Since: dawn-of-time
  */
 void
-create_toolbox ()
+create_toolbox (void)
 {
   GtkWidget *window;
   GtkWidget *main_vbox;
@@ -1078,7 +995,7 @@ create_toolbox ()
 
   window = gtk_window_new (GTK_WINDOW_TOPLEVEL);
   g_object_ref(window);
-  gtk_window_set_title (GTK_WINDOW (window), "Dia v" VERSION);
+  gtk_window_set_title (GTK_WINDOW (window), "Dia");
   gtk_window_set_role (GTK_WINDOW (window), "toolbox_window");
   gtk_window_set_default_size(GTK_WINDOW(window), 146, 349);
   g_signal_connect (G_OBJECT (window), "delete_event",
@@ -1086,7 +1003,7 @@ create_toolbox ()
   g_signal_connect (G_OBJECT (window), "destroy",
 		    G_CALLBACK (toolbox_destroy), window);
 
-  main_vbox = gtk_vbox_new (FALSE, 1);
+  main_vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 1);
   gtk_container_set_border_width (GTK_CONTAINER (main_vbox), 1);
   gtk_container_add (GTK_CONTAINER (window), main_vbox);
 
@@ -1102,11 +1019,7 @@ create_toolbox ()
   menus_get_toolbox_menubar(&menubar, &accel_group);
   gtk_window_add_accel_group (GTK_WINDOW (window), accel_group);
   gtk_widget_show (menubar);
-#  ifdef HAVE_MAC_INTEGRATION
-  _create_mac_integration (menubar);
-#  else
   gtk_box_pack_start (GTK_BOX (main_vbox), menubar, FALSE, TRUE, 0);
-#  endif
   persistence_register_window(GTK_WINDOW(window));
 
   toolbox_shell = window;
@@ -1203,4 +1116,141 @@ integrated_ui_statusbar_show (gboolean show)
     if (action)
       gtk_toggle_action_set_active (GTK_TOGGLE_ACTION (action), show);
   }
+}
+
+
+static gboolean
+_ddisplay_hruler_button_press (GtkWidget *widget,
+                               GdkEventButton *event,
+                               DDisplay *ddisp)
+{
+  return _ddisplay_ruler_button_press (widget, event, ddisp,
+                                       GTK_ORIENTATION_HORIZONTAL);
+}
+
+
+static gboolean
+_ddisplay_vruler_button_press (GtkWidget *widget,
+                               GdkEventButton *event,
+                               DDisplay *ddisp)
+{
+  return _ddisplay_ruler_button_press (widget, event, ddisp,
+                                       GTK_ORIENTATION_VERTICAL);
+}
+
+
+static gboolean
+_ddisplay_ruler_button_press (GtkWidget *widget,
+                              GdkEventButton *event,
+                              DDisplay *ddisp,
+                              GtkOrientation orientation)
+{
+  /* Start adding a new guide if the left button was pressed. */
+  if (event->type == GDK_BUTTON_PRESS && event->button == 1) {
+      _guide_tool_start_new (ddisp, orientation);
+  }
+
+  return FALSE;
+}
+
+
+static gboolean
+_ddisplay_ruler_button_release (GtkWidget *widget,
+                                 GdkEventButton *event,
+                                 DDisplay *ddisp)
+{
+  /* Hack to get this triggered. */
+  if(active_tool->type == GUIDE_TOOL)
+  {
+    if (active_tool->button_release_func)
+    {
+      (*active_tool->button_release_func) (active_tool, event, ddisp);
+    }
+  }
+
+  return FALSE;
+}
+
+
+static gboolean
+_ddisplay_hruler_motion_notify (GtkWidget *widget,
+    GdkEventMotion *event,
+    DDisplay *ddisp)
+{
+  /* Hack to get this triggered. */
+  if(active_tool->type == GUIDE_TOOL) {
+    if (active_tool->motion_func) {
+
+      /* Minus ruler height. */
+      GtkRequisition ruler_requisition;
+      gtk_widget_get_preferred_size (widget, NULL, &ruler_requisition);
+      guide_tool_set_ruler_height(active_tool, ruler_requisition.height);
+
+      /* Do the move. */
+      (*active_tool->motion_func) (active_tool, event, ddisp);
+    }
+  }
+
+  return FALSE;
+}
+
+
+static gboolean
+_ddisplay_vruler_motion_notify (GtkWidget *widget,
+    GdkEventMotion *event,
+    DDisplay *ddisp)
+{
+  /* Hack to get this triggered. */
+  if(active_tool->type == GUIDE_TOOL) {
+    if (active_tool->motion_func) {
+
+      /* Minus ruler width. */
+      GtkRequisition ruler_requisition;
+      gtk_widget_get_preferred_size (widget, NULL, &ruler_requisition);
+      guide_tool_set_ruler_height(active_tool, ruler_requisition.width);
+
+      /* Do the move. */
+      (*active_tool->motion_func) (active_tool, event, ddisp);
+    }
+  }
+
+  return FALSE;
+}
+
+
+double
+parse_zoom (const char *zoom)
+{
+  static GRegex *extract_zoom = NULL;
+  GMatchInfo *match_info;
+  char *num;
+  double res = -1;
+
+  if (g_once_init_enter (&extract_zoom)) {
+    GError *error = NULL;
+    GRegex *regex = g_regex_new ("%?(\\d*)%?", G_REGEX_OPTIMIZE, 0, &error);
+
+    if (error) {
+      g_critical ("Failed to prepare regex: %s", error->message);
+
+      g_clear_error (&error);
+    }
+
+    g_once_init_leave (&extract_zoom, regex);
+  }
+
+  g_regex_match (extract_zoom, zoom, 0, &match_info);
+
+  if (!g_match_info_matches (match_info)) {
+    return -1;
+  }
+
+  num = g_match_info_fetch (match_info, 1);
+
+  res = g_ascii_strtod (num, NULL);
+
+  g_clear_pointer (&num, g_free);
+  g_match_info_free (match_info);
+
+  return res * 10;
 }

@@ -26,12 +26,13 @@ typedef struct _Diagram Diagram;
 #include "diagramdata.h"
 #include "undo.h"
 #include "diagrid.h"
+#include "dia-guide.h"
 
 G_BEGIN_DECLS
 
-GType diagram_get_type (void) G_GNUC_CONST;
+GType dia_diagram_get_type (void) G_GNUC_CONST;
 
-#define DIA_TYPE_DIAGRAM           (diagram_get_type ())
+#define DIA_TYPE_DIAGRAM           (dia_diagram_get_type ())
 #define DIA_DIAGRAM(obj)           (G_TYPE_CHECK_INSTANCE_CAST ((obj), DIA_TYPE_DIAGRAM, Diagram))
 #define DIA_DIAGRAM_CLASS(klass)   (G_TYPE_CHECK_CLASS_CAST ((klass), DIA_TYPE_DIAGRAM, DiagramClass))
 #define DIA_IS_DIAGRAM(obj)        (G_TYPE_CHECK_INSTANCE_TYPE ((obj), DIA_TYPE_DIAGRAM))
@@ -46,17 +47,13 @@ struct _Diagram {
   int mollified;
   gboolean autosaved;     /* True if the diagram is autosaved since last mod */
   char *autosavefilename;     /* Holds the name of the current autosave file
-			       * for this diagram, or NULL.  */
+                               * for this diagram, or NULL.  */
 
   Color pagebreak_color; /*!< just to show page breaks */
   DiaGrid     grid;      /*!< the display grid */
 
-  /*! almost completely unused guides (load and save code is there) */  
-  struct {
-    /* sorted arrays of the guides for the diagram */
-    real *hguides, *vguides;
-    guint nhguides, nvguides;
-  } guides;
+  GList *guides;         /*!< list of guides */
+  Color guide_color;     /*!< color for guides */
 
   DiagramData *data;     /*! just for compatibility, now that the Diagram _is_ and not _has_ DiagramData */
 
@@ -66,18 +63,20 @@ struct _Diagram {
 };
 
 typedef struct _DiagramClass {
+  /*< private >*/
   DiagramDataClass parent_class;
-	
+
+  /*< public >*/
+
   /* signals */
   void (* removed)           (Diagram*);
-	
+
 } DiagramClass;
 
 GList *dia_open_diagrams(void); /* Read only! */
 
 Diagram *diagram_load(const char *filename, DiaImportFilter *ifilter);
 int diagram_load_into (Diagram *dest, const char *filename, DiaImportFilter *ifilter);
-Diagram *new_diagram(const char *filename); /*Note: filename is copied*/
 void diagram_destroy(Diagram *dia);
 gboolean diagram_is_modified(Diagram *dia);
 void diagram_modified(Diagram *dia);
@@ -94,8 +93,8 @@ int diagram_is_selected(Diagram *diagram, DiaObject *obj);
 GList *diagram_get_sorted_selected(Diagram *dia);
 /* Removes selected from objects list, NOT selected list: */
 GList *diagram_get_sorted_selected_remove(Diagram *dia);
-void diagram_add_update(Diagram *dia, const Rectangle *update);
-void diagram_add_update_with_border(Diagram *dia, const Rectangle *update,
+void diagram_add_update (Diagram *dia, const DiaRectangle *update);
+void diagram_add_update_with_border (Diagram *dia, const DiaRectangle *update,
 				    int pixel_border);
 void diagram_add_update_all(Diagram *dia);
 void diagram_add_update_pixels(Diagram *dia, Point *point,
@@ -129,7 +128,6 @@ void diagram_unparent_selected(Diagram *dia);
 void diagram_unparent_children_selected(Diagram *dia);
 
 gboolean object_within_parent(DiaObject *obj, DiaObject *parent);
-void diagram_set_filename(Diagram *dia, const char *filename);
 gchar *diagram_get_name(Diagram *dia);
 
 int diagram_modified_exists(void);
@@ -137,6 +135,35 @@ int diagram_modified_exists(void);
 void diagram_redraw_all(void);
 
 void diagram_object_modified(Diagram *dia, DiaObject *object);
+
+Diagram  *dia_diagram_new               (GFile          *file);
+void      dia_diagram_set_file          (Diagram        *self,
+                                         GFile          *file);
+GFile    *dia_diagram_get_file          (Diagram        *self);
+DiaGuide *dia_diagram_add_guide         (Diagram        *dia,
+                                         real            position,
+                                         GtkOrientation  orientation,
+                                         gboolean        push_undo);
+DiaGuide *dia_diagram_pick_guide        (Diagram        *dia,
+                                         gdouble         x,
+                                         gdouble         y,
+                                         gdouble         epsilon_x,
+                                         gdouble         epsilon_y);
+DiaGuide *dia_diagram_pick_guide_h      (Diagram        *dia,
+                                         gdouble         x,
+                                         gdouble         y,
+                                         gdouble         epsilon_x,
+                                         gdouble         epsilon_y);
+DiaGuide *dia_diagram_pick_guide_v      (Diagram        *dia,
+                                         gdouble         x,
+                                         gdouble         y,
+                                         gdouble         epsilon_x,
+                                         gdouble         epsilon_y);
+void      dia_diagram_remove_guide      (Diagram        *dia,
+                                         DiaGuide       *guide,
+                                         gboolean        push_undo);
+void      dia_diagram_remove_all_guides (Diagram        *dia);
+
 
 G_END_DECLS
 

@@ -21,12 +21,12 @@
 
 /* DO NOT USE THIS OBJECT AS A BASIS FOR A NEW OBJECT. */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "connectionpoint.h"
@@ -55,18 +55,18 @@ struct _Box {
   Element element;
 
   ConnectionPoint connections[NUM_CONNECTIONS];
-  real border_width;
+  double border_width;
   Color border_color;
   Color inner_color;
   gboolean show_background;
-  LineStyle line_style;
-  real dashlength;
-  real corner_radius;
+  DiaLineStyle line_style;
+  double dashlength;
+  double corner_radius;
 
   Text *text;
-  real padding;
+  double padding;
 
-  TextFitting text_fitting;
+  DiaTextFitting text_fitting;
 };
 
 typedef struct _BoxProperties {
@@ -80,11 +80,14 @@ static BoxProperties default_properties;
 static real box_distance_from(Box *box, Point *point);
 static void box_select(Box *box, Point *clicked_point,
 		       DiaRenderer *interactive_renderer);
-static ObjectChange* box_move_handle(Box *box, Handle *handle,
-				     Point *to, ConnectionPoint *cp,
-				     HandleMoveReason reason,
-			    ModifierKeys modifiers);
-static ObjectChange* box_move(Box *box, Point *to);
+static DiaObjectChange *box_move_handle         (Box              *box,
+                                                 Handle           *handle,
+                                                 Point            *to,
+                                                 ConnectionPoint  *cp,
+                                                 HandleMoveReason  reason,
+                                                 ModifierKeys      modifiers);
+static DiaObjectChange *box_move                (Box              *box,
+                                                 Point            *to);
 static void box_draw(Box *box, DiaRenderer *renderer);
 static void box_update_data(Box *box, AnchorShape horix, AnchorShape vert);
 static DiaObject *box_create(Point *startpoint,
@@ -185,6 +188,7 @@ static PropOffset box_offsets[] = {
   { NULL, 0, 0 },
 };
 
+
 static void
 box_get_props(Box *box, GPtrArray *props)
 {
@@ -192,16 +196,19 @@ box_get_props(Box *box, GPtrArray *props)
                                 box_offsets,props);
 }
 
-static void
-box_set_props(Box *box, GPtrArray *props)
-{
-  object_set_props_from_offsets(&box->element.object,
-                                box_offsets,props);
-  box_update_data(box, ANCHOR_MIDDLE, ANCHOR_MIDDLE);
-}
 
 static void
-init_default_values() {
+box_set_props (Box *box, GPtrArray *props)
+{
+  object_set_props_from_offsets (DIA_OBJECT (box),
+                                 box_offsets,props);
+  box_update_data (box, ANCHOR_MIDDLE, ANCHOR_MIDDLE);
+}
+
+
+static void
+init_default_values (void)
+{
   static int defaults_initialized = 0;
 
   if (!defaults_initialized) {
@@ -211,35 +218,39 @@ init_default_values() {
   }
 }
 
+
 static real
-box_distance_from(Box *box, Point *point)
+box_distance_from (Box *box, Point *point)
 {
   Element *elem = &box->element;
-  Rectangle rect;
+  DiaRectangle rect;
 
   rect.left = elem->corner.x - box->border_width/2;
   rect.right = elem->corner.x + elem->width + box->border_width/2;
   rect.top = elem->corner.y - box->border_width/2;
   rect.bottom = elem->corner.y + elem->height + box->border_width/2;
-  return distance_rectangle_point(&rect, point);
+
+  return distance_rectangle_point (&rect, point);
 }
 
+
 static void
-box_select(Box *box, Point *clicked_point,
-	   DiaRenderer *interactive_renderer)
+box_select (Box         *box,
+            Point       *clicked_point,
+            DiaRenderer *interactive_renderer)
 {
   real radius;
 
-  text_set_cursor(box->text, clicked_point, interactive_renderer);
-  text_grab_focus(box->text, &box->element.object);
+  text_set_cursor (box->text, clicked_point, interactive_renderer);
+  text_grab_focus (box->text, &box->element.object);
 
-  element_update_handles(&box->element);
+  element_update_handles (&box->element);
 
   if (box->corner_radius > 0) {
-    Element *elem = (Element *)box;
+    Element *elem = (Element *) box;
     radius = box->corner_radius;
-    radius = MIN(radius, elem->width/2);
-    radius = MIN(radius, elem->height/2);
+    radius = MIN (radius, elem->width/2);
+    radius = MIN (radius, elem->height/2);
     radius *= (1-M_SQRT1_2);
 
     elem->resize_handles[0].pos.x += radius;
@@ -253,90 +264,123 @@ box_select(Box *box, Point *clicked_point,
   }
 }
 
-static ObjectChange*
-box_move_handle(Box *box, Handle *handle,
-		Point *to, ConnectionPoint *cp,
-		HandleMoveReason reason, ModifierKeys modifiers)
+
+static DiaObjectChange *
+box_move_handle (Box              *box,
+                 Handle           *handle,
+                 Point            *to,
+                 ConnectionPoint  *cp,
+                 HandleMoveReason  reason,
+                 ModifierKeys      modifiers)
 {
   AnchorShape horiz = ANCHOR_MIDDLE, vert = ANCHOR_MIDDLE;
   Point corner;
-  real width, height;
+  double width, height;
 
-  assert(box!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
+  g_return_val_if_fail (box != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
 
   /* remember ... */
   corner = box->element.corner;
   width = box->element.width;
   height = box->element.height;
 
-  element_move_handle(&box->element, handle->id, to, cp, reason, modifiers);
+  element_move_handle (&box->element, handle->id, to, cp, reason, modifiers);
 
   switch (handle->id) {
-  case HANDLE_RESIZE_NW:
-    horiz = ANCHOR_END; vert = ANCHOR_END; break;
-  case HANDLE_RESIZE_N:
-    vert = ANCHOR_END; break;
-  case HANDLE_RESIZE_NE:
-    horiz = ANCHOR_START; vert = ANCHOR_END; break;
-  case HANDLE_RESIZE_E:
-    horiz = ANCHOR_START; break;
-  case HANDLE_RESIZE_SE:
-    horiz = ANCHOR_START; vert = ANCHOR_START; break;
-  case HANDLE_RESIZE_S:
-    vert = ANCHOR_START; break;
-  case HANDLE_RESIZE_SW:
-    horiz = ANCHOR_END; vert = ANCHOR_START; break;
-  case HANDLE_RESIZE_W:
-    horiz = ANCHOR_END; break;
-  default:
-    break;
+    case HANDLE_RESIZE_NW:
+      horiz = ANCHOR_END;
+      vert = ANCHOR_END;
+      break;
+    case HANDLE_RESIZE_N:
+      vert = ANCHOR_END;
+      break;
+    case HANDLE_RESIZE_NE:
+      horiz = ANCHOR_START;
+      vert = ANCHOR_END;
+      break;
+    case HANDLE_RESIZE_E:
+      horiz = ANCHOR_START;
+      break;
+    case HANDLE_RESIZE_SE:
+      horiz = ANCHOR_START;
+      vert = ANCHOR_START;
+      break;
+    case HANDLE_RESIZE_S:
+      vert = ANCHOR_START;
+      break;
+    case HANDLE_RESIZE_SW:
+      horiz = ANCHOR_END;
+      vert = ANCHOR_START;
+      break;
+    case HANDLE_RESIZE_W:
+      horiz = ANCHOR_END;
+      break;
+    case HANDLE_MOVE_STARTPOINT:
+    case HANDLE_MOVE_ENDPOINT:
+    case HANDLE_CUSTOM1:
+    case HANDLE_CUSTOM2:
+    case HANDLE_CUSTOM3:
+    case HANDLE_CUSTOM4:
+    case HANDLE_CUSTOM5:
+    case HANDLE_CUSTOM6:
+    case HANDLE_CUSTOM7:
+    case HANDLE_CUSTOM8:
+    case HANDLE_CUSTOM9:
+    default:
+      break;
   }
-  box_update_data(box, horiz, vert);
+  box_update_data (box, horiz, vert);
 
-  if (width != box->element.width && height != box->element.height)
+  if (width != box->element.width && height != box->element.height) {
     return element_change_new (&corner, width, height, &box->element);
+  }
 
   return NULL;
 }
 
-static ObjectChange*
-box_move(Box *box, Point *to)
+
+static DiaObjectChange *
+box_move (Box *box, Point *to)
 {
   box->element.corner = *to;
 
-  box_update_data(box, ANCHOR_MIDDLE, ANCHOR_MIDDLE);
+  box_update_data (box, ANCHOR_MIDDLE, ANCHOR_MIDDLE);
 
   return NULL;
 }
 
+
 static void
-box_draw(Box *box, DiaRenderer *renderer)
+box_draw (Box *box, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Point lr_corner;
   Element *elem;
 
-  assert(box != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (box != NULL);
+  g_return_if_fail (renderer != NULL);
   elem = &box->element;
 
   lr_corner.x = elem->corner.x + elem->width;
   lr_corner.y = elem->corner.y + elem->height;
 
-  if (box->show_background)
-    renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
+  if (box->show_background) {
+    dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+  }
 
-  renderer_ops->set_linewidth(renderer, box->border_width);
-  renderer_ops->set_linestyle(renderer, box->line_style, box->dashlength);
-  renderer_ops->set_linejoin(renderer, LINEJOIN_MITER);
+  dia_renderer_set_linewidth (renderer, box->border_width);
+  dia_renderer_set_linestyle (renderer, box->line_style, box->dashlength);
+  dia_renderer_set_linejoin (renderer, DIA_LINE_JOIN_MITER);
   /* Problem:  How do we make the fill with rounded corners?
    * It's solved in the base class ...
    */
-  renderer_ops->draw_rounded_rect (renderer, &elem->corner, &lr_corner,
-				   &box->inner_color, &box->border_color,
-				   box->corner_radius);
+  dia_renderer_draw_rounded_rect (renderer,
+                                  &elem->corner,
+                                  &lr_corner,
+                                  &box->inner_color,
+                                  &box->border_color,
+                                  box->corner_radius);
   text_draw(box->text, renderer);
 }
 
@@ -369,49 +413,59 @@ box_update_data(Box *box, AnchorShape horiz, AnchorShape vert)
    *  width calculated from text-width, padding and border), then
    *  set the width to the minimum.  Or else;)
    */
-  if (box->text_fitting != TEXTFIT_NEVER) {
-    if (   box->text_fitting == TEXTFIT_ALWAYS
-        || width > elem->width)
+  if (box->text_fitting != DIA_TEXT_FIT_NEVER) {
+    if (box->text_fitting == DIA_TEXT_FIT_ALWAYS || width > elem->width) {
       elem->width = width;
-    if (   box->text_fitting == TEXTFIT_ALWAYS
-        || height > elem->height)
+    }
+
+    if (box->text_fitting == DIA_TEXT_FIT_ALWAYS || height > elem->height) {
       elem->height = height;
+    }
   }
 
   /* move shape if necessary ... */
   switch (horiz) {
-  case ANCHOR_MIDDLE:
-    elem->corner.x = center.x - elem->width/2; break;
-  case ANCHOR_END:
-    elem->corner.x = bottom_right.x - elem->width; break;
-  default:
-    break;
+    case ANCHOR_MIDDLE:
+      elem->corner.x = center.x - elem->width/2;
+      break;
+    case ANCHOR_END:
+      elem->corner.x = bottom_right.x - elem->width;
+      break;
+    case ANCHOR_START:
+    default:
+      break;
   }
+
   switch (vert) {
-  case ANCHOR_MIDDLE:
-    elem->corner.y = center.y - elem->height/2; break;
-  case ANCHOR_END:
-    elem->corner.y = bottom_right.y - elem->height; break;
-  default:
-    break;
+    case ANCHOR_MIDDLE:
+      elem->corner.y = center.y - elem->height/2;
+      break;
+    case ANCHOR_END:
+      elem->corner.y = bottom_right.y - elem->height;
+      break;
+    case ANCHOR_START:
+    default:
+      break;
   }
 
   p = elem->corner;
   p.x += elem->width / 2.0;
   p.y += elem->height / 2.0 - box->text->height * box->text->numlines / 2 +
     box->text->ascent;
+
   switch (box->text->alignment) {
-  case ALIGN_LEFT:
-    p.x -= (elem->width - box->padding*2 + box->border_width)/2;
-    break;
-  case ALIGN_RIGHT:
-    p.x += (elem->width - box->padding*2 + box->border_width)/2;
-    break;
-  case ALIGN_CENTER:
-    break;
+    case DIA_ALIGN_LEFT:
+      p.x -= (elem->width - box->padding * 2 + box->border_width) / 2;
+      break;
+    case DIA_ALIGN_RIGHT:
+      p.x += (elem->width - box->padding * 2 + box->border_width) / 2;
+      break;
+    case DIA_ALIGN_CENTRE:
+    default:
+      break;
   }
 
-  text_set_position(box->text, &p);
+  text_set_position (box->text, &p);
 
   radius = box->corner_radius;
   radius = MIN(radius, elem->width/2);
@@ -524,7 +578,7 @@ box_create(Point *startpoint,
 
   init_default_values();
 
-  box = g_malloc0(sizeof(Box));
+  box = g_new0 (Box, 1);
   elem = &box->element;
   obj = &elem->object;
 
@@ -549,12 +603,16 @@ box_create(Point *startpoint,
   p = *startpoint;
   p.x += elem->width / 2.0;
   p.y += elem->height / 2.0 + font_height / 2;
-  box->text = new_text("", font, font_height, &p, &box->border_color,
-                       ALIGN_CENTER);
-  dia_font_unref(font);
+  box->text = new_text ("",
+                        font,
+                        font_height,
+                        &p,
+                        &box->border_color,
+                        DIA_ALIGN_CENTRE);
+  g_clear_object (&font);
 
   /* new default: let the user decide the size */
-  box->text_fitting = TEXTFIT_WHEN_NEEDED;
+  box->text_fitting = DIA_TEXT_FIT_WHEN_NEEDED;
 
   element_init(elem, 8, NUM_CONNECTIONS);
 
@@ -601,11 +659,11 @@ box_save(Box *box, ObjectNode obj_node, DiaContext *ctx)
   data_add_boolean(new_attribute(obj_node, "show_background"),
                    box->show_background, ctx);
 
-  if (box->line_style != LINESTYLE_SOLID)
+  if (box->line_style != DIA_LINE_STYLE_SOLID)
     data_add_enum(new_attribute(obj_node, "line_style"),
 		  box->line_style, ctx);
 
-  if (box->line_style != LINESTYLE_SOLID &&
+  if (box->line_style != DIA_LINE_STYLE_SOLID &&
       box->dashlength != DEFAULT_LINESTYLE_DASHLEN)
     data_add_real(new_attribute(obj_node, "dashlength"),
                   box->dashlength, ctx);
@@ -617,10 +675,13 @@ box_save(Box *box, ObjectNode obj_node, DiaContext *ctx)
 
   data_add_text(new_attribute(obj_node, "text"), box->text, ctx);
 
-  if (box->text_fitting != TEXTFIT_WHEN_NEEDED)
-    data_add_enum(new_attribute(obj_node, PROP_STDNAME_TEXT_FITTING),
-		  box->text_fitting, ctx);
+  if (box->text_fitting != DIA_TEXT_FIT_WHEN_NEEDED) {
+    data_add_enum (new_attribute (obj_node, PROP_STDNAME_TEXT_FITTING),
+                   box->text_fitting,
+                   ctx);
+  }
 }
+
 
 static DiaObject *
 box_load(ObjectNode obj_node, int version,DiaContext *ctx)
@@ -631,7 +692,7 @@ box_load(ObjectNode obj_node, int version,DiaContext *ctx)
   int i;
   AttributeNode attr;
 
-  box = g_malloc0(sizeof(Box));
+  box = g_new0 (Box, 1);
   elem = &box->element;
   obj = &elem->object;
 
@@ -659,7 +720,7 @@ box_load(ObjectNode obj_node, int version,DiaContext *ctx)
   if (attr != NULL)
     box->show_background = data_boolean(attribute_first_data(attr), ctx);
 
-  box->line_style = LINESTYLE_SOLID;
+  box->line_style = DIA_LINE_STYLE_SOLID;
   attr = object_find_attribute(obj_node, "line_style");
   if (attr != NULL)
     box->line_style =  data_enum(attribute_first_data(attr), ctx);
@@ -680,17 +741,22 @@ box_load(ObjectNode obj_node, int version,DiaContext *ctx)
     box->padding =  data_real(attribute_first_data(attr), ctx);
 
   box->text = NULL;
-  attr = object_find_attribute(obj_node, "text");
-  if (attr != NULL)
-    box->text = data_text(attribute_first_data(attr), ctx);
-  else /* paranoid */
-    box->text = new_text_default(&obj->position, &box->border_color, ALIGN_CENTER);
+  attr = object_find_attribute (obj_node, "text");
+  if (attr != NULL) {
+    box->text = data_text (attribute_first_data (attr), ctx);
+  } else {
+    /* paranoid */
+    box->text = new_text_default (&obj->position,
+                                  &box->border_color,
+                                  DIA_ALIGN_CENTRE);
+  }
 
   /* old default: only growth, manual shrink */
-  box->text_fitting = TEXTFIT_WHEN_NEEDED;
-  attr = object_find_attribute(obj_node, PROP_STDNAME_TEXT_FITTING);
-  if (attr != NULL)
-    box->text_fitting = data_enum(attribute_first_data(attr), ctx);
+  box->text_fitting = DIA_TEXT_FIT_WHEN_NEEDED;
+  attr = object_find_attribute (obj_node, PROP_STDNAME_TEXT_FITTING);
+  if (attr != NULL) {
+    box->text_fitting = data_enum (attribute_first_data (attr), ctx);
+  }
 
   element_init(elem, 8, NUM_CONNECTIONS);
 

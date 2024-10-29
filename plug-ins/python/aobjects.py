@@ -19,10 +19,13 @@
 #   along with this program; if not, write to the Free Software
 #   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
-import sys, dia, string
+import sys, dia
+
+import gettext
+_ = gettext.gettext
 
 def set_object_string (o) :
-	keys = o.properties.keys()
+	keys = list(o.properties.keys())
 	for s in keys :
 		p = o.properties[s]
 		if p.type in ["string", "text"] :
@@ -34,20 +37,20 @@ def set_object_string (o) :
 def aobjects_cb(data, flags) :
 
 	# copied from otypes.py
-	if data :
+	if data:
 		diagram = None # we may be running w/o GUI
 	else :
 		diagram = dia.new("All Objects.dia")
-		data = diagram.data
+		data = diagram
 	layer = data.active_layer
 
 	otypes = dia.registered_types()
-	keys = otypes.keys()
+	keys = list(otypes.keys())
 	keys.sort()
 
 	packages = {}
 	for s in keys :
-		kt = string.split(s, " - ")
+		kt = " - ".split(s)
 		if len(kt) == 2 :
 			if len(kt[0]) == 0 :
 				sp = "<unnamed>"
@@ -57,12 +60,12 @@ def aobjects_cb(data, flags) :
 		else :
 			sp = "<broken>"
 			st = kt[0]
-		if packages.has_key(sp) :
+		if sp in packages:
 			packages[sp].append(s)
 		else :
-			packages[sp] = [s] 
+			packages[sp] = [s]
 
-	for sp in packages.keys() :
+	for sp in list(packages.keys()):
 		# add a layer per package
 		layer = data.add_layer (sp)
 
@@ -96,6 +99,6 @@ def aobjects_cb(data, flags) :
 		diagram.flush()
 	return data
 
-dia.register_action ("HelpAObjects", "All Objects",
-                     "/ToolboxMenu/Help/HelpExtensionStart", 
+dia.register_action ("HelpAObjects", _("All _Objects"),
+                     "/ToolboxMenu/Help/HelpExtensionStart",
                      aobjects_cb)

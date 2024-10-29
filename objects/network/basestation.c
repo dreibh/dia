@@ -19,13 +19,13 @@
 /* Copyright 2003, W. Borgert <debacle@debian.org>
    copied a lot from UML/actor.c */
 
-#include <config.h>
+#include "config.h"
 
-#include <assert.h>
+#include <glib/gi18n-lib.h>
+
 #include <math.h>
 #include <string.h>
 
-#include "intl.h"
 #include "object.h"
 #include "element.h"
 #include "diarenderer.h"
@@ -61,12 +61,14 @@ static real basestation_distance_from(Basestation *basestation,
 static void basestation_select(Basestation *basestation,
                                Point *clicked_point,
                                DiaRenderer *interactive_renderer);
-static ObjectChange
-    *basestation_move_handle(Basestation *basestation, Handle *handle,
-                             Point *to, ConnectionPoint *cp,
-                             HandleMoveReason reason,
-                             ModifierKeys modifiers);
-static ObjectChange *basestation_move(Basestation *basestation, Point *to);
+static DiaObjectChange *basestation_move_handle    (Basestation      *basestation,
+                                                    Handle           *handle,
+                                                    Point            *to,
+                                                    ConnectionPoint  *cp,
+                                                    HandleMoveReason  reason,
+                                                    ModifierKeys      modifiers);
+static DiaObjectChange *basestation_move           (Basestation      *basestation,
+                                                    Point            *to);
 static void basestation_draw(Basestation *basestation,
                              DiaRenderer *renderer);
 static DiaObject *basestation_create(Point *startpoint,
@@ -187,17 +189,21 @@ basestation_select(Basestation *basestation, Point *clicked_point,
   element_update_handles(&basestation->element);
 }
 
-static ObjectChange*
-basestation_move_handle(Basestation *basestation, Handle *handle,
-                        Point *to, ConnectionPoint *cp,
-                        HandleMoveReason reason, ModifierKeys modifiers)
-{
-  ObjectChange* oc;
 
-  assert(basestation!=NULL);
-  assert(handle!=NULL);
-  assert(to!=NULL);
-  assert(handle->id < 8);
+static DiaObjectChange *
+basestation_move_handle (Basestation      *basestation,
+                         Handle           *handle,
+                         Point            *to,
+                         ConnectionPoint  *cp,
+                         HandleMoveReason  reason,
+                         ModifierKeys      modifiers)
+{
+  DiaObjectChange *oc;
+
+  g_return_val_if_fail (basestation != NULL, NULL);
+  g_return_val_if_fail (handle != NULL, NULL);
+  g_return_val_if_fail (to != NULL, NULL);
+  g_return_val_if_fail (handle->id < 8, NULL);
 
   if (handle->type == HANDLE_NON_MOVABLE)
     return NULL;
@@ -207,8 +213,9 @@ basestation_move_handle(Basestation *basestation, Handle *handle,
   return oc;
 }
 
-static ObjectChange*
-basestation_move(Basestation *basestation, Point *to)
+
+static DiaObjectChange*
+basestation_move (Basestation *basestation, Point *to)
 {
   Element *elem = &basestation->element;
 
@@ -222,17 +229,16 @@ basestation_move(Basestation *basestation, Point *to)
 }
 
 static void
-basestation_draw(Basestation *basestation, DiaRenderer *renderer)
+basestation_draw (Basestation *basestation, DiaRenderer *renderer)
 {
-  DiaRendererClass *renderer_ops = DIA_RENDERER_GET_CLASS (renderer);
   Element *elem;
-  real x, y, w, h;
-  real r = BASESTATION_WIDTH/2.0;
+  double x, y, w, h;
+  double r = BASESTATION_WIDTH / 2.0;
   Point ct, cb, p1, p2;
   Point points[6];
 
-  assert(basestation != NULL);
-  assert(renderer != NULL);
+  g_return_if_fail (basestation != NULL);
+  g_return_if_fail (renderer != NULL);
 
   elem = &basestation->element;
 
@@ -241,10 +247,10 @@ basestation_draw(Basestation *basestation, DiaRenderer *renderer)
   w = elem->width;
   h = elem->height - r;
 
-  renderer_ops->set_fillstyle(renderer, FILLSTYLE_SOLID);
-  renderer_ops->set_linejoin(renderer, LINEJOIN_ROUND);
-  renderer_ops->set_linestyle(renderer, LINESTYLE_SOLID, 0);
-  renderer_ops->set_linewidth(renderer, BASESTATION_LINEWIDTH);
+  dia_renderer_set_fillstyle (renderer, DIA_FILL_STYLE_SOLID);
+  dia_renderer_set_linejoin (renderer, DIA_LINE_JOIN_ROUND);
+  dia_renderer_set_linestyle (renderer, DIA_LINE_STYLE_SOLID, 0);
+  dia_renderer_set_linewidth (renderer, BASESTATION_LINEWIDTH);
 
   ct.x = x + w/2.0;
   ct.y = y + r/2.0;
@@ -256,38 +262,61 @@ basestation_draw(Basestation *basestation, DiaRenderer *renderer)
   points[1] = ct; points[1].x += r/4.0; points[1].y -= 3.0*r/4.0;
   points[2] = ct; points[2].x += r/4.0; points[2].y += 1.0;
   points[3] = ct; points[3].x -= r/4.0; points[3].y += 1.0;
-  renderer_ops->draw_polygon(renderer, points, 4,
+  dia_renderer_draw_polygon (renderer,
+                             points,
+                             4,
                              &basestation->fill_colour,
                              &basestation->line_colour);
   /* bottom */
-  renderer_ops->draw_ellipse(renderer, &cb, r, r/2.0,
-                             &basestation->fill_colour, NULL);
-  renderer_ops->draw_arc(renderer, &cb, r, r/2.0, 180, 0,
+  dia_renderer_draw_ellipse (renderer,
+                             &cb,
+                             r,
+                             r/2.0,
+                             &basestation->fill_colour,
+                             NULL);
+  dia_renderer_draw_arc (renderer,
+                         &cb,
+                         r,
+                         r/2.0,
+                         180,
+                         0,
                          &basestation->line_colour);
   /* bar */
   p1 = ct;
   p1.x -= r/2.0;
   p2 = cb;
   p2.x += r/2.0;
-  renderer_ops->draw_rect(renderer, &p1, &p2,
-                          &basestation->fill_colour, NULL);
+  dia_renderer_draw_rect (renderer,
+                          &p1,
+                          &p2,
+                          &basestation->fill_colour,
+                          NULL);
   p2.x -= r;
-  renderer_ops->draw_line(renderer, &p1, &p2,
+  dia_renderer_draw_line (renderer,
+                          &p1,
+                          &p2,
                           &basestation->line_colour);
   p1.x += r;
   p2.x += r;
-  renderer_ops->draw_line(renderer, &p1, &p2,
+  dia_renderer_draw_line (renderer,
+                          &p1,
+                          &p2,
                           &basestation->line_colour);
   /* top */
-  renderer_ops->draw_ellipse(renderer, &ct, r, r/2.0,
-			     &basestation->fill_colour,
-			     &basestation->line_colour);
+  dia_renderer_draw_ellipse (renderer,
+                             &ct,
+                             r,
+                             r/2.0,
+                             &basestation->fill_colour,
+                             &basestation->line_colour);
   /* antenna 2 */
   points[0] = ct; points[0].x += r/4.0;   points[0].y -= 0;
   points[1] = ct; points[1].x += 3.0*r/4.0; points[1].y -= r/2.0;
   points[2] = ct; points[2].x += 3.0*r/4.0; points[2].y += 1.0 - r/2.0;
   points[3] = ct; points[3].x += r/4.0;   points[3].y += 1.0;
-  renderer_ops->draw_polygon(renderer, points, 4,
+  dia_renderer_draw_polygon (renderer,
+                             points,
+                             4,
                              &basestation->fill_colour,
                              &basestation->line_colour);
   /* antenna 3 */
@@ -295,10 +324,12 @@ basestation_draw(Basestation *basestation, DiaRenderer *renderer)
   points[1] = ct; points[1].x -= 3.0*r/4.0; points[1].y -= r/2.0;
   points[2] = ct; points[2].x -= 3.0*r/4.0; points[2].y += 1.0 - r/2.0;
   points[3] = ct; points[3].x -= r/4.0;   points[3].y += 1.0;
-  renderer_ops->draw_polygon(renderer, points, 4,
+  dia_renderer_draw_polygon (renderer,
+                             points,
+                             4,
                              &basestation->fill_colour,
                              &basestation->line_colour);
-  text_draw(basestation->text, renderer);
+  text_draw (basestation->text, renderer);
 }
 
 static void
@@ -306,7 +337,7 @@ basestation_update_data(Basestation *basestation)
 {
   Element *elem = &basestation->element;
   DiaObject *obj = &elem->object;
-  Rectangle text_box;
+  DiaRectangle text_box;
   Point p;
 
   elem->width = BASESTATION_WIDTH;
@@ -359,12 +390,15 @@ basestation_create(Point *startpoint,
 
   font = dia_font_new_from_style (DIA_FONT_MONOSPACE, 0.8);
   p = *startpoint;
-  p.y += BASESTATION_HEIGHT -
-    dia_font_descent(_("Base Station"), font, 0.8);
+  p.y += BASESTATION_HEIGHT - dia_font_descent (_("Base Station"), font, 0.8);
 
-  basestation->text = new_text(_("Base Station"),
-                               font, 0.8, &p, &color_black, ALIGN_CENTER);
-  dia_font_unref(font);
+  basestation->text = new_text (_("Base Station"),
+                                font,
+                                0.8,
+                                &p,
+                                &color_black,
+                                DIA_ALIGN_CENTRE);
+  g_clear_object (&font);
   basestation->line_colour = color_black;
   basestation->fill_colour = color_white;
   basestation->sectors = 3;
